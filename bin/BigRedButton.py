@@ -42,8 +42,11 @@ while True:
         sleep(config)
         continue
 
-    #Process each group's data
+    #Process each group's data, ignore cases where the project isn't in the lanes being processed
+    bdir = "{}/{}".format(config.get('Paths', 'baseData'), config.get('Options', 'runID'))
     for k, v in ParkourDict.items():
+        if not os.path.exists("{}/Project_{}".format(bdir, k)):
+            continue
         BRB.PushButton.GetResults(config, k, v)
 
     ##Upload to Galaxy
@@ -73,3 +76,4 @@ while True:
 
     #Mark the flow cell as having been processed
     BRB.findFinishedFlowCells.markFinished(config)
+    sys.exit()

@@ -4,8 +4,7 @@ import subprocess
 
 def createPath(config, group, project, organism, libraryType):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
-    #baseDir = "{}/{}/sequencing_data/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
-    baseDir = "{}/{}/sequencing_data/{}/Analysis_{}".format("/tmp/devon",
+    baseDir = "{}/{}/sequencing_data/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
                                                             group,
                                                             config.get('Options', 'runID'),
                                                             project)
@@ -18,20 +17,20 @@ def createPath(config, group, project, organism, libraryType):
 
 def linkFiles(config, group, project, odir, tuples):
     """Create symlinks in odir to fastq files in {project}. Return 1 if paired-end, 0 otherwise."""
-    baseDir = "{}/{}/sequencing_data/{}/{}".format(config.get('Paths', 'groupData'),
-                                                   group,
-                                                   config.get('Options', 'runID'),
-                                                   project)
+    baseDir = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
+                                                           group,
+                                                           config.get('Options', 'runID'),
+                                                           project)
 
     PE = False
     for t in tuples:
-        currentName = "{}/{}_R1.fastq.gz".format(os.path.join(baseDir, t[0]), t[1])
-        newName = "{}/{}_R1.fastq.gz".format(oDir, t[1])
+        currentName = "{}/{}_R1.fastq.gz".format(os.path.join(baseDir, "Sample_{}".format(t[0])), t[1])
+        newName = "{}/{}_R1.fastq.gz".format(odir, t[1])
         if os.path.exists(currentName):
             if not os.path.exists(newName):
                 os.symlink(currentName, newName)
-        currentName = "{}/{}_R2.fastq.gz".format(os.path.join(baseDir, t[0]), t[1])
-        newName = "{}/{}_R2.fastq.gz".format(oDir, t[1])
+        currentName = "{}/{}_R2.fastq.gz".format(os.path.join(baseDir, "Sample_{}".format(t[0])), t[1])
+        newName = "{}/{}_R2.fastq.gz".format(odir, t[1])
         if os.path.exists(currentName):
             if not os.path.exists(newName):
                 os.symlink(currentName, newName)
@@ -62,10 +61,10 @@ def RNA(config, group, project, organism, libraryType, tuples):
     """
     outputDir = createPath(config, group, project, organism, libraryType)
     removeLinkFiles(outputDir)
-    PE = linkFiles(config, group, project, odir, tuples)
+    PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir'), "RNA-seq")
-    CMD = [CMD, '-i', outputDir, '-o', outputDir, '--local', org]
+    CMD = [CMD, '-i', outputDir, '-o', outputDir, org]
     subprocess.check_call(CMD, shell=True)
     removeLinkFiles(outputDir)
     # Clean up Snakemake stuff
@@ -85,11 +84,11 @@ def DNA(config, group, project, organism, libraryType, tuples):
     """
     outputDir = createPath(config, group, project, organism, libraryType)
     removeLinkFiles(outputDir)
-    PE = linkFiles(config, group, project, odir, tuples)
+    PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir'), "DNA-mapping")
-    CMD = [CMD, '--trim', '--dedup', '--mapq', '3', '-i', outputDir, '-o', outputDir, '--local', org]
-    subprocess.check_call(CMD, shell=True)
+    CMD = [CMD, '--trim', '--dedup', '--mapq', '3', '-i', outputDir, '-o', outputDir, org]
+    subprocess.check_call(' '.join(CMD), shell=True)
     removeLinkFiles(outputDir)
     # Clean up Snakemake stuff
 

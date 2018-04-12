@@ -31,7 +31,7 @@ def queryParkour(config):
     if res.status_code == 200:
         return res.json()
     return dict()
-    
+
 
 def newFlowCell(config):
     dirs = glob.glob("{}/*/fastq.made".format(config.get("Paths","baseData")))
