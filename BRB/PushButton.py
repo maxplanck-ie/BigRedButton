@@ -55,6 +55,22 @@ def organism2Org(config, organism):
     raise RuntimeError('An apparently valid organism doesn\'t have a matching snakemake genome ID!')
 
 
+def tidyUpABit(d):
+    """
+    If we don't tidy up we'll have a lot of dot files to upload to Galaxy
+    """
+    os.rmdir(os.path.join(d, 'cluster_logs'))
+    os.unlink(os.path.join(d, 'config.yaml'))
+    os.rmdir(os.path.join(d, '.snakemake'))
+    for f in glob.glob(os.path.join(d, '*.log')):
+        print("removing {}".format(f))
+        os.unlink(f)
+    
+    for d2 in glob.glob(os.path.join(d, 'FASTQ*')):
+        print("removing {}".format(d2))
+        os.unlink(d2)
+
+
 def RNA(config, group, project, organism, libraryType, tuples):
     """
     Need to set --library_type and maybe --start_options
@@ -67,7 +83,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     CMD = [CMD, '-i', outputDir, '-o', outputDir, org]
     subprocess.check_call(CMD, shell=True)
     removeLinkFiles(outputDir)
-    # Clean up Snakemake stuff
+    tidyUpABit(outputDir)
 
 
 def DNA(config, group, project, organism, libraryType, tuples):
@@ -90,7 +106,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
     CMD = [CMD, '--trim', '--dedup', '--mapq', '3', '-i', outputDir, '-o', outputDir, org]
     subprocess.check_call(' '.join(CMD), shell=True)
     removeLinkFiles(outputDir)
-    # Clean up Snakemake stuff
+    tidyUpABit(outputDir)
 
 
 def GetResults(config, project, libraries):
