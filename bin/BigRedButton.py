@@ -7,6 +7,7 @@ import syslog
 import BRB.getConfig
 import BRB.findFinishedFlowCells
 import BRB.PushButton
+import BRB.email
 import importlib
 import signal
 from threading import Event
@@ -29,6 +30,8 @@ while True:
     #Reimport to allow reloading a new version
     importlib.reload(BRB.getConfig)
     importlib.reload(BRB.findFinishedFlowCells)
+    importlib.reload(BRB.PushButton)
+    importlib.reload(BRB.email)
 
     #Read the config file
     config = BRB.getConfig.getConfig()
@@ -49,31 +52,13 @@ while True:
             continue
         BRB.PushButton.GetResults(config, k, v)
 
-    ##Upload to Galaxy
-    #try :
-    #    message += bcl2fastq_pipeline.galaxy.linkIntoGalaxy(config)
-    #except:
-    #    syslog.syslog("Got an error while uploading to Galaxy!\n")
-    #    bcl2fastq_pipeline.misc.errorEmail(config, sys.exc_info(), "Got an error while uploading to Galaxy!")
-    #    sleep(config)
-
-    #transferTime = datetime.datetime.now()-startTime
-
-    ##Update parkour, errors are non-fatal here
-    #try:
-    #    message += bcl2fastq_pipeline.misc.jsonParkour(config, message)
-    #except:
-    #    syslog.syslog("Received an error while updating Parkour!\n")
-    #    bcl2fastq_pipeline.misc.errorEmail(config, sys.exc_info(), "Got an error while updating Parkour!")
-
-    ##Email finished message
-    #try :
-    #    BigRedButton.email.finishedEmail(config, message, runTime, transferTime)
-    #except :
-    #    #Unrecoverable error
-    #    syslog.syslog("Couldn't send the finished email! Quiting")
-    #    sys.exit()
+    #Email finished message
+    try :
+        BRB.email.finishedEmail(config, message, runTime, transferTime)
+    except :
+        #Unrecoverable error
+        sys.exit()
 
     #Mark the flow cell as having been processed
-    BRB.findFinishedFlowCells.markFinished(config)
     sys.exit()
+    BRB.findFinishedFlowCells.markFinished(config)

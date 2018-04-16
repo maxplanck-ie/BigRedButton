@@ -1,6 +1,9 @@
 import os
+import shutil
 import glob
 import subprocess
+import BRB.galaxy
+import BRB.ET
 
 def createPath(config, group, project, organism, libraryType):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
@@ -59,16 +62,17 @@ def tidyUpABit(d):
     """
     If we don't tidy up we'll have a lot of dot files to upload to Galaxy
     """
-    os.rmdir(os.path.join(d, 'cluster_logs'))
-    os.unlink(os.path.join(d, 'config.yaml'))
-    os.rmdir(os.path.join(d, '.snakemake'))
-    for f in glob.glob(os.path.join(d, '*.log')):
-        print("removing {}".format(f))
-        os.unlink(f)
+    try:
+        shutil.rmtree(os.path.join(d, 'cluster_logs'))
+        os.unlink(os.path.join(d, 'config.yaml'))
+        shutil.rmtree(os.path.join(d, '.snakemake'))
+        for f in glob.glob(os.path.join(d, '*.log')):
+            os.unlink(f)
     
-    for d2 in glob.glob(os.path.join(d, 'FASTQ*')):
-        print("removing {}".format(d2))
-        os.unlink(d2)
+        for d2 in glob.glob(os.path.join(d, 'FASTQ*')):
+            os.unlink(d2)
+    except:
+        pass
 
 
 def RNA(config, group, project, organism, libraryType, tuples):
@@ -84,6 +88,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     subprocess.check_call(CMD, shell=True)
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
+    return outputDir
 
 
 def DNA(config, group, project, organism, libraryType, tuples):
@@ -107,6 +112,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
     subprocess.check_call(' '.join(CMD), shell=True)
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
+    return outputDir
 
 
 def GetResults(config, project, libraries):
@@ -133,8 +139,8 @@ def GetResults(config, project, libraries):
     pipelines = config.get('Options', 'pipelines').split(',')
     validOrganisms = config.get('Options', 'validOrganisms').split(',')
 
-    #if not os.path.exists(dataPath):
-    #   return
+    if not os.path.exists(dataPath):
+       return
 
     # split by analysis type and organism, since we can only process some types of this
     analysisTypes = dict()
@@ -154,4 +160,6 @@ def GetResults(config, project, libraries):
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
             for libraryType, tuples in v2.items():
-                globals()[pipeline](config, group, project, organism, libraryType, tuples)
+                outputDir = globals()[pipeline](config, group, project, organism, libraryType, tuples)
+                BRB.galaxy.linkIntoGalaxy(config, group, project, outputDir)
+                #BRB.ET.phoneHome(config, outputDir, pipeline)
