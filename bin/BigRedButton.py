@@ -47,18 +47,18 @@ while True:
 
     #Process each group's data, ignore cases where the project isn't in the lanes being processed
     bdir = "{}/{}".format(config.get('Paths', 'baseData'), config.get('Options', 'runID'))
+    msg = '\n'
     for k, v in ParkourDict.items():
         if not os.path.exists("{}/Project_{}".format(bdir, k)):
             continue
-        BRB.PushButton.GetResults(config, k, v)
+        msg += BRB.PushButton.GetResults(config, k, v)
 
     #Email finished message
     try :
-        BRB.email.finishedEmail(config, message, runTime, transferTime)
+        BRB.email.finishedEmail(config, msg)
     except :
         #Unrecoverable error
         sys.exit()
 
     #Mark the flow cell as having been processed
-    sys.exit()
     BRB.findFinishedFlowCells.markFinished(config)

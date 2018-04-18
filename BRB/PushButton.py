@@ -157,9 +157,12 @@ def GetResults(config, project, libraries):
                 analysisTypes[pipeline][organism][libraryType] = list()
             analysisTypes[pipeline][organism][libraryType].append([library, sampleName, libraryProtocol])
 
+    msg = ""
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
             for libraryType, tuples in v2.items():
                 outputDir = globals()[pipeline](config, group, project, organism, libraryType, tuples)
                 BRB.galaxy.linkIntoGalaxy(config, group, project, outputDir)
-                #BRB.ET.phoneHome(config, outputDir, pipeline)
+                BRB.ET.phoneHome(config, outputDir, pipeline)
+                msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(project, pipeline, libraryType, organism)
+    return msg
