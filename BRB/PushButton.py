@@ -84,7 +84,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir'), "RNA-seq")
-    CMD = [CMD, '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     rv = subprocess.check_call(CMD, shell=True)
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
@@ -108,7 +108,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir'), "DNA-mapping")
-    CMD = [CMD, '--trim', '--dedup', '--mapq', '3', '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, '--trim', '--dedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     rv = subprocess.check_call(' '.join(CMD), shell=True)
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
