@@ -70,7 +70,7 @@ def tidyUpABit(d):
             os.unlink(f)
     
         for d2 in glob.glob(os.path.join(d, 'FASTQ*')):
-            os.unlink(d2)
+            shutil.rmtree(d2)
     except:
         pass
 
