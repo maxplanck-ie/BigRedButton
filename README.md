@@ -6,9 +6,9 @@ Mundanity, managed
 
 ---
 
-"The Big Red Button" is an program for automated analysis of demultiplexed datasets. It ties in with other solutions that we've created and use to provide a complete loop from sample submission to returned QC metrics.
+"The Big Red Button" is a program for automated analysis of demultiplexed datasets. It ties in with other solutions that we've created and use to provide a complete loop from sample submission to returned QC metrics.
 
-
+![The Big Red Button ecosystem](ecosystem.png)
 
 The general steps of the `BigRedButton` pipeline (in python, the `BRB` or "be right back" module) are as follows:
 
