@@ -85,10 +85,10 @@ def RNA(config, group, project, organism, libraryType, tuples):
     org = organism2Org(config, organism)
     CMD = os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir'), "RNA-seq")
     CMD = [CMD, '-i', outputDir, '-o', outputDir, org]
-    subprocess.check_call(CMD, shell=True)
+    rv = subprocess.check_call(CMD, shell=True)
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
-    return outputDir
+    return outputDir, rv
 
 
 def DNA(config, group, project, organism, libraryType, tuples):
@@ -109,10 +109,10 @@ def DNA(config, group, project, organism, libraryType, tuples):
     org = organism2Org(config, organism)
     CMD = os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir'), "DNA-mapping")
     CMD = [CMD, '--trim', '--dedup', '--mapq', '3', '-i', outputDir, '-o', outputDir, org]
-    subprocess.check_call(' '.join(CMD), shell=True)
+    rv = subprocess.check_call(' '.join(CMD), shell=True)
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
-    return outputDir
+    return outputDir, rv
 
 
 def GetResults(config, project, libraries):
@@ -161,8 +161,11 @@ def GetResults(config, project, libraries):
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
             for libraryType, tuples in v2.items():
-                outputDir = globals()[pipeline](config, group, project, organism, libraryType, tuples)
-                BRB.galaxy.linkIntoGalaxy(config, group, project, outputDir)
-                BRB.ET.phoneHome(config, outputDir, pipeline)
-                msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(project, pipeline, libraryType, organism)
+                outputDir, rv = globals()[pipeline](config, group, project, organism, libraryType, tuples)
+                if rv == 0:
+                    BRB.galaxy.linkIntoGalaxy(config, group, project, outputDir)
+                    BRB.ET.phoneHome(config, outputDir, pipeline)
+                    msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(project, pipeline, libraryType, organism)
+                else:
+                    msg += "I can't process {}_{}_{}_{} for you. You should panic now.\n".format(project, pipeline, libraryType, organism)
     return msg
