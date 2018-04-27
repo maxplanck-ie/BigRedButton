@@ -144,6 +144,7 @@ def GetResults(config, project, libraries):
 
     # split by analysis type and organism, since we can only process some types of this
     analysisTypes = dict()
+    skipList = []
     for library, v in libraries.items():
         sampleName, libraryType, libraryProtocol, organism = v
         if libraryType in validLibraryTypes and organism in validOrganisms:
@@ -156,8 +157,13 @@ def GetResults(config, project, libraries):
             if libraryType not in analysisTypes[pipeline][organism]:
                 analysisTypes[pipeline][organism][libraryType] = list()
             analysisTypes[pipeline][organism][libraryType].append([library, sampleName, libraryProtocol])
+        else:
+            skipList.append([library, sampleName])
 
     msg = ""
+    if len(skipList):
+        msg += BRB.ET.telegraphHome(config, group, project, skipList)
+
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
             for libraryType, tuples in v2.items():
@@ -168,4 +174,5 @@ def GetResults(config, project, libraries):
                     msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(project, pipeline, libraryType, organism)
                 else:
                     msg += "I can't process {}_{}_{}_{} for you. You should panic now.\n".format(project, pipeline, libraryType, organism)
+
     return msg

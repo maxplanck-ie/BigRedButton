@@ -10,10 +10,22 @@ def getNReads(d):
     """
     Get the number of reads and % optical dupes from a directory
     """
-    fname = glob.glob("{}/*.duplicate.txt".format(d))[0]
-    s = open(fname).read()
-    optDupes, nonDupes = s.split()
-    return int(nonDupes), 100. * float(optDupes) / float(nonDupes)
+    if len(glob.glob("{}/*.duplicate.txt".format(d))):
+        fname = glob.glob("{}/*.duplicate.txt".format(d))[0]
+        s = open(fname).read()
+        optDupes, nonDupes = s.split()
+        div = 1
+        if len(glob.glob("{}/*_R2.fastq.gz".format(d))):
+            div = 2
+        return int(nonDupes) / div, 100. * float(optDupes) / float(nonDupes)
+    else:
+        # For machines in which we don't mark duplicates
+        # Just count the number of reads in R1
+        CMD1 = ["zcat", glob.glob("{}/*_R1.fastq.gz".format(d))[0]]
+        CMD2 = ["wc", "-l"]
+        c1 = subprocess.Popen(CMD1, stdout=subprocess.PIPE)
+        res = subprocess.check_output(CMD2, stdin=c1.stdout)
+        return (int(res)/4), 0
 
 
 def getOffSpeciesRate(d):
@@ -141,3 +153,28 @@ def phoneHome(config, outputDir, pipeline):
         msg = RNA(outputDir)
     if msg is not None:
         sendToParkour(config, msg)
+
+
+def telegraphHome(config, group, project, skipList):
+    """
+    The skipList is a list of samples/libraries for which we don't run a pipeline, but it'd be nice to still send back sequencing metrics
+
+    ([library, sampleName])
+    """
+    # make a fake output directory path
+    baseDir = "{}/{}/sequencing_data/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
+                                                            group,
+                                                            config.get('Options', 'runID'),
+                                                            project)
+    outputDir = os.path.join(baseDir, "DNA_mouse")
+    baseDict, sample2lib = getBaseStatistics(outputDir)
+
+    # Reformat into a matrix
+    m = []
+    for k, v in baseDict.items():
+        m.append({'barcode': k,
+                  'reads_pf_sequenced': v[1],
+                  'confident_reads': v[2],
+                  'optical_duplicates': v[3]})
+    sendToParkour(config, m)
+    return "Sent information on {} libraries from project {} from the {} group to Parkour".format(len(skipList), project, group)
