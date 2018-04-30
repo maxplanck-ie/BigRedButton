@@ -177,4 +177,4 @@ def telegraphHome(config, group, project, skipList):
                   'confident_reads': v[2],
                   'optical_duplicates': v[3]})
     sendToParkour(config, m)
-    return "Sent information on {} libraries from project {} from the {} group to Parkour".format(len(skipList), project, group)
+    return "Sent information on {} libraries from project {} from the {} group to Parkour\n".format(len(skipList), project, group)

@@ -139,15 +139,16 @@ def GetResults(config, project, libraries):
     pipelines = config.get('Options', 'pipelines').split(',')
     validOrganisms = config.get('Options', 'validOrganisms').split(',')
 
+    ignore = False
     if not os.path.exists(dataPath):
-       return
+        ignore = True
 
     # split by analysis type and organism, since we can only process some types of this
     analysisTypes = dict()
     skipList = []
     for library, v in libraries.items():
         sampleName, libraryType, libraryProtocol, organism = v
-        if libraryType in validLibraryTypes and organism in validOrganisms:
+        if libraryType in validLibraryTypes and organism in validOrganisms and not ignore:
             idx = validLibraryTypes[libraryType]
             pipeline = pipelines[idx]
             if pipeline not in analysisTypes:
