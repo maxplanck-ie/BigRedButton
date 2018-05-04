@@ -63,7 +63,7 @@ def getOffSpeciesRate(d):
     return off
 
 
-def getBaseStatistics(outputDir):
+def getBaseStatistics(config, outputDir):
     """
     Return a directionary with keys lib names and values:
     (sample name, nReads, off-species rate, % optical dupes)
@@ -74,7 +74,7 @@ def getBaseStatistics(outputDir):
     s2l = dict()  # sample to library dictionary
     odir, adir = os.path.split(os.path.split(outputDir)[0])
     pdir = "Project_{}".format(adir[9:])
-    for d in glob.glob("{}/{}/Sample_*".format(odir, pdir)):
+    for d in glob.glob("{}/{}/{}/Sample_*".format(config.get('Paths','baseData'), config.get('Options', 'runID'), pdir)):
         libName = os.path.split(d)[1][7:]
         sampleName = glob.glob("{}/*_R1.fastq.gz".format(d))[0]
         sampleName = os.path.split(sampleName)[1][:-12]
@@ -85,13 +85,13 @@ def getBaseStatistics(outputDir):
     return baseDict, s2l
 
 
-def DNA(outputDir):
+def DNA(config, outputDir):
     """
     Parse an output directory to get a dictionary of libraries and their associated values.
 
     Add % mapped, % dupped, and insert size to baseDict. Filter it for those actually in the output
     """
-    baseDict, sample2lib = getBaseStatistics(outputDir)
+    baseDict, sample2lib = getBaseStatistics(config, outputDir)
 
     # % Mapped
     for fname in glob.glob("{}/Bowtie2/*.Bowtie2_summary.txt".format(outputDir)):
@@ -148,9 +148,9 @@ def phoneHome(config, outputDir, pipeline):
     """
     msg = None
     if pipeline == 'DNA':
-        msg = DNA(outputDir)
+        msg = DNA(config, outputDir)
     elif pipeline == 'RNA':
-        msg = RNA(outputDir)
+        msg = RNA(config, outputDir)
     if msg is not None:
         sendToParkour(config, msg)
 
@@ -167,7 +167,7 @@ def telegraphHome(config, group, project, skipList):
                                                             config.get('Options', 'runID'),
                                                             project)
     outputDir = os.path.join(baseDir, "DNA_mouse")
-    baseDict, sample2lib = getBaseStatistics(outputDir)
+    baseDict, sample2lib = getBaseStatistics(config, outputDir)
 
     # Reformat into a matrix
     m = []

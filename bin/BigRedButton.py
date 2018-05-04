@@ -8,6 +8,7 @@ import BRB.getConfig
 import BRB.findFinishedFlowCells
 import BRB.PushButton
 import BRB.email
+import BRB.ET
 import importlib
 import signal
 from threading import Event
@@ -31,6 +32,7 @@ while True:
     importlib.reload(BRB.getConfig)
     importlib.reload(BRB.findFinishedFlowCells)
     importlib.reload(BRB.PushButton)
+    importlib.reload(BRB.ET)
     importlib.reload(BRB.email)
 
     #Read the config file
