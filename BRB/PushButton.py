@@ -75,19 +75,28 @@ def tidyUpABit(d):
         pass
 
 
+def touchDone(outputDir):
+    open(os.path.join(outputDir, "analysis.done"), "w").close()
+
+
 def RNA(config, group, project, organism, libraryType, tuples):
     """
     Need to set --library_type and maybe --start_options
     """
     outputDir = createPath(config, group, project, organism, libraryType)
+    if os.path.exists(os.path.join(outputDir, "analysis.done")):
+        return outputDir, 0
     removeLinkFiles(outputDir)
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir'), "RNA-seq")
-    CMD = [CMD, '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
-    rv = subprocess.check_call(CMD, shell=True)
+    CMD = [CMD, '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, '-m', 'mapping', org]
+    if org == 'dm6':
+        CMD.extend(['--star_options', '"--limitBAMsortRAM 60000000000"'])
+    rv = subprocess.check_call(' '.join(CMD), shell=True)
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
+    touchDone(outputDir)
     return outputDir, rv
 
 
@@ -104,6 +113,8 @@ def DNA(config, group, project, organism, libraryType, tuples):
     - Clean up snakemake directory
     """
     outputDir = createPath(config, group, project, organism, libraryType)
+    if os.path.exists(os.path.join(outputDir, "analysis.done")):
+        return outputDir, 0
     removeLinkFiles(outputDir)
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
@@ -112,6 +123,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
     rv = subprocess.check_call(' '.join(CMD), shell=True)
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
+    touchDone(outputDir)
     return outputDir, rv
 
 
@@ -129,6 +141,7 @@ def GetResults(config, project, libraries):
 
     This doesn't return anything. It's assumed that everything within a single library type can be analysed together.
     """
+    print(project)
     group = project.split("_")[-1].split("-")[0].lower()
     dataPath = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                             group,

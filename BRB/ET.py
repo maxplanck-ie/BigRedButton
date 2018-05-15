@@ -13,11 +13,8 @@ def getNReads(d):
     if len(glob.glob("{}/*.duplicate.txt".format(d))):
         fname = glob.glob("{}/*.duplicate.txt".format(d))[0]
         s = open(fname).read()
-        optDupes, nonDupes = s.split()
-        div = 1
-        if len(glob.glob("{}/*_R2.fastq.gz".format(d))):
-            div = 2
-        return int(nonDupes) / div, 100. * float(optDupes) / float(nonDupes)
+        optDupes, total = s.split()
+        return int(total) - int(optDupes), 100. * float(optDupes) / float(total)
     else:
         # For machines in which we don't mark duplicates
         # Just count the number of reads in R1
@@ -130,6 +127,40 @@ def DNA(config, outputDir):
                   'dupped_reads': v[5],
                   'mapped_reads': v[4],
                   'insert_size': v[6]})
+    return m
+
+
+def RNA(config, outputDir):
+    """
+    Parse an output directory to get a dictionary of libraries and their associated values.
+
+    Add % mapped to baseDict. Filter it for those actually in the output
+    """
+    baseDict, sample2lib = getBaseStatistics(config, outputDir)
+
+    # % Mapped
+    for fname in glob.glob("{}/STAR/*/*.Log.final.out".format(outputDir)):
+        f = open(fname)
+        tot = 0
+        for line in f:
+            if 'Uniquely mapped reads %' in line:
+                tot += float(line.strip().split("\t")[-1][:-1])
+            elif '% of reads mapped to multiple loci' in line:
+                tot += float(line.strip().split("\t")[-1][:-1])
+        sampleName = os.path.basename(fname).split(".")[0]
+        baseDict[sample2lib[sampleName]].append(tot)
+
+    # Filter
+    outputDict = {k: v for k, v in baseDict.items() if len(v) == 5}
+
+    # Reformat into a matrix
+    m = []
+    for k, v in outputDict.items():
+        m.append({'barcode': k,
+                  'reads_pf_sequenced': v[1],
+                  'confident_reads': v[2],
+                  'optical_duplicates': v[3],
+                  'mapped_reads': v[4]})
     return m
 
 
