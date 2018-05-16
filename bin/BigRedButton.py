@@ -9,6 +9,7 @@ import BRB.findFinishedFlowCells
 import BRB.PushButton
 import BRB.email
 import BRB.ET
+import BRB.misc
 import importlib
 import signal
 from threading import Event
@@ -34,6 +35,7 @@ while True:
     importlib.reload(BRB.PushButton)
     importlib.reload(BRB.ET)
     importlib.reload(BRB.email)
+    importlib.reload(BRB.misc)
 
     #Read the config file
     config = BRB.getConfig.getConfig()
@@ -51,7 +53,7 @@ while True:
     bdir = "{}/{}".format(config.get('Paths', 'baseData'), config.get('Options', 'runID'))
     msg = '\n'
     for k, v in ParkourDict.items():
-        if not os.path.exists("{}/Project_{}".format(bdir, k)):
+        if not os.path.exists("{}/Project_{}".format(bdir, BRB.misc.pacifier(k))):
             continue
         msg += BRB.PushButton.GetResults(config, k, v)
 

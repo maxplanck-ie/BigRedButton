@@ -4,6 +4,7 @@ import os
 import glob
 import csv
 import json
+import BRB.misc
 
 
 def getNReads(d):
@@ -194,9 +195,9 @@ def telegraphHome(config, group, project, skipList):
     """
     # make a fake output directory path
     baseDir = "{}/{}/sequencing_data/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
-                                                            group,
+                                                            BRB.misc.pacifier(group),
                                                             config.get('Options', 'runID'),
-                                                            project)
+                                                            BRB.misc.pacifier(project))
     outputDir = os.path.join(baseDir, "DNA_mouse")
     baseDict, sample2lib = getBaseStatistics(config, outputDir)
 

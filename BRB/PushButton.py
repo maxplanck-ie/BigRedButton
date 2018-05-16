@@ -4,13 +4,14 @@ import glob
 import subprocess
 import BRB.galaxy
 import BRB.ET
+import BRB.misc
 
 def createPath(config, group, project, organism, libraryType):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
     baseDir = "{}/{}/sequencing_data/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
-                                                            group,
+                                                            BRB.misc.pacifier(group),
                                                             config.get('Options', 'runID'),
-                                                            project)
+                                                            BRB.misc.pacifier(project))
     os.makedirs(baseDir, exist_ok=True)
 
     oDir = os.path.join(baseDir, "{}_{}".format(libraryType, organism))
@@ -21,9 +22,9 @@ def createPath(config, group, project, organism, libraryType):
 def linkFiles(config, group, project, odir, tuples):
     """Create symlinks in odir to fastq files in {project}. Return 1 if paired-end, 0 otherwise."""
     baseDir = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
-                                                           group,
+                                                           BRB.misc.pacifier(group),
                                                            config.get('Options', 'runID'),
-                                                           project)
+                                                           BRB.misc.pacifier(project))
 
     PE = False
     for t in tuples:
@@ -141,12 +142,11 @@ def GetResults(config, project, libraries):
 
     This doesn't return anything. It's assumed that everything within a single library type can be analysed together.
     """
-    print(project)
     group = project.split("_")[-1].split("-")[0].lower()
     dataPath = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
-                                                            group,
+                                                            BRB.misc.pacifier(group),
                                                             config.get('Options', 'runID'),
-                                                            project)
+                                                            BRB.misc.pacifier(project))
 
     validLibraryTypes = {v: i for i, v in enumerate(config.get('Options', 'validLibraryTypes').split(','))}
     pipelines = config.get('Options', 'pipelines').split(',')
