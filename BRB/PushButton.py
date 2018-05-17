@@ -14,7 +14,7 @@ def createPath(config, group, project, organism, libraryType):
                                                             BRB.misc.pacifier(project))
     os.makedirs(baseDir, exist_ok=True)
 
-    oDir = os.path.join(baseDir, "{}_{}".format(libraryType, organism))
+    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), organism))
     os.makedirs(oDir, exist_ok=True)
     return oDir
 
