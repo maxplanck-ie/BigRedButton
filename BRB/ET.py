@@ -74,6 +74,8 @@ def getBaseStatistics(config, outputDir):
     pdir = "Project_{}".format(adir[9:])
     for d in glob.glob("{}/{}/{}/Sample_*".format(config.get('Paths','baseData'), config.get('Options', 'runID'), pdir)):
         libName = os.path.split(d)[1][7:]
+        if len(glob.glob("{}/*_R1.fastq.gz".format(d))) == 0:
+            continue  # Skip failed samples
         sampleName = glob.glob("{}/*_R1.fastq.gz".format(d))[0]
         sampleName = os.path.split(sampleName)[1][:-12]
         nReads, optDupes = getNReads(d)
