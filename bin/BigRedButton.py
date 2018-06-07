@@ -55,7 +55,11 @@ while True:
     for k, v in ParkourDict.items():
         if not os.path.exists("{}/Project_{}".format(bdir, BRB.misc.pacifier(k))):
             continue
-        msg += BRB.PushButton.GetResults(config, k, v)
+        try:
+            msg += BRB.PushButton.GetResults(config, k, v)
+        except:
+            BRB.email.errorEmail(config, sys.exc_info(), "Received an error running PushButton.GetResults() with {} and {}".format(k, v))
+            sys.exit("Received an error running PushButton.GetResults() with {} and {}".format(k, v))
 
     #Email finished message
     try :
