@@ -4,7 +4,7 @@ from email.mime.text import MIMEText
 
 def errorEmail(config, errTuple, msg) :
     msg = MIMEText(msg + "\nError type: %s\nError value: %s\n%s\n" % (errTuple[0], errTuple[1], errTuple[2]))
-    msg['Subject'] = "[BigRedButtin] Error"
+    msg['Subject'] = "[BigRedButton] Error"
     msg['From'] = config.get("Email","fromAddress")
     msg['To'] = config.get("Email","errorTo")
 
