@@ -76,8 +76,13 @@ def tidyUpABit(d):
         pass
 
 
-def touchDone(outputDir):
-    open(os.path.join(outputDir, "analysis.done"), "w").close()
+def touchDone(outputDir, fname="analysis.done"):
+    open(os.path.join(outputDir, fname), "w").close()
+
+
+def removeDone(outputDir):
+    if os.path.exists(os.path.join(outputDir, "analysis.done")):
+        os.remove(os.path.join(outputDir, "analysis.done"))
 
 
 def RNA(config, group, project, organism, libraryType, tuples):
@@ -87,18 +92,22 @@ def RNA(config, group, project, organism, libraryType, tuples):
     outputDir = createPath(config, group, project, organism, libraryType)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
-    removeLinkFiles(outputDir)
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
-    CMD = os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir'), "RNA-seq")
-    CMD = [CMD, '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, '-m', 'mapping', org]
+    CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
+    CMD = [CMD, 'RNA-seq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, '-m', 'alignment', org]
     if org == 'dm6':
         CMD.extend(['--star_options', '"--limitBAMsortRAM 60000000000"'])
-    rv = subprocess.check_call(' '.join(CMD), shell=True)
+    else:
+        CMD.extend(['--star_options', '" "'])
+    try:
+        subprocess.check_call(' '.join(CMD), shell=True)
+    except:
+        return outputDir, 1
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
     touchDone(outputDir)
-    return outputDir, rv
+    return outputDir, 0
 
 
 def DNA(config, group, project, organism, libraryType, tuples):
@@ -116,16 +125,69 @@ def DNA(config, group, project, organism, libraryType, tuples):
     outputDir = createPath(config, group, project, organism, libraryType)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
-    removeLinkFiles(outputDir)
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
-    CMD = os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir'), "DNA-mapping")
-    CMD = [CMD, '--trim', '--dedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
-    rv = subprocess.check_call(' '.join(CMD), shell=True)
+    CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
+    CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    try:
+        subprocess.check_call(' '.join(CMD), shell=True)
+    except:
+        return outputDir, 1
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
     touchDone(outputDir)
-    return outputDir, rv
+    return outputDir, 0
+
+
+def WGBS(config, group, project, organism, libraryType, tuples):
+    """
+    Run the WGBS pipeline
+
+    TODO: set trimming according to the libraryType
+    TODO: I don't think we know how to send back metrics yet
+    """
+    outputDir = createPath(config, group, project, organism, libraryType)
+    if os.path.exists(os.path.join(outputDir, "analysis.done")):
+        return outputDir, 0
+    PE = linkFiles(config, group, project, outputDir, tuples)
+    org = organism2Org(config, organism)
+    CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
+    CMD = [CMD, 'WGBS', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    try:
+        subprocess.check_call(' '.join(CMD), shell=True)
+    except:
+        return outputDir, 1
+    removeLinkFiles(outputDir)
+    tidyUpABit(outputDir)
+    touchDone(outputDir)
+    return outputDir, 0
+
+
+def ATAC(config, group, project, organism, libraryType, tuples):
+    """
+    Run the DNA mapping pipeline and then the default ATAC pipeline
+    """
+    outputDir = createPath(config, group, project, organism, libraryType)
+    if os.path.exists(os.path.join(outputDir, "analysis.done")):
+        return outputDir, 0
+ 
+    if not os.path.exists(os.path.join(outputDir, "DNA.done")):
+        outputDir, rv = DNA(config, group, project, organism, libraryType, tuples)
+        if rv != 0:
+            return outputDir, rv
+
+        removeDone(outputDir)
+        touchDone(outputDir, "DNA.done")
+    org = organism2Org(config, organism)
+    CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
+    CMD = [CMD, 'ATAC-seq', '--DAG', '-d', outputDir, org]
+    try:
+        subprocess.check_call(' '.join(CMD), shell=True)
+    except:
+        return outputDir, 1
+    tidyUpABit(outputDir)
+    touchDone(outputDir)
+    return outputDir, 0
 
 
 def GetResults(config, project, libraries):
@@ -172,6 +234,7 @@ def GetResults(config, project, libraries):
                 analysisTypes[pipeline][organism][libraryType] = list()
             analysisTypes[pipeline][organism][libraryType].append([library, sampleName, libraryProtocol])
         else:
+            print("Skipping {}/{} with type {} and organism {}".format(project, library, libraryType, organism))
             skipList.append([library, sampleName])
 
     msg = ""
@@ -187,6 +250,6 @@ def GetResults(config, project, libraries):
                     BRB.ET.phoneHome(config, outputDir, pipeline)
                     msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(project, pipeline, libraryType, organism)
                 else:
-                    msg += "I can't process {}_{}_{}_{} for you. You should panic now.\n".format(project, pipeline, libraryType, organism)
+                    msg += "I received an error processing {}_{}_{}_{} for you.\n".format(project, pipeline, libraryType, organism)
 
     return msg
