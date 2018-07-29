@@ -190,6 +190,46 @@ def ATAC(config, group, project, organism, libraryType, tuples):
     return outputDir, 0
 
 
+def scRNAseq(config, group, project, organism, libraryType, tuples):
+    """
+    Run one of the scRNAseq pipelines (snakePipes or 10X)
+
+    The protocol is tuples[0][2] and we assume they're all the same...
+
+    We currently just skip unknown protocols and don't mention that!
+    """
+    outputDir = createPath(config, group, project, organism, libraryType)
+    if os.path.exists(os.path.join(outputDir, "analysis.done")):
+        return outputDir, 0
+
+    if group == "gruen":
+        touchDone(outputDir)
+        return outputDir, 0
+ 
+    org = organism2Org(config, organism)
+    if tuples[0][2] == "10xGenomics for single cell RNA-Seq":
+        PE = linkFiles(config, group, project, outputDir, tuples)
+        CMD = ['/data/manke/repository/scripts/snakemake_workflows/10X_snakepipe-0.1.0/10X', outputDir, outputDir, org]
+        try:
+            subprocess.check_call(' '.join(CMD), shell=True)
+        except:
+            return outputDir, 1
+        removeLinkFiles(outputDir)
+        tidyUpABit(outputDir)
+    elif tuples[0][2] == "Cel-Seq 2 for single cell RNA-Seq":
+        PE = linkFiles(config, group, project, outputDir, tuples)
+        CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
+        CMD = [CMD, 'scRNAseq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+        try:
+            subprocess.check_call(' '.join(CMD), shell=True)
+        except:
+            return outputDir, 1
+        removeLinkFiles(outputDir)
+        tidyUpABit(outputDir)
+    touchDone(outputDir)
+    return outputDir, 0
+
+
 def GetResults(config, project, libraries):
     """
     Project is something like '352_Grzes_PearceEd' and libraries is a dictionary with libraries as keys:
