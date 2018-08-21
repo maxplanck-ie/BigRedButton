@@ -110,6 +110,78 @@ def RNA(config, group, project, organism, libraryType, tuples):
     return outputDir, 0
 
 
+    baseDir = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
+                                                           BRB.misc.pacifier(group),
+                                                           config.get('Options', 'runID'),
+                                                           BRB.misc.pacifier(project))
+def RELACS(config, group, project, organism, libraryType, tuples):
+    """
+    This is a variant of the DNA mapping pipeline that does RELACS demultiplexing in addition
+
+    This must check for the existence of a RELACS sample sheet in the run folder.
+
+    There better not be any duplicate RELACS sample names!
+    """
+    runID = config.get('Options', 'runID').split("_lanes")[0]
+    sampleSheet = "/dont_touch_this/solexa_runs/{}/RELACS_Project_{}.txt".format(runID, BRB.misc.pacifier(project))
+    if not os.path.exists(sampleSheet):
+        return None, 1
+
+    baseDir = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
+                                                           BRB.misc.pacifier(group),
+                                                           config.get('Options', 'runID'),
+                                                           BRB.misc.pacifier(project))
+
+    outputDir = createPath(config, group, project, organism, libraryType)
+    if os.path.exists(os.path.join(outputDir, "analysis.done")):
+        return outputDir, 0
+
+    # Link in files
+    if not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
+        os.symlink(sampleSheet, os.path.join(outputDir, "RELACS_sampleSheet.txt"))
+    unlinkDirs = []
+    for d in glob.glob("{}/Sample_*".format(baseDir)):
+        bname = os.path.basename(d)
+        newName = os.path.join(outputDir, bname)
+        unlinkDirs.append(newName)
+        if not os.path.exists(newName):
+            os.symlink(d, newName)
+
+    # -p 10 is pretty much arbitrary
+    CMD = ["demultiplex_relacs.py", "-p", "10", os.path.join(outputDir, "RELACS_sampleSheet.txt"), os.path.join(outputDir, "RELACS_demultiplexing")]
+    try:
+        subprocess.check_call(' '.join(CMD), shell=True, cwd=outputDir)
+    except:
+        return outputDir, 1
+
+    # clean up
+    for d in unlinkDirs:
+        os.unlink(d)
+    os.unlink(os.path.join(outputDir, "RELACS_sampleSheet.txt"))
+
+    # Link in the RELACS demultiplexed files
+    for fname in glob.glob(os.path.join(outputDir, "RELACS_demultiplexing", "*", "*.gz")):
+        bname = os.path.basename(fname)
+        if bname.startswith('unknown'):
+            continue
+        newName = os.path.join(outputDir, bname)
+        if not os.path.exists(newName):
+            os.symlink(fname, newName)
+
+    # Back to the normal DNA pipeline
+    org = organism2Org(config, organism)
+    CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
+    CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    try:
+        subprocess.check_call(' '.join(CMD), shell=True)
+    except:
+        return outputDir, 1
+    removeLinkFiles(outputDir)
+    tidyUpABit(outputDir)
+    touchDone(outputDir)
+    return outputDir, 0
+
+
 def DNA(config, group, project, organism, libraryType, tuples):
     """
     Run the DNA mapping pipeline on the samples. Tweals could theoretically be made
@@ -122,6 +194,9 @@ def DNA(config, group, project, organism, libraryType, tuples):
     - Remove previously linked in files
     - Clean up snakemake directory
     """
+    if tuples[0][2].startswith("ChIP RELACS"):
+        return RELACS(config, group, project, organism, libraryType, tuples)
+
     outputDir = createPath(config, group, project, organism, libraryType)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
