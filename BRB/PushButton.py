@@ -98,8 +98,9 @@ def RNA(config, group, project, organism, libraryType, tuples):
     CMD = [CMD, 'RNA-seq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, '-m', 'alignment', org]
     if org == 'dm6':
         CMD.extend(['--star_options', '"--limitBAMsortRAM 60000000000"'])
-    else:
-        CMD.extend(['--star_options', '" "'])
+    if libraryType.startswith("SMART-Seq"):
+        # SMART-seq isn't a dUTP-based method!
+        CMD.extend(['--library_type', '0'])
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
@@ -123,18 +124,19 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     There better not be any duplicate RELACS sample names!
     """
     runID = config.get('Options', 'runID').split("_lanes")[0]
+
+    outputDir = createPath(config, group, project, organism, libraryType)
+    if os.path.exists(os.path.join(outputDir, "analysis.done")):
+        return outputDir, 0
+
     sampleSheet = "/dont_touch_this/solexa_runs/{}/RELACS_Project_{}.txt".format(runID, BRB.misc.pacifier(project))
-    if not os.path.exists(sampleSheet):
+    if not os.path.exists(sampleSheet) and not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
         return None, 1
 
     baseDir = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                            BRB.misc.pacifier(group),
                                                            config.get('Options', 'runID'),
                                                            BRB.misc.pacifier(project))
-
-    outputDir = createPath(config, group, project, organism, libraryType)
-    if os.path.exists(os.path.join(outputDir, "analysis.done")):
-        return outputDir, 0
 
     # Link in files
     if not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
@@ -148,7 +150,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
             os.symlink(d, newName)
 
     # -p 10 is pretty much arbitrary
-    CMD = ["demultiplex_relacs.py", "-p", "10", os.path.join(outputDir, "RELACS_sampleSheet.txt"), os.path.join(outputDir, "RELACS_demultiplexing")]
+    CMD = ["demultiplex_relacs.py", "--umiLength", "4", "-p", "10", os.path.join(outputDir, "RELACS_sampleSheet.txt"), os.path.join(outputDir, "RELACS_demultiplexing")]
     try:
         subprocess.check_call(' '.join(CMD), shell=True, cwd=outputDir)
     except:

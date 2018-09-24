@@ -10,4 +10,5 @@ setup(name = 'BRB',
       packages = ['BRB'],
       include_package_data = False,
       install_requires = ['configparser',
+                          'editdistance',
                           'bioblend'])
