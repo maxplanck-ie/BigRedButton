@@ -196,6 +196,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
     - Remove previously linked in files
     - Clean up snakemake directory
     """
+    print(tuples[0])
     if tuples[0][2].startswith("ChIP RELACS high-throughput"):
         return RELACS(config, group, project, organism, libraryType, tuples)
 
@@ -279,10 +280,6 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
 
-    if group == "gruen":
-        touchDone(outputDir)
-        return outputDir, 0
- 
     org = organism2Org(config, organism)
     if tuples[0][2] == "10xGenomics for single cell RNA-Seq":
         PE = linkFiles(config, group, project, outputDir, tuples)
