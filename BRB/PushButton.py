@@ -140,7 +140,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
 
     # Link in files
     if not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
-        os.symlink(sampleSheet, os.path.join(outputDir, "RELACS_sampleSheet.txt"))
+        shutil.copyfile(sampleSheet, os.path.join(outputDir, "RELACS_sampleSheet.txt"))
     unlinkDirs = []
     for d in glob.glob("{}/Sample_*".format(baseDir)):
         bname = os.path.basename(d)
@@ -159,7 +159,6 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     # clean up
     for d in unlinkDirs:
         os.unlink(d)
-    os.unlink(os.path.join(outputDir, "RELACS_sampleSheet.txt"))
 
     # Link in the RELACS demultiplexed files
     for fname in glob.glob(os.path.join(outputDir, "RELACS_demultiplexing", "*", "*.gz")):
