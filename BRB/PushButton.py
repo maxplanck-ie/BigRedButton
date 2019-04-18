@@ -101,7 +101,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     if libraryType.startswith("SMART-Seq"):
         # SMART-seq isn't a dUTP-based method!
         CMD.extend(['--library_type', '0'])
-    elif libraryType.startsWith("NEBNext Low Input RNA Library"):
+    elif libraryType.startswith("NEBNext Low Input RNA Library"):
         # Unstranded
         CMD.extend(['--library_type', '0'])
     try:
