@@ -51,6 +51,8 @@ def readSampleTable(sampleTable):
     bcLen = 0
     for line in f:
         _ = line.strip().split("\t")
+        if len(_) == 0:
+            continue
         if _[0] not in d:
             d[_[0]] = dict()
         d[_[0]][_[1]] = _[2]
