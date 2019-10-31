@@ -87,7 +87,7 @@ def removeDone(outputDir):
 
 def RNA(config, group, project, organism, libraryType, tuples):
     """
-    Need to set --library_type and maybe --start_options
+    Need to set --libraryType
     """
     outputDir = createPath(config, group, project, organism, libraryType)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
@@ -96,14 +96,14 @@ def RNA(config, group, project, organism, libraryType, tuples):
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
     CMD = [CMD, 'RNA-seq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, '-m', 'alignment,deepTools_qc', org]
-    if org == 'dm6':
-        CMD.extend(['--star_options', '"--limitBAMsortRAM 60000000000"'])
+    #if org == 'dm6':
+    #    CMD.extend(['--star_options', '"--limitBAMsortRAM 60000000000"'])
     if libraryType.startswith("SMART-Seq"):
         # SMART-seq isn't a dUTP-based method!
-        CMD.extend(['--library_type', '0'])
+        CMD.extend(['--libraryType', '0'])
     elif libraryType.startswith("NEBNext Low Input RNA Library"):
         # Unstranded
-        CMD.extend(['--library_type', '0'])
+        CMD.extend(['--libraryType', '0'])
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
