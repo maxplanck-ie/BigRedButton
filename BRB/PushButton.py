@@ -355,17 +355,17 @@ def GetResults(config, project, libraries):
 
     msg = ""
     if len(skipList):
-        msg += BRB.ET.telegraphHome(config, group, project, skipList)
+        msg += BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList)
 
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
             for libraryType, tuples in v2.items():
-                outputDir, rv = globals()[pipeline](config, group, project, organism, libraryType, tuples)
+                outputDir, rv = globals()[pipeline](config, group, BRB.misc.pacifier(project), organism, libraryType, tuples)
                 if rv == 0:
-                    BRB.galaxy.linkIntoGalaxy(config, group, project, outputDir)
+                    BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
                     BRB.ET.phoneHome(config, outputDir, pipeline)
-                    msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(project, pipeline, libraryType, organism)
+                    msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
                 else:
-                    msg += "I received an error processing {}_{}_{}_{} for you.\n".format(project, pipeline, libraryType, organism)
+                    msg += "I received an error processing {}_{}_{}_{} for you.\n".format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
 
     return msg
