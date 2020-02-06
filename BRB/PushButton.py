@@ -175,7 +175,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     # Back to the normal DNA pipeline
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--UMIDedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
