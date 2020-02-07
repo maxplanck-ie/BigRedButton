@@ -98,7 +98,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'RNA-seq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, '-m', 'alignment,deepTools_qc', org, '--snakemakeOptions',' --dryrun ']
+    CMD = [CMD, 'RNA-seq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, '-m', 'alignment,deepTools_qc', org]
     #if org == 'dm6':
     #    CMD.extend(['--star_options', '"--limitBAMsortRAM 60000000000"'])
     if tuples[0][2].startswith("SMART-Seq"):
