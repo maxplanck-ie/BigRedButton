@@ -298,7 +298,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
     elif tuples[0][2] == "Cel-Seq 2 for single cell RNA-Seq":
         PE = linkFiles(config, group, project, outputDir, tuples)
         CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-        CMD = [CMD, 'scRNAseq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '--trim',  '--cell_barcode_file /data/processing/bioinfo-core/celseq_barcodes.384.txt',  '--barcode_pattern NNNNNNNXXXXXXX', '-i', outputDir, '-o', outputDir, org]
+        CMD = [CMD, 'scRNAseq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '--trim',  '--cellBarcodeFile /data/processing/bioinfo-core/celseq_barcodes.384.txt',  '--cellBarcodePattern NNNNNNNXXXXXXX', '-i', outputDir, '-o', outputDir, org]
         try:
             subprocess.check_call(' '.join(CMD), shell=True)
         except:
