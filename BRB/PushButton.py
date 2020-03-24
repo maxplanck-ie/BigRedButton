@@ -98,7 +98,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'RNA-seq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, '-m', 'alignment,deepTools_qc', org]
+    CMD = [CMD, 'mRNA-seq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     #if org == 'dm6':
     #    CMD.extend(['--star_options', '"--limitBAMsortRAM 60000000000"'])
     if tuples[0][2].startswith("SMART-Seq"):
@@ -298,7 +298,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
     elif tuples[0][2] == "Cel-Seq 2 for single cell RNA-Seq":
         PE = linkFiles(config, group, project, outputDir, tuples)
         CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-        CMD = [CMD, 'scRNAseq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '--trim',  '--cellBarcodeFile /data/processing/bioinfo-core/celseq_barcodes.384.txt',  '--cellBarcodePattern NNNNNNNXXXXXXX', '-i', outputDir, '-o', outputDir, org]
+        CMD = [CMD, 'scRNAseq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '--myKit CellSeq384','--skipVelocyto' , '-i', outputDir, '-o', outputDir, org]
         try:
             subprocess.check_call(' '.join(CMD), shell=True)
         except:
