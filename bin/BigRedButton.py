@@ -54,6 +54,7 @@ while True:
     msg = '\n'
     for k, v in ParkourDict.items():
         if not os.path.exists("{}/Project_{}".format(bdir, BRB.misc.pacifier(k))):
+            print("{}/Project_{} doesn't exist".format(bdir, BRB.misc.pacifier(k)))
             continue
         try:
             msg += BRB.PushButton.GetResults(config, k, v)

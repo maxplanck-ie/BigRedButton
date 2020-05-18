@@ -137,6 +137,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
 
     sampleSheet = "/dont_touch_this/solexa_runs/{}/RELACS_Project_{}.txt".format(runID, BRB.misc.pacifier(project))
     if not os.path.exists(sampleSheet) and not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
+        print("wrong samplesheet name!", sampleSheet)
         return None, 1
 
     baseDir = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
@@ -305,6 +306,35 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
             return outputDir, 1
         removeLinkFiles(outputDir)
         tidyUpABit(outputDir)
+    touchDone(outputDir)
+    return outputDir, 0
+
+
+def HiC(config, group, project, organism, libraryType, tuples):
+    """
+    Running the HiC pipeline on the samples.
+
+    - Make /data/{group}/sequencing_data/{runID}/Analysis_{project}/{libraryType}_{organism} directory
+    - Remove previously linked in files (if any)
+    - Link requested fastq files in
+    - Run appropriate pipeline
+    - Remove previously linked in files
+    - Clean up snakemake directory
+    """
+
+    outputDir = createPath(config, group, project, organism, libraryType)
+    if os.path.exists(os.path.join(outputDir, "analysis.done")):
+        return outputDir, 0
+    PE = linkFiles(config, group, project, outputDir, tuples)
+    org = organism2Org(config, organism)
+    CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
+    CMD = [CMD, 'HiC', '--DAG', '--noTAD', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    try:
+        subprocess.check_call(' '.join(CMD), shell=True)
+    except:
+        return outputDir, 1
+    removeLinkFiles(outputDir)
+    tidyUpABit(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
