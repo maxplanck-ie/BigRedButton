@@ -388,9 +388,9 @@ def GetResults(config, project, libraries):
 
     msg = ""
     if len(skipList):
-	for i in skipList:
-		msg += "Skipping {}/{} on {}".format(i[0], i[1], organism)	
-	msg += BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList)
+        for i in skipList:
+            msg += "Skipping {}/{} on {}".format(i[0], i[1], organism)	
+        msg += BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList)
 
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
