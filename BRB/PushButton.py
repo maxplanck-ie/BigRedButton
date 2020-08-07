@@ -287,7 +287,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         return outputDir, 0
 
     org = organism2Org(config, organism)
-    if tuples[0][2] == "scRNA-seq 10xGenomics":
+    if tuples[0][2] == "scRNA-Seq 10xGenomics":
         PE = linkFiles(config, group, project, outputDir, tuples)
         CMD = ['/data/manke/repository/scripts/snakemake_workflows/10X_snakepipe-0.1.0/10X', outputDir, outputDir, org]
         try:
@@ -344,11 +344,11 @@ def GetResults(config, project, libraries):
     Project is something like '352_Grzes_PearceEd' and libraries is a dictionary with libraries as keys:
         {'18L005489': ['FAT_first_A',
                        'Other',
-                       'scRNA-seq 10xGenomics',
+                       'scRNA-Seq 10xGenomics',
                        'mouse'],
          '18L005490': ['FAT_first_B',
                        'Other',
-                       'scRNA-seq 10xGenomics',
+                       'scRNA-Seq 10xGenomics',
                        'mouse'],
 
     This doesn't return anything. It's assumed that everything within a single library type can be analysed together.
