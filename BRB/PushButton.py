@@ -282,7 +282,6 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
 
     We currently just skip unknown protocols and don't mention that!
     """
-    print("pipelien found!")
     outputDir = createPath(config, group, project, organism, libraryType)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
