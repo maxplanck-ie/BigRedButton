@@ -6,6 +6,7 @@ import glob
 from multiprocessing import Pool
 import subprocess
 import gzip
+import matplotlib.pyplot as plt
 try:
     import editdistance as ed
 except:
@@ -120,7 +121,7 @@ def writeRead(lineList, of, bc, bcLen, args, doTrim=True):
     of.write(lineList[2].encode())
     of.write(lineList[3].encode())
 
-    return rname
+    return rname, bc
 
 
 def writeRead2(lineList, of, bcLen, args, doTrim=True):
@@ -144,12 +145,12 @@ def writeRead2(lineList, of, bcLen, args, doTrim=True):
     of.write(lineList[3].encode())
 
 
-def processPaired(args, sDict, bcLen, read1, read2):
+def processPaired(args, sDict, bcLen, read1, read2, bc_dict):
     f1_ = subprocess.Popen("gunzip -c {}".format(read1), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     f2_ = subprocess.Popen("gunzip -c {}".format(read2), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     f1 = f1_.stdout
     f2 = f2_.stdout
-
+    false_bc = 0
     for line1_1 in f1:
         line1_1 = line1_1.decode("ascii")
         line1_2 = f1.readline().decode("ascii")
@@ -159,12 +160,21 @@ def processPaired(args, sDict, bcLen, read1, read2):
         line2_2 = f2.readline().decode("ascii")
         line2_3 = f2.readline().decode("ascii")
         line2_4 = f2.readline().decode("ascii")
-
         (bc, isDefault) = matchSample(line1_2, line2_2, sDict, bcLen, args.umiLength)
-
-        rname = writeRead([line1_1, line1_2, line1_3, line1_4], sDict[bc][0], bc, bcLen, args, isDefault)
+        rname, relacs_bc = writeRead([line1_1, line1_2, line1_3, line1_4], sDict[bc][0], bc, bcLen, args, isDefault)
         writeRead2([rname , line2_2, line2_3, line2_4], sDict[bc][1], bcLen, args, isDefault)
-
+        if isDefault is True:
+           if relacs_bc not in bc_dict.keys():
+              bc_dict[bc] = 1
+           else:
+              bc_dict[bc] += 1
+        else: 
+              false_bc += 1
+    print(bc_dict, false_bc)
+    if 'input' in read1.lower():
+        with open(args.output+"input_barcodes.txt","w+") as f:
+             for bc, count in bc_dict.items():
+                    f.write(bc+"\t"+str(count)+"\n")
     f1.close()
     f2.close()
 
@@ -185,7 +195,7 @@ def processSingle(args, sDict, bcLen, read1):
 
 
 def wrapper(foo):
-    d, args, sDict, bcLen = foo
+    d, args, sDict, bcLen,bc_dict = foo
     print("Processing library {}".format(d))
 
     # Make the output directories
@@ -207,6 +217,7 @@ def wrapper(foo):
     oDict = dict()
     if R2 is not None:
         for k, v in sDict.items():
+            print(k, v)
             oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin,
                         subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R2.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
         if 'default' not in oDict:
@@ -214,7 +225,7 @@ def wrapper(foo):
             v = 'unknown'
             oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin,
                         subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R2.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
-        processPaired(args, oDict, bcLen, R1, R2)
+        processPaired(args, oDict, bcLen, R1, R2, bc_dict)
     else:
         for k, v in ssDict.items():
             oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
@@ -223,17 +234,21 @@ def wrapper(foo):
             v = 'unknown'
             oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
         processSingle(args, oDict, bcLen, R1)
+    return bc_dict
 
-
+def plot_bc_occurance_in_input(bc_dict, args):
+    print(bc_dict)
+    fig,ax = plt.subplots(dpi=300)
 def main(args=None):
     args = parseArgs(args)
-
+    bc_dict = dict()
     sDict, bcLen = readSampleTable(args.sampleTable)
-
+    print(sDict,bcLen)
     p = Pool(processes=args.numThreads)
-    tasks = [(d, args, v, bcLen) for d, v in sDict.items()]
-    p.map(wrapper, tasks)
-
+    tasks = [(d, args, v, bcLen, bc_dict) for d, v in sDict.items()]
+    this_bc_dict = p.map(wrapper, tasks)
+    print(this_bc_dict)
+    plot_bc_occurance_in_input(bc_dict,args)
 
 if __name__ == "__main__":
     args = None
