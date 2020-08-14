@@ -7,6 +7,8 @@ from multiprocessing import Pool
 import subprocess
 import gzip
 import matplotlib.pyplot as plt
+import numpy as np
+
 try:
     import editdistance as ed
 except:
@@ -72,6 +74,8 @@ def matchSample(sequence, sequence2, oDict, bcLen, umiLength):
     """
     bc = sequence[umiLength:bcLen + umiLength]
     bc2 = sequence2[umiLength:bcLen + umiLength] if sequence2 else None  # For whatever reason, padding isn't used
+    print("bc", bc)
+    print(bc2)
     if bc in oDict:
         if bc2 and ed.eval(bc, bc2) < 2:
             return (bc, True)
@@ -80,6 +84,7 @@ def matchSample(sequence, sequence2, oDict, bcLen, umiLength):
 
     # Look for a 1 base mismatch
     for k, v in oDict.items():
+        print("k&v", k, v)
         if ed.eval(k, bc) == 1:
             if not bc2:
                 return (k, True)
@@ -172,7 +177,7 @@ def processPaired(args, sDict, bcLen, read1, read2, bc_dict):
               false_bc += 1
     print(bc_dict, false_bc)
     if 'input' in read1.lower():
-        with open(args.output+"input_barcodes.txt","w+") as f:
+        with open(args.output+"input_barcodes.txt","a+") as f:
              for bc, count in bc_dict.items():
                     f.write(bc+"\t"+str(count)+"\n")
     f1.close()
@@ -237,18 +242,27 @@ def wrapper(foo):
     return bc_dict
 
 def plot_bc_occurance_in_input(bc_dict, args):
-    print(bc_dict)
+    data_to_plot = {}
+    for d in bc_dict:
+        data_to_plot.update(d)
+    print(data_to_plot)
     fig,ax = plt.subplots(dpi=300)
+    x = np.arange(len(d.values()))
+    ax.bar(x, d.values())
+    ax.set_xticklabels(d.keys())
+    plt.savefig(args.output+"test_fig.png")
 def main(args=None):
     args = parseArgs(args)
     bc_dict = dict()
+    print(args.sampleTable)
     sDict, bcLen = readSampleTable(args.sampleTable)
     print(sDict,bcLen)
     p = Pool(processes=args.numThreads)
     tasks = [(d, args, v, bcLen, bc_dict) for d, v in sDict.items()]
     this_bc_dict = p.map(wrapper, tasks)
+
     print(this_bc_dict)
-    plot_bc_occurance_in_input(bc_dict,args)
+    plot_bc_occurance_in_input(this_bc_dict, args)
 
 if __name__ == "__main__":
     args = None
