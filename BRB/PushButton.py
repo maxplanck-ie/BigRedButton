@@ -289,7 +289,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
     org = organism2Org(config, organism)
     if tuples[0][2] == "scRNA-Seq 10xGenomics":
         PE = linkFiles(config, group, project, outputDir, tuples)
-        CMD = ['/data/manke/repository/scripts/snakemake_workflows/10X_snakepipe-0.1.0/10X', outputDir, outputDir, org]
+        CMD = [config.get('10x', 'RNA'), outputDir, outputDir, org]
         try:
             subprocess.check_call(' '.join(CMD), shell=True)
         except:
@@ -339,6 +339,32 @@ def HiC(config, group, project, organism, libraryType, tuples):
     return outputDir, 0
 
 
+def scATAC(config, group, project, organism, libraryType, tuples):
+    """
+    scATAC 10x
+    """
+    outputDir = createPath(config, group, project, organism, libraryType)
+    if os.path.exists(os.path.join(outputDir, "analysis.done")):
+        return outputDir, 0
+    runID = config.get('Options', 'runID').split("_lanes")[0]
+    org = organism2Org(config, organism)
+    if tuples[0][2] == "scATAC-Seq 10xGenomics":
+        PE = linkFiles(config, group, project, outputDir, tuples)
+        CMD = config.get('10x', 'ATAC')+" -i "+config.get('Paths', 'bclData')+runID
+        CMD += " -o "+outputDir
+        CMD += " -ip "+config.get('Paths', 'interOp')+config.get('Options', 'runID')+"InterOp/ "
+        if tuples[0][4] == True:
+            CMD += " --externalDATA "
+        CMD += org #TODO also need to work on how to get it done on external data
+        try:
+            subprocess.check_call(CMD, shell=True)
+        except:
+            return outputDir, 1
+        removeLinkFiles(outputDir)
+        tidyUpABit(outputDir)
+    return outputDir, 0
+
+
 def GetResults(config, project, libraries):
     """
     Project is something like '352_Grzes_PearceEd' and libraries is a dictionary with libraries as keys:
@@ -372,7 +398,7 @@ def GetResults(config, project, libraries):
     skipList = []
     for library, v in libraries.items():
         sampleName, libraryType, libraryProtocol, organism = v
-        if libraryType in validLibraryTypes and organism in validOrganisms and not ignore:
+        if libraryType in validLibraryTypes and organism in validOrganisms and (not ignore or libraryType=='ATAC-Seq single cell'):
             idx = validLibraryTypes[libraryType]
             pipeline = pipelines[idx]
             if pipeline not in analysisTypes:
@@ -381,7 +407,7 @@ def GetResults(config, project, libraries):
                 analysisTypes[pipeline][organism] = dict()
             if libraryType not in analysisTypes[pipeline][organism]:
                 analysisTypes[pipeline][organism][libraryType] = list()
-            analysisTypes[pipeline][organism][libraryType].append([library, sampleName, libraryProtocol])
+            analysisTypes[pipeline][organism][libraryType].append([library, sampleName, libraryProtocol, ignore])
         else:
             print("Skipping {}/{} with type {} and organism {}".format(project, library, libraryType, organism))
             skipList.append([library, sampleName])
