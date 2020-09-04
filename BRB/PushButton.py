@@ -355,7 +355,7 @@ def scATAC(config, group, project, organism, libraryType, tuples):
         CMD += " -ip "+config.get('Paths', 'interOp')+config.get('Options', 'runID')+"InterOp/ "
         if tuples[0][4] == True:
             CMD += " --externalDATA "
-        CMD += org #TODO also need to work on how to get it done on external data
+        CMD += org
         try:
             subprocess.check_call(CMD, shell=True)
         except:
