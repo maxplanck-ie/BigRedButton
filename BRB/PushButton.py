@@ -63,6 +63,11 @@ def tidyUpABit(d):
     """
     If we don't tidy up we'll have a lot of dot files to upload to Galaxy
     """
+    for r, dirs, files in os.walk(d):
+        for d in dirs:
+            os.chmod(os.path.join(r, d), stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP)
+        for f in files:
+            os.chmod(os.path.join(r, f), stat.S_IRWXU | stat.S_IRGRP)
     try:
         shutil.rmtree(os.path.join(d, 'cluster_logs'))
         os.unlink(os.path.join(d, 'config.yaml'))
@@ -72,6 +77,7 @@ def tidyUpABit(d):
     
         for d2 in glob.glob(os.path.join(d, 'FASTQ*')):
             shutil.rmtree(d2)
+        # Strip rights (no write rights for group..)
     except:
         pass
 
