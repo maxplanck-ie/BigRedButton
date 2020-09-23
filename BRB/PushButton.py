@@ -8,11 +8,12 @@ import BRB.misc
 
 def createPath(config, group, project, organism, libraryType):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
-    baseDir = "{}/{}/sequencing_data/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
+    baseDir = "{}/{}/{}/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
                                                             BRB.misc.pacifier(group),
+                                                            BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
-    os.makedirs(baseDir, exist_ok=True)
+    os.makedirs(baseDir, mode=0o750, exist_ok=True)
 
     oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), organism))
     os.makedirs(oDir, exist_ok=True)
@@ -21,8 +22,9 @@ def createPath(config, group, project, organism, libraryType):
 
 def linkFiles(config, group, project, odir, tuples):
     """Create symlinks in odir to fastq files in {project}. Return 1 if paired-end, 0 otherwise."""
-    baseDir = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
+    baseDir = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                            BRB.misc.pacifier(group),
+                                                           BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                            config.get('Options', 'runID'),
                                                            BRB.misc.pacifier(project))
 
@@ -123,8 +125,9 @@ def RNA(config, group, project, organism, libraryType, tuples):
     return outputDir, 0
 
 
-    baseDir = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
+    baseDir = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                            BRB.misc.pacifier(group),
+                                                           BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                            config.get('Options', 'runID'),
                                                            BRB.misc.pacifier(project))
 def RELACS(config, group, project, organism, libraryType, tuples):
@@ -146,8 +149,9 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         print("wrong samplesheet name!", sampleSheet)
         return None, 1
 
-    baseDir = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
+    baseDir = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                            BRB.misc.pacifier(group),
+                                                           BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                            config.get('Options', 'runID'),
                                                            BRB.misc.pacifier(project))
 
@@ -201,7 +205,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
     Run the DNA mapping pipeline on the samples. Tweals could theoretically be made
     according to the libraryProtocol (tuple[2])
 
-    - Make /data/{group}/sequencing_data/{runID}/Analysis_{project}/{libraryType}_{organism} directory
+    - Make /data/{group}/{LatestSeqdir}/{runID}/Analysis_{project}/{libraryType}_{organism} directory
     - Remove previously linked in files (if any)
     - Link requested fastq files in
     - Run appropriate pipeline
@@ -320,7 +324,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
     """
     Running the HiC pipeline on the samples.
 
-    - Make /data/{group}/sequencing_data/{runID}/Analysis_{project}/{libraryType}_{organism} directory
+    - Make /data/{group}/{LatestSeqdir}/{runID}/Analysis_{project}/{libraryType}_{organism} directory
     - Remove previously linked in files (if any)
     - Link requested fastq files in
     - Run appropriate pipeline
@@ -386,8 +390,9 @@ def GetResults(config, project, libraries):
     This doesn't return anything. It's assumed that everything within a single library type can be analysed together.
     """
     group = project.split("_")[-1].split("-")[0].lower()
-    dataPath = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
+    dataPath = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                             BRB.misc.pacifier(group),
+                                                            BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
 

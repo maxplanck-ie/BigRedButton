@@ -1,5 +1,18 @@
 import unicodedata
+import os
 
+def getLatestSeqdir(groupData, PI):
+    seqDirNum = 0
+    for dirs in os.listdir(os.path.join(groupData, PI)):
+        if 'sequencing_data' in dirs:
+            seqDirStrip = dirs.replace('sequencing_data','')
+            if seqDirStrip is not '':
+                if int(seqDirStrip) > seqDirNum:
+                    seqDirNum = int(seqDirStrip)
+    if seqDirNum == 0:
+        return 'sequencing_data'
+    else:
+        return 'sequencing_data' + str(seqDirNum)
 
 def pacifier(s):
     """
