@@ -5,6 +5,7 @@ import subprocess
 import BRB.galaxy
 import BRB.ET
 import BRB.misc
+import stat
 
 def createPath(config, group, project, organism, libraryType):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
