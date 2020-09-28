@@ -66,11 +66,6 @@ def tidyUpABit(d):
     """
     If we don't tidy up we'll have a lot of dot files to upload to Galaxy
     """
-    for r, dirs, files in os.walk(d):
-        for d in dirs:
-            os.chmod(os.path.join(r, d), stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP)
-        for f in files:
-            os.chmod(os.path.join(r, f), stat.S_IRWXU | stat.S_IRGRP)
     try:
         shutil.rmtree(os.path.join(d, 'cluster_logs'))
         os.unlink(os.path.join(d, 'config.yaml'))
@@ -80,10 +75,19 @@ def tidyUpABit(d):
     
         for d2 in glob.glob(os.path.join(d, 'FASTQ*')):
             shutil.rmtree(d2)
-        # Strip rights (no write rights for group..)
     except:
         pass
 
+def stripRights(d):
+    # Strip rights.
+    try:
+        for r, dirs, files in os.walk(d):
+            for d in dirs:
+                os.chmod(os.path.join(r, d), stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP)
+            for f in files:
+                os.chmod(os.path.join(r, f), stat.S_IRWXU | stat.S_IRGRP)
+    except:
+        pass
 
 def touchDone(outputDir, fname="analysis.done"):
     open(os.path.join(outputDir, fname), "w").close()
@@ -122,6 +126,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
         return outputDir, 1
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
+    stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -197,6 +202,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         return outputDir, 1
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
+    stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -230,6 +236,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
         return outputDir, 1
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
+    stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -254,6 +261,7 @@ def WGBS(config, group, project, organism, libraryType, tuples):
         return outputDir, 1
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
+    stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -281,6 +289,7 @@ def ATAC(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1
     tidyUpABit(outputDir)
+    stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -307,6 +316,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
             return outputDir, 1
         removeLinkFiles(outputDir)
         tidyUpABit(outputDir)
+        stripRights(outputDir)
     elif tuples[0][2] == "Cel-Seq 2 for single cell RNA-Seq":
         PE = linkFiles(config, group, project, outputDir, tuples)
         CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
@@ -317,6 +327,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
             return outputDir, 1
         removeLinkFiles(outputDir)
         tidyUpABit(outputDir)
+        stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -346,6 +357,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
         return outputDir, 1
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
+    stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -372,6 +384,7 @@ def scATAC(config, group, project, organism, libraryType, tuples):
         except:
             return outputDir, 1
         removeLinkFiles(outputDir)
+        stripRights(outputDir)
         tidyUpABit(outputDir)
     return outputDir, 0
 
@@ -409,6 +422,7 @@ def GetResults(config, project, libraries):
     analysisTypes = dict()
     skipList = []
     for library, v in libraries.items():
+        print(library)
         sampleName, libraryType, libraryProtocol, organism = v
         if libraryType in validLibraryTypes and organism in validOrganisms and (not ignore or libraryType=='ATAC-Seq single cell'):
             idx = validLibraryTypes[libraryType]
@@ -429,15 +443,22 @@ def GetResults(config, project, libraries):
         for i in skipList:
             msg += "Skipping {}/{} on {}.\n".format(i[0], i[1], organism)	
         msg += BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList)
-
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
             for libraryType, tuples in v2.items():
                 outputDir, rv = globals()[pipeline](config, group, BRB.misc.pacifier(project), organism, libraryType, tuples)
                 if rv == 0:
-                    BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
-                    BRB.ET.phoneHome(config, outputDir, pipeline)
-                    msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
+                    try:
+                        BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
+                    except:
+                        msg += 'Failed to link {} into Galaxy.'.format(BRB.misc.pacifier(project))
+                        continue
+                    try:
+                        BRB.ET.phoneHome(config, outputDir, pipeline)
+                        msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
+                    except:
+                        msg += 'Failed to phone {} home. I was using outDir {}'.format(BRB.misc.pacifier(project),outputDir)
+                        continue
                 else:
                     msg += "I received an error processing {}_{}_{}_{} for you.\n".format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
 

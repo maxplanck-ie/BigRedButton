@@ -196,8 +196,9 @@ def telegraphHome(config, group, project, skipList):
     ([library, sampleName])
     """
     # make a fake output directory path
-    baseDir = "{}/{}/sequencing_data/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
+    baseDir = "{}/{}/{}/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
                                                             BRB.misc.pacifier(group),
+                                                            BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
     outputDir = os.path.join(baseDir, "DNA_mouse")
