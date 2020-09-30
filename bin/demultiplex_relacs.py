@@ -146,6 +146,46 @@ def writeRead2(lineList, of, bcLen, args, doTrim=True):
     of.write(lineList[2].encode())
     of.write(lineList[3].encode())
 
+def writePaired(read1, read2, of, bc, bcLen, args, doTrim=True):
+    """
+    """
+    rname = read1[0]
+    if doTrim:
+        UMI = ""
+        if args.umiLength > 0:
+            UMI = read1[1][:args.umiLength]
+            UMI += read2[1][:args.umiLength]
+
+        # Trim off the barcode
+        read1[1] = read1[1][bcLen + args.buffer + args.umiLength:]
+        read1[3] = read1[3][bcLen + args.buffer + args.umiLength:]
+
+        read2[1] = read2[1][bcLen + args.buffer + args.umiLength:]
+        read2[3] = read2[3][bcLen + args.buffer + args.umiLength:]
+
+        # Fix the read name
+        rname = rname.split()
+        if args.umiLength > 0:
+            rname[0] = "{}_{}_{}".format(rname[0], bc, UMI)
+        else:
+            rname[0] = "{}_{}".format(rname[0], bc)
+        rname = " ".join(rname)
+
+    if rname[-1] != '\n':
+        rname += '\n'
+    
+    of[0].write(rname.encode())
+    of[0].write(read1[1].encode())
+    of[0].write(read1[2].encode())
+    of[0].write(read1[3].encode())
+
+    of[1].write(rname.encode())
+    of[1].write(read2[1].encode())
+    of[1].write(read2[2].encode())
+    of[1].write(read2[3].encode())
+
+    return bc
+
 
 def processPaired(args, sDict, bcLen, read1, read2, bc_dict):
     f1_ = subprocess.Popen("gunzip -c {}".format(read1), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -163,8 +203,9 @@ def processPaired(args, sDict, bcLen, read1, read2, bc_dict):
         line2_3 = f2.readline().decode("ascii")
         line2_4 = f2.readline().decode("ascii")
         (bc, isDefault) = matchSample(line1_2, line2_2, sDict, bcLen, args.umiLength)
-        rname, relacs_bc = writeRead([line1_1, line1_2, line1_3, line1_4], sDict[bc][0], bc, bcLen, args, isDefault)
-        writeRead2([rname , line2_2, line2_3, line2_4], sDict[bc][1], bcLen, args, isDefault)
+
+        relacs_bc = writePaired([line1_1, line1_2, line1_3, line1_4], [line1_2,line2_2, line2_3, line2_4], sDict[bc], bc, bcLen, args, isDefault)
+
         if isDefault is True:
            if relacs_bc not in bc_dict.keys():
               bc_dict[bc] = 1
@@ -175,6 +216,9 @@ def processPaired(args, sDict, bcLen, read1, read2, bc_dict):
     print(bc_dict, false_bc)
     plot_bc_occurance(read1, bc_dict, false_bc, args.output)
     
+#   rname, relacs_bc = writeRead([line1_1, line1_2, line1_3, line1_4], sDict[bc][0], bc, bcLen, args, isDefault)
+#   writeRead2([rname , line2_2, line2_3, line2_4], sDict[bc][1], bcLen, args, isDefault)
+
     f1.close()
     f2.close()
 
@@ -266,7 +310,8 @@ def plot_bc_occurance(R1, bc_dict, false_bc, output_path):
     ax.fill_between(xx, [bc_mean + bc_std]*len(xx), [bc_mean - bc_std]*len(xx), color='dimgrey', alpha=0.2, zorder=3)
     plt.ylabel("% of total reads")
     sample_name = R1.split("_R1")[0]
-    plt.savefig(output_path+sample_name+"_fig.png", pad_inches=0.6, bbox_inches='tight')
+    fig_path_name = os.path.join(output_path,sample_name+"_fig.png")
+    plt.savefig(fig_path_name, pad_inches=0.6, bbox_inches='tight')
 def main(args=None):
     args = parseArgs(args)
     bc_dict = dict()
