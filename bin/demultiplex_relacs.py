@@ -239,11 +239,19 @@ def plot_bc_occurance(R1, bc_dict, false_bc, output_path):
     total_sum = false_bc
     for k,v in bc_dict.items():
         total_sum += v
+
     percentages = [float(false_bc/total_sum)*100]
     x_ticks = ["false_bc"]
     for k,v in bc_dict.items():
        percentages.append(float(v/total_sum)*100)
        x_ticks.append(str(k))
+    
+    percentages = np.asarray(percentages)
+    bc_mean = np.mean(percentages[1:])
+    exp_value = 100/float(len(percentages[1:]))
+    bc_std = np.std(percentages[1:] - exp_value)
+    print("mean ", bc_mean, bc_std)
+
     print(percentages)
     print(x_ticks)
     fig,ax = plt.subplots(dpi=300)
@@ -253,6 +261,9 @@ def plot_bc_occurance(R1, bc_dict, false_bc, output_path):
     ax.set_xticklabels(x_ticks, rotation='vertical', fontsize = 6)
     exp_value = 100/(len(x)-1)
     ax.axhline(y=exp_value, linestyle="--", linewidth=0.5, color='k')
+    xx = [-1]+list(range(len(x)))+[len(x)+1]
+    print(xx)
+    ax.fill_between(xx, [bc_mean + bc_std]*len(xx), [bc_mean - bc_std]*len(xx), color='dimgrey', alpha=0.2, zorder=3)
     plt.ylabel("% of total reads")
     sample_name = R1.split("_R1")[0]
     plt.savefig(output_path+sample_name+"_fig.png", pad_inches=0.6, bbox_inches='tight')
