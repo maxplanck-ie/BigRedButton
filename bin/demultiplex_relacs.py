@@ -74,8 +74,6 @@ def matchSample(sequence, sequence2, oDict, bcLen, umiLength):
     """
     bc = sequence[umiLength:bcLen + umiLength]
     bc2 = sequence2[umiLength:bcLen + umiLength] if sequence2 else None  # For whatever reason, padding isn't used
-    print("bc", bc)
-    print(bc2)
     if bc in oDict:
         if bc2 and ed.eval(bc, bc2) < 2:
             return (bc, True)
@@ -84,7 +82,6 @@ def matchSample(sequence, sequence2, oDict, bcLen, umiLength):
 
     # Look for a 1 base mismatch
     for k, v in oDict.items():
-        print("k&v", k, v)
         if ed.eval(k, bc) == 1:
             if not bc2:
                 return (k, True)
@@ -176,10 +173,8 @@ def processPaired(args, sDict, bcLen, read1, read2, bc_dict):
         else: 
               false_bc += 1
     print(bc_dict, false_bc)
-    if 'input' in read1.lower():
-        with open(args.output+"input_barcodes.txt","a+") as f:
-             for bc, count in bc_dict.items():
-                    f.write(bc+"\t"+str(count)+"\n")
+    plot_bc_occurance(bc_dict, false_bc, args.output)
+    
     f1.close()
     f2.close()
 
@@ -222,7 +217,6 @@ def wrapper(foo):
     oDict = dict()
     if R2 is not None:
         for k, v in sDict.items():
-            print(k, v)
             oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin,
                         subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R2.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
         if 'default' not in oDict:
@@ -241,28 +235,28 @@ def wrapper(foo):
         processSingle(args, oDict, bcLen, R1)
     return bc_dict
 
-def plot_bc_occurance_in_input(bc_dict, args):
-    data_to_plot = {}
-    for d in bc_dict:
-        data_to_plot.update(d)
-    print(data_to_plot)
+def plot_bc_occurance(bc_dict, false_bc, output_path):
+    total_sum = false_bc
+    for k,v in bc_dict.items():
+        total_sum += v
+    percentages = [float(false_bc/total_sum)*100]
+    x_ticks = ["false_bc"]
+    for k,v in bc_dict.items():
+       percentages.append(float(v/total_sum)*100)
+       x_ticks.append(k)
+    print(percentages)
     fig,ax = plt.subplots(dpi=300)
-    x = np.arange(len(d.values()))
-    ax.bar(x, d.values())
-    ax.set_xticklabels(d.keys())
-    plt.savefig(args.output+"test_fig.png")
+    x = np.arange(len(percentages))
+    ax.bar(x, percentages)
+    ax.set_xticklabels(x_ticks)
+    plt.savefig(output_path+x_ticks[1]+"_fig.png") # TODO think of a proper naming for the output file
 def main(args=None):
     args = parseArgs(args)
     bc_dict = dict()
-    print(args.sampleTable)
     sDict, bcLen = readSampleTable(args.sampleTable)
-    print(sDict,bcLen)
     p = Pool(processes=args.numThreads)
     tasks = [(d, args, v, bcLen, bc_dict) for d, v in sDict.items()]
     this_bc_dict = p.map(wrapper, tasks)
-
-    print(this_bc_dict)
-    plot_bc_occurance_in_input(this_bc_dict, args)
 
 if __name__ == "__main__":
     args = None
