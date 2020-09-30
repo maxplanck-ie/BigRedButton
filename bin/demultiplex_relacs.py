@@ -173,7 +173,7 @@ def processPaired(args, sDict, bcLen, read1, read2, bc_dict):
         else: 
               false_bc += 1
     print(bc_dict, false_bc)
-    plot_bc_occurance(bc_dict, false_bc, args.output)
+    plot_bc_occurance(read1, bc_dict, false_bc, args.output)
     
     f1.close()
     f2.close()
@@ -235,7 +235,7 @@ def wrapper(foo):
         processSingle(args, oDict, bcLen, R1)
     return bc_dict
 
-def plot_bc_occurance(bc_dict, false_bc, output_path):
+def plot_bc_occurance(R1, bc_dict, false_bc, output_path):
     total_sum = false_bc
     for k,v in bc_dict.items():
         total_sum += v
@@ -243,13 +243,17 @@ def plot_bc_occurance(bc_dict, false_bc, output_path):
     x_ticks = ["false_bc"]
     for k,v in bc_dict.items():
        percentages.append(float(v/total_sum)*100)
-       x_ticks.append(k)
+       x_ticks.append(str(k))
     print(percentages)
+    print(x_ticks)
     fig,ax = plt.subplots(dpi=300)
     x = np.arange(len(percentages))
     ax.bar(x, percentages)
-    ax.set_xticklabels(x_ticks)
-    plt.savefig(output_path+x_ticks[1]+"_fig.png") # TODO think of a proper naming for the output file
+    ax.set_xticks(x)
+    ax.set_xticklabels(x_ticks, rotation='vertical', fontsize = 6)
+    plt.ylabel("% of total reads")
+    sample_name = R1.split("_R1")[0]
+    plt.savefig(output_path+sample_name+"_fig.png", pad_inches=1, bbox_inches='tight')
 def main(args=None):
     args = parseArgs(args)
     bc_dict = dict()
