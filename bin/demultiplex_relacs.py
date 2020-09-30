@@ -251,9 +251,11 @@ def plot_bc_occurance(R1, bc_dict, false_bc, output_path):
     ax.bar(x, percentages)
     ax.set_xticks(x)
     ax.set_xticklabels(x_ticks, rotation='vertical', fontsize = 6)
+    exp_value = 100/(len(x)-1)
+    ax.axhline(y=exp_value, linestyle="--", linewidth=0.5, color='k')
     plt.ylabel("% of total reads")
     sample_name = R1.split("_R1")[0]
-    plt.savefig(output_path+sample_name+"_fig.png", pad_inches=1, bbox_inches='tight')
+    plt.savefig(output_path+sample_name+"_fig.png", pad_inches=0.6, bbox_inches='tight')
 def main(args=None):
     args = parseArgs(args)
     bc_dict = dict()
