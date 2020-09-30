@@ -443,12 +443,15 @@ def GetResults(config, project, libraries):
         for i in skipList:
             msg += "Skipping {}/{} on {}.\n".format(i[0], i[1], organism)	
         msg += BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList)
+    print(analysisTypes.items())
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
+            print(v2)
             for libraryType, tuples in v2.items():
                 outputDir, rv = globals()[pipeline](config, group, BRB.misc.pacifier(project), organism, libraryType, tuples)
                 if rv == 0:
                     try:
+                        print("link")
                         BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
                     except:
                         msg += 'Failed to link {} into Galaxy.'.format(BRB.misc.pacifier(project))
