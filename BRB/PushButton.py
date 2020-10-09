@@ -441,6 +441,7 @@ def GetResults(config, project, libraries):
                skipList.append([library, sampleName])
             else:
                external_skipList.append([library, sampleName])
+
     msg = ""
     if len(skipList):
         for i in skipList:
