@@ -31,7 +31,7 @@ def getOffSpeciesRate(d):
     Get the percentage of off-species reads from a directory
     This is copied from the bcl2fastq pipeline
     """
-    fname = glob.glob("{}/*_R1_screen.txt".format(d))[0]
+    fname = glob.glob("{}/*_screen.txt".format(d))[0]
     total = 0
     species=[]
     ohol=[]
