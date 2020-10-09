@@ -203,7 +203,6 @@ def telegraphHome(config, group, project, skipList):
                                                             BRB.misc.pacifier(project))
     outputDir = os.path.join(baseDir, "DNA_mouse")
     baseDict, sample2lib = getBaseStatistics(config, outputDir)
-
     # Reformat into a matrix
     m = []
     for k, v in baseDict.items():

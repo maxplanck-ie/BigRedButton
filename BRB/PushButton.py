@@ -403,28 +403,29 @@ def GetResults(config, project, libraries):
 
     This doesn't return anything. It's assumed that everything within a single library type can be analysed together.
     """
-    group = project.split("_")[-1].split("-")[0].lower()
-    dataPath = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
+    ignore = False
+    try:
+        group = project.split("_")[-1].split("-")[0].lower()
+        dataPath = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                             BRB.misc.pacifier(group),
                                                             BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
+    except:
+        print("external data")
+        ignore = True
 
     validLibraryTypes = {v: i for i, v in enumerate(config.get('Options', 'validLibraryTypes').split(','))}
     pipelines = config.get('Options', 'pipelines').split(',')
     validOrganisms = config.get('Options', 'validOrganisms').split(',')
 
-    ignore = False
-    if not os.path.exists(dataPath):
-        ignore = True
-
     # split by analysis type and organism, since we can only process some types of this
     analysisTypes = dict()
     skipList = []
+    external_skipList = []
     for library, v in libraries.items():
-        print(library)
         sampleName, libraryType, libraryProtocol, organism = v
-        if libraryType in validLibraryTypes and organism in validOrganisms and (not ignore or libraryType=='ATAC-Seq single cell'):
+        if libraryType in validLibraryTypes and organism in validOrganisms and (ignore==False or libraryType=='ATAC-Seq single cell'):
             idx = validLibraryTypes[libraryType]
             pipeline = pipelines[idx]
             if pipeline not in analysisTypes:
@@ -436,13 +437,17 @@ def GetResults(config, project, libraries):
             analysisTypes[pipeline][organism][libraryType].append([library, sampleName, libraryProtocol, ignore])
         else:
             print("Skipping {}/{} with type {} and organism {}".format(project, library, libraryType, organism))
-            skipList.append([library, sampleName])
+            if ignore == False:
+               skipList.append([library, sampleName])
+            else:
+               external_skipList.append([library, sampleName])
 
     msg = ""
     if len(skipList):
         for i in skipList:
             msg += "Skipping {}/{} on {}.\n".format(i[0], i[1], organism)	
         msg += BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList)
+
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
             for libraryType, tuples in v2.items():
