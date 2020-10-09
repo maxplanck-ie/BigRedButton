@@ -201,10 +201,8 @@ def telegraphHome(config, group, project, skipList):
                                                             BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
-    print(baseDir)
     outputDir = os.path.join(baseDir, "DNA_mouse")
     baseDict, sample2lib = getBaseStatistics(config, outputDir)
-    print("dict:",baseDict.items())
     # Reformat into a matrix
     m = []
     for k, v in baseDict.items():
