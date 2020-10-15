@@ -31,7 +31,7 @@ def getOffSpeciesRate(d):
     Get the percentage of off-species reads from a directory
     This is copied from the bcl2fastq pipeline
     """
-    fname = glob.glob("{}/*_R1_screen.txt".format(d))[0]
+    fname = glob.glob("{}/*_screen.txt".format(d))[0]
     total = 0
     species=[]
     ohol=[]
@@ -196,13 +196,15 @@ def telegraphHome(config, group, project, skipList):
     ([library, sampleName])
     """
     # make a fake output directory path
-    baseDir = "{}/{}/sequencing_data/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
+    baseDir = "{}/{}/{}/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
                                                             BRB.misc.pacifier(group),
+                                                            BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
+    print(baseDir)
     outputDir = os.path.join(baseDir, "DNA_mouse")
     baseDict, sample2lib = getBaseStatistics(config, outputDir)
-
+    print("dict:",baseDict.items())
     # Reformat into a matrix
     m = []
     for k, v in baseDict.items():

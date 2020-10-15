@@ -183,7 +183,7 @@ def writePaired(read1, read2, of, bc, bcLen, args, doTrim=True):
     of[1].write(read2[1].encode())
     of[1].write(read2[2].encode())
     of[1].write(read2[3].encode())
-
+    
     return bc
 
 
