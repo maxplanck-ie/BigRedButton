@@ -455,12 +455,10 @@ def GetResults(config, project, libraries):
             for libraryType, tuples in v2.items():
                 outputDir, rv = globals()[pipeline](config, group, BRB.misc.pacifier(project), organism, libraryType, tuples)
                 if rv == 0:
-                    try:
-                        print("link")
-                        BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
-                    except:
-                        msg += 'Failed to link {} into Galaxy.'.format(BRB.misc.pacifier(project))
-                        continue
+                    #try:
+                    #    BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
+                    #except:
+                    msg += "I deliberately didn't link {} into Galaxy.".format(BRB.misc.pacifier(project))
                     try:
                         BRB.ET.phoneHome(config, outputDir, pipeline)
                         msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
