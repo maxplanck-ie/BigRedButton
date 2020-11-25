@@ -28,7 +28,6 @@ def linkFiles(config, group, project, odir, tuples):
                                                            BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                            config.get('Options', 'runID'),
                                                            BRB.misc.pacifier(project))
-
     PE = False
     for t in tuples:
         currentName = "{}/{}_R1.fastq.gz".format(os.path.join(baseDir, "Sample_{}".format(t[0])), t[1])
@@ -72,7 +71,7 @@ def tidyUpABit(d):
         shutil.rmtree(os.path.join(d, '.snakemake'))
         for f in glob.glob(os.path.join(d, '*.log')):
             os.unlink(f)
-    
+
         for d2 in glob.glob(os.path.join(d, 'FASTQ*')):
             shutil.rmtree(d2)
     except:
@@ -273,7 +272,7 @@ def ATAC(config, group, project, organism, libraryType, tuples):
     outputDir = createPath(config, group, project, organism, libraryType)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
- 
+
     if not os.path.exists(os.path.join(outputDir, "DNA.done")):
         outputDir, rv = DNA(config, group, project, organism, libraryType, tuples)
         if rv != 0:
@@ -372,18 +371,23 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     runID = config.get('Options', 'runID').split("_lanes")[0]
     org = organism2Org(config, organism)
     if tuples[0][2] == "scATAC-Seq 10xGenomics":
-        PE = linkFiles(config, group, project, outputDir, tuples)
-        CMD = config.get('10x', 'ATAC')+" -i "+config.get('Paths', 'bclData')+runID
+        # PE = linkFiles(config, group, project, outputDir, tuples)
+        samples = ' '.join(i[1] for i in tuples)
+        inDir = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
+                                               BRB.misc.pacifier(group),
+                                               BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
+                                               config.get('Options', 'runID'),
+                                               BRB.misc.pacifier(project))
+        CMD = config.get('10x', 'ATAC')+" -i "+inDir
         CMD += " -o "+outputDir
-        CMD += " -ip "+config.get('Paths', 'interOp')+config.get('Options', 'runID')+"InterOp/ "
-        if tuples[0][4] == True:
-            CMD += " --externalDATA "
-        CMD += org
+        CMD += " "+org
+        CMD += " --projectID "+project+" --samples "+samples
+        print(CMD)
         try:
             subprocess.check_call(CMD, shell=True)
         except:
             return outputDir, 1
-        removeLinkFiles(outputDir)
+        # removeLinkFiles(outputDir)
         stripRights(outputDir)
         tidyUpABit(outputDir)
     return outputDir, 0
@@ -445,10 +449,10 @@ def GetResults(config, project, libraries):
     msg = ""
     if len(skipList):
         for i in skipList:
-            msg += "Skipping {}/{} on {}.\n".format(i[0], i[1], organism)	
+            msg += "Skipping {}/{} on {}.\n".format(i[0], i[1], organism)
         msg += BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList)
     print(analysisTypes.items())
-
+    print("start the pipeline")
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
             print(v2)
