@@ -7,9 +7,14 @@ import BRB.ET
 import BRB.misc
 import stat
 
-def createPath(config, group, project, organism, libraryType):
+def createPath(config, group, project, organism, libraryType, tuples):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
-    baseDir = "{}/{}/{}/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
+    if tuples[0][3] == True: # if external data
+        baseDir = "{}/{}/Analysis_{}".format(config.get('Paths', 'baseData'),
+                                                            config.get('Options', 'runID'),
+                                                            BRB.misc.pacifier(project))
+    else:
+        baseDir = "{}/{}/{}/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
                                                             BRB.misc.pacifier(group),
                                                             BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                             config.get('Options', 'runID'),
@@ -23,7 +28,12 @@ def createPath(config, group, project, organism, libraryType):
 
 def linkFiles(config, group, project, odir, tuples):
     """Create symlinks in odir to fastq files in {project}. Return 1 if paired-end, 0 otherwise."""
-    baseDir = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
+    if tuples[0][3] == True: # if external data
+        baseDir = "{}/{}/Project_{}".format(config.get('Paths', 'baseData'),
+                                                            config.get('Options', 'runID'),
+                                                            BRB.misc.pacifier(project))
+    else:
+        baseDir = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                            BRB.misc.pacifier(group),
                                                            BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                            config.get('Options', 'runID'),
@@ -101,10 +111,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     """
     Need to set --libraryType
     """
-
-    print(tuples[0])
-
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
     PE = linkFiles(config, group, project, outputDir, tuples)
@@ -145,7 +152,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     """
     runID = config.get('Options', 'runID').split("_lanes")[0]
 
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
 
@@ -222,7 +229,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
     if tuples[0][2].startswith("ChIP RELACS high-throughput"):
         return RELACS(config, group, project, organism, libraryType, tuples)
 
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
     PE = linkFiles(config, group, project, outputDir, tuples)
@@ -247,7 +254,7 @@ def WGBS(config, group, project, organism, libraryType, tuples):
     TODO: set trimming according to the libraryType
     TODO: I don't think we know how to send back metrics yet
     """
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
     PE = linkFiles(config, group, project, outputDir, tuples)
@@ -269,7 +276,7 @@ def ATAC(config, group, project, organism, libraryType, tuples):
     """
     Run the DNA mapping pipeline and then the default ATAC pipeline
     """
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
 
@@ -301,7 +308,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
 
     We currently just skip unknown protocols and don't mention that!
     """
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
 
@@ -343,7 +350,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
     - Clean up snakemake directory
     """
 
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
     PE = linkFiles(config, group, project, outputDir, tuples)
@@ -365,7 +372,7 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     """
     scATAC 10x
     """
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
     runID = config.get('Options', 'runID').split("_lanes")[0]
@@ -382,7 +389,6 @@ def scATAC(config, group, project, organism, libraryType, tuples):
         CMD += " -o "+outputDir
         CMD += " "+org
         CMD += " --projectID "+project+" --samples "+samples
-        print(CMD)
         try:
             subprocess.check_call(CMD, shell=True)
         except:
@@ -429,7 +435,7 @@ def GetResults(config, project, libraries):
     external_skipList = []
     for library, v in libraries.items():
         sampleName, libraryType, libraryProtocol, organism = v
-        if libraryType in validLibraryTypes and organism in validOrganisms and (ignore==False or libraryType=='ATAC-Seq single cell'):
+        if libraryType in validLibraryTypes and organism in validOrganisms and (ignore==False or libraryType in config.get('external','LibraryTypes')):
             idx = validLibraryTypes[libraryType]
             pipeline = pipelines[idx]
             if pipeline not in analysisTypes:
@@ -451,11 +457,9 @@ def GetResults(config, project, libraries):
         for i in skipList:
             msg += "Skipping {}/{} on {}.\n".format(i[0], i[1], organism)
         msg += BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList)
-    print(analysisTypes.items())
-    print("start the pipeline")
+
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
-            print(v2)
             for libraryType, tuples in v2.items():
                 outputDir, rv = globals()[pipeline](config, group, BRB.misc.pacifier(project), organism, libraryType, tuples)
                 if rv == 0:
