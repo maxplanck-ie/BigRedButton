@@ -117,7 +117,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'mRNA-seq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'mRNA-seq', '--DAG', '--trim', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     #if org == 'dm6':
     #    CMD.extend(['--star_options', '"--limitBAMsortRAM 60000000000"'])
     if tuples[0][2].startswith("SMART-Seq"):
@@ -132,7 +132,6 @@ def RNA(config, group, project, organism, libraryType, tuples):
         return outputDir, 1
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
-    stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -463,15 +462,21 @@ def GetResults(config, project, libraries):
             for libraryType, tuples in v2.items():
                 outputDir, rv = globals()[pipeline](config, group, BRB.misc.pacifier(project), organism, libraryType, tuples)
                 if rv == 0:
-                    #try:
-                    #    BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
-                    #except:
-                    msg += "I deliberately didn't link {} into Galaxy.".format(BRB.misc.pacifier(project))
+                    galaxyUsers = BRB.misc.fetchGalaxyUsers(config.get('Galaxy','Users'))
+                    if BRB.misc.pacifier(project).split('_')[1] in galaxyUsers:
+                        try:
+                            BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
+                            msg += 'Always nice to see a Galaxy user! I linked {} into Galaxy. '.format(BRB.misc.pacifier(project))
+                        except:
+                            msg += 'I did my best to link {} into Galaxy, but I failed. '.format(BRB.misc.pacifier(project))
+                            continue
+                    else:
+                        msg += "I deliberately didn't link {} into Galaxy. ".format(BRB.misc.pacifier(project))
                     try:
                         BRB.ET.phoneHome(config, outputDir, pipeline)
                         msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
                     except:
-                        msg += 'Failed to phone {} home. I was using outDir {}'.format(BRB.misc.pacifier(project),outputDir)
+                        msg += 'Failed to phone {} home. I was using outDir {}. I am not giving up though, BRB keeps running! \n'.format(BRB.misc.pacifier(project),outputDir)
                         continue
                 else:
                     msg += "I received an error processing {}_{}_{}_{} for you.\n".format(BRB.misc.pacifier(project), pipeline, libraryType, organism)

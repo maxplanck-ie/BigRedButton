@@ -1,6 +1,22 @@
 import unicodedata
 import os
 
+def fetchGalaxyUsers(userFile):
+    l = list()
+    with open(userFile) as f:
+        for line in f:
+            l.append(line.strip().split()[1]) #Grab last name
+    return l
+
+def loadUserDictionary():
+    d = dict()
+    f = open("/home/pipegrp/parkourUsers.txt")
+    for line in f:
+        cols = line.split("\t")
+        d[cols[1]] = [cols[0], cols[2]]
+    f.close()
+    return d
+
 def getLatestSeqdir(groupData, PI):
     seqDirNum = 0
     for dirs in os.listdir(os.path.join(groupData, PI)):
