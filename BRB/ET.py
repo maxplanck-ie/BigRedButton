@@ -129,7 +129,9 @@ def DNA(config, outputDir):
                   'optical_duplicates': v[3],
                   'dupped_reads': v[5],
                   'mapped_reads': v[4],
-                  'insert_size': v[6]})
+                  'insert_size': v[6],
+                  'test1': 12345,
+                  'test2': 6789})  # To test the json behavior after adding a field
     return m
 
 
@@ -163,6 +165,7 @@ def RNA(config, outputDir):
                   'reads_pf_sequenced': v[1],
                   'confident_reads': v[2],
                   'optical_duplicates': v[3],
+                  'dupped_reads': 'test', 
                   'mapped_reads': v[4]})
     return m
 
