@@ -5,6 +5,7 @@ import glob
 import csv
 import json
 import BRB.misc
+import pandas as pd
 
 
 def getNReads(d):
@@ -95,31 +96,29 @@ def DNA(config, outputDir):
 
     # % Mapped
     for fname in glob.glob("{}/Bowtie2/*.Bowtie2_summary.txt".format(outputDir)):
+        sampleName = os.path.basename(fname).split(".Bowtie2_summary")[0]
+        lastLine = open(fname).read().split("\n")[-2]
+        mappedPercent = lastLine.split("%")[0]
         try:
-            sampleName = os.path.split(fname)[1][:-20]
-            lastLine = open(fname).read().split("\n")[-2]
-            mappedPercent = lastLine.split("%")[0]
             baseDict[sample2lib[sampleName]].append(float(mappedPercent))
         except:
-            pass
-
-    # % Duplicated
-    for fname in glob.glob("{}/Picard_qc/MarkDuplicates/*.mark_duplicates_metrics.txt".format(outputDir)):
-        sampleName = os.path.split(fname)[1][:-28]
-        lastLine = open(fname).read().split("\n")[-4]
-        duppedPercent = lastLine.split("\t")[-2]
-        baseDict[sample2lib[sampleName]].append(float(duppedPercent))
-
-    # Median insert size
-    for fname in glob.glob("{}/Picard_qc/InsertSizeMetrics/*.insert_size_metrics.txt".format(outputDir)):
-        sampleName = os.path.split(fname)[1][:-24]
-        lastLine = open(fname).read().split("\n")
-        medInsertSize = lastLine[7].split("\t")[0]
+            continue
+        # % Duplicated
+        dup_info = glob.glob("{}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt".format(outputDir))[0]
+        dup_df = pd.read_csv(dup_info, sep ="\t", usecols=["Sample", "total_passed", "duplicates_passed"])
+        dup_df = dup_df.loc[dup_df["Sample"] == sampleName+".markdup"]
+        dup_rate = dup_df["duplicates_passed"].values/dup_df["total_passed"].values*100
+        dup_rate = dup_rate[0]
+        baseDict[sample2lib[sampleName]].append(dup_rate)
+        # Median insert size
+        insert_size_info = os.path.join(outputDir, "deepTools_qc/bamPEFragmentSize/fragmentSize.metric.tsv")
+        insert_size_df = pd.read_csv(insert_size_info, sep ="\t")
+        medInsertSize = insert_size_df.loc[insert_size_df["Unnamed: 0"]=="filtered_bam/"+sampleName+".filtered.bam"]
+        medInsertSize = medInsertSize["Frag. Len. Median"].values[0]
         baseDict[sample2lib[sampleName]].append(int(medInsertSize))
 
-    # Filter
+    # # Filter
     outputDict = {k: v for k, v in baseDict.items() if len(v) == 7}
-
     # Reformat into a matrix
     m = []
     for k, v in outputDict.items():
@@ -140,22 +139,42 @@ def RNA(config, outputDir):
     Add % mapped to baseDict. Filter it for those actually in the output
     """
     baseDict, sample2lib = getBaseStatistics(config, outputDir)
-
     # % Mapped
     for fname in glob.glob("{}/STAR/*/*.Log.final.out".format(outputDir)):
         f = open(fname)
         tot = 0
+        uniq = 0
+        multimap = 0
         for line in f:
             if 'Uniquely mapped reads %' in line:
-                tot += float(line.strip().split("\t")[-1][:-1])
+                uniq = float(line.strip().split("\t")[-1][:-1])
+                tot += uniq
             elif '% of reads mapped to multiple loci' in line:
-                tot += float(line.strip().split("\t")[-1][:-1])
+                multimap = float(line.strip().split("\t")[-1][:-1])
+                tot += multimap
         sampleName = os.path.basename(fname).split(".")[0]
         baseDict[sample2lib[sampleName]].append(tot)
+        baseDict[sample2lib[sampleName]].append(uniq)
+        baseDict[sample2lib[sampleName]].append(multimap)
+        #  duplication
+        dup_info = glob.glob("{}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt".format(outputDir))[0]
+        dup_df = pd.read_csv(dup_info, sep ="\t", usecols=["Sample", "total_passed", "duplicates_passed"])
+        dup_df = dup_df.loc[dup_df["Sample"] == sampleName+".markdup"]
+        dup_rate = dup_df["duplicates_passed"].values/dup_df["total_passed"].values*100
+        dup_rate = dup_rate[0]
+        baseDict[sample2lib[sampleName]].append(dup_rate)
+        # assigned reads
+        assigned_info = glob.glob("{}/multiQC/multiqc_data/multiqc_featureCounts.txt".format(outputDir))[0]
+        assigned_df = pd.read_csv(assigned_info, sep ="\t", usecols=["Sample", "Total", "Assigned"])
+        assigned_df = assigned_df.loc[assigned_df["Sample"] == sampleName+".filtered"]
+        assigned_rate = assigned_df["Assigned"].values/assigned_df["Total"].values*100
+        assigned_rate = assigned_rate[0]
+        baseDict[sample2lib[sampleName]].append(assigned_rate)
+
+
 
     # Filter
-    outputDict = {k: v for k, v in baseDict.items() if len(v) == 5}
-
+    outputDict = {k: v for k, v in baseDict.items() if len(v) == 9}
     # Reformat into a matrix
     m = []
     for k, v in outputDict.items():
@@ -163,7 +182,11 @@ def RNA(config, outputDir):
                   'reads_pf_sequenced': v[1],
                   'confident_reads': v[2],
                   'optical_duplicates': v[3],
-                  'mapped_reads': v[4]})
+                  'mapped_reads': v[4],
+                  'uniq_mapped': v[5],
+                  'multi_mapped': v[6],
+                  'dupped_reads': v[7],
+                  'assigned_reads': v[8]})
     return m
 
 
@@ -201,10 +224,8 @@ def telegraphHome(config, group, project, skipList):
                                                             BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
-    print(baseDir)
-    outputDir = os.path.join(baseDir, "DNA_mouse")
+    outputDir = os.path.join(baseDir, "DNA_mouse") # does not matter what it is, it is just a generic name. No pipeline is run on these data
     baseDict, sample2lib = getBaseStatistics(config, outputDir)
-    print("dict:",baseDict.items())
     # Reformat into a matrix
     m = []
     for k, v in baseDict.items():
