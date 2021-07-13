@@ -96,36 +96,29 @@ def DNA(config, outputDir):
 
     # % Mapped
     for fname in glob.glob("{}/Bowtie2/*.Bowtie2_summary.txt".format(outputDir)):
+        sampleName = os.path.basename(fname).split(".Bowtie2_summary")[0]
+        lastLine = open(fname).read().split("\n")[-2]
+        mappedPercent = lastLine.split("%")[0]
         try:
-            sampleName = os.path.split(fname)[1][:-20]
-            lastLine = open(fname).read().split("\n")[-2]
-            mappedPercent = lastLine.split("%")[0]
             baseDict[sample2lib[sampleName]].append(float(mappedPercent))
         except:
-            pass
-
-    # % Duplicated
-    for fname in glob.glob("{}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt".format(outputDir)):
-        sampleName = os.path.split(fname)[1][:-28]
-        print("samplename:")
-        print(sampleName)
+            continue
+        # % Duplicated
         dup_info = glob.glob("{}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt".format(outputDir))[0]
-# dup_df = pd.read_csv(dup_info, sep ="\t", usecols=["Sample", "total_passed", "duplicates_passed"])
-# dup_df = dup_df.loc[dup_df["Sample"] == sampleName+".markdup"]
-# dup_rate = dup_df["duplicates_passed"].values/dup_df["total_passed"].values*100
-# dup_rate = dup_rate[0]
-# baseDict[sample2lib[sampleName]].append(dup_rate)
-
-    # Median insert size
-    for fname in glob.glob("{}/Picard_qc/InsertSizeMetrics/*.insert_size_metrics.txt".format(outputDir)):
-        sampleName = os.path.split(fname)[1][:-24]
-        lastLine = open(fname).read().split("\n")
-        medInsertSize = lastLine[7].split("\t")[0]
+        dup_df = pd.read_csv(dup_info, sep ="\t", usecols=["Sample", "total_passed", "duplicates_passed"])
+        dup_df = dup_df.loc[dup_df["Sample"] == sampleName+".markdup"]
+        dup_rate = dup_df["duplicates_passed"].values/dup_df["total_passed"].values*100
+        dup_rate = dup_rate[0]
+        baseDict[sample2lib[sampleName]].append(dup_rate)
+        # Median insert size
+        insert_size_info = os.path.join(outputDir, "deepTools_qc/bamPEFragmentSize/fragmentSize.metric.tsv")
+        insert_size_df = pd.read_csv(insert_size_info, sep ="\t")
+        medInsertSize = insert_size_df.loc[insert_size_df["Unnamed: 0"]=="filtered_bam/"+sampleName+".filtered.bam"]
+        medInsertSize = medInsertSize["Frag. Len. Median"].values[0]
         baseDict[sample2lib[sampleName]].append(int(medInsertSize))
 
-    # Filter
+    # # Filter
     outputDict = {k: v for k, v in baseDict.items() if len(v) == 7}
-
     # Reformat into a matrix
     m = []
     for k, v in outputDict.items():
@@ -135,9 +128,7 @@ def DNA(config, outputDir):
                   'optical_duplicates': v[3],
                   'dupped_reads': v[5],
                   'mapped_reads': v[4],
-                  'insert_size': v[6],
-                  'test1': 12345,
-                  'test2': 6789})  # To test the json behavior after adding a field
+                  'insert_size': v[6]})
     return m
 
 
@@ -205,7 +196,6 @@ def sendToParkour(config, msg):
         FCID = FCID.split('-')[-1]
     d = {'flowcell_id': FCID}
     d['sequences'] = json.dumps(msg)
-    print(config.get("Parkour", "ResultsURL"))
     res = requests.post(config.get("Parkour", "ResultsURL"), auth=(config.get("Parkour", "user"), config.get("Parkour", "password")), data=d)
 
 
@@ -213,7 +203,6 @@ def phoneHome(config, outputDir, pipeline):
     """
     Return metrics to Parkour, the results are in outputDir and pipeline needs to be run on them
     """
-    print("phonehome")
     msg = None
     if pipeline == 'DNA':
         msg = DNA(config, outputDir)
