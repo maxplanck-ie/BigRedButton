@@ -27,7 +27,7 @@ def getNReads(d):
         return (int(res)/4), 0
 
 
-def getOffSpeciesRate(d):
+def getOffSpeciesRate(d, organism = None):
     """
     Get the percentage of off-species reads from a directory
     This is copied from the bcl2fastq pipeline
@@ -39,6 +39,13 @@ def getOffSpeciesRate(d):
     mhol=[]
     i = 0
     maxi = 0
+    rRNA = ""
+    rRNA_rate = 0
+    if organism in ['human', 'mouse']:
+        rRNA = "{}rRNA".format(organism)
+    elif organism == 'drosophila':
+        rRNA = "flyrRNA"
+
     for line in csv.reader(open(fname, "r"), dialect="excel-tab") :
         if(len(line) == 0) :
             break
@@ -47,6 +54,9 @@ def getOffSpeciesRate(d):
         if(line[0].startswith("Library")) :
             continue
         if(line[0].startswith("PhiX") or line[0].startswith("Adapters") or line[0].startswith("Vectors") or line[0].startswith("rRNA")):
+            continue
+        if((len(rRNA)!=0) and (line[0].startswith(rRNA))):
+            rRNA_rate = float(line[5]) + float(line[7])
             continue
         species.append(line[0])
         ohol.append(float(line[5]))
@@ -59,10 +69,10 @@ def getOffSpeciesRate(d):
     for i in range(len(ohol)) :
         if(i != maxi) :
             off += ohol[i]
-    return off
+    return off, rRNA_rate
 
 
-def getBaseStatistics(config, outputDir):
+def getBaseStatistics(config, outputDir, samples_id, organism = None):
     """
     Return a directionary with keys lib names and values:
     (sample name, nReads, off-species rate, % optical dupes)
@@ -73,26 +83,29 @@ def getBaseStatistics(config, outputDir):
     s2l = dict()  # sample to library dictionary
     odir, adir = os.path.split(os.path.split(outputDir)[0])
     pdir = "Project_{}".format(adir[9:])
-    for d in glob.glob("{}/{}/{}/Sample_*".format(config.get('Paths','baseData'), config.get('Options', 'runID'), pdir)):
-        libName = os.path.split(d)[1][7:]
-        if len(glob.glob("{}/*_R1.fastq.gz".format(d))) == 0:
-            continue  # Skip failed samples
-        sampleName = glob.glob("{}/*_R1.fastq.gz".format(d))[0]
-        sampleName = os.path.split(sampleName)[1][:-12]
-        nReads, optDupes = getNReads(d)
-        offRate = getOffSpeciesRate(d)
-        baseDict[libName] = [sampleName, nReads, offRate, optDupes]
-        s2l[sampleName] = libName
+    for sample in samples_id:
+        for d in glob.glob("{}/{}/{}/Sample_{}".format(config.get('Paths','baseData'),
+                                                       config.get('Options', 'runID'),
+                                                       pdir, sample)):
+            libName = os.path.split(d)[1][7:]
+            if len(glob.glob("{}/*_R1.fastq.gz".format(d))) == 0:
+                continue  # Skip failed samples
+            sampleName = glob.glob("{}/*_R1.fastq.gz".format(d))[0]
+            sampleName = os.path.split(sampleName)[1][:-12]
+            nReads, optDupes = getNReads(d) # opt. dup.
+            offRate, rRNA_rate = getOffSpeciesRate(d,organism)
+            baseDict[libName] = [sampleName, nReads, offRate, optDupes, rRNA_rate]
+            s2l[sampleName] = libName
     return baseDict, s2l
 
 
-def DNA(config, outputDir):
+def DNA(config, outputDir, baseDict, sample2lib):
     """
     Parse an output directory to get a dictionary of libraries and their associated values.
 
     Add % mapped, % dupped, and insert size to baseDict. Filter it for those actually in the output
     """
-    baseDict, sample2lib = getBaseStatistics(config, outputDir)
+    # baseDict, sample2lib = getBaseStatistics(config, outputDir)
 
     # % Mapped
     for fname in glob.glob("{}/Bowtie2/*.Bowtie2_summary.txt".format(outputDir)):
@@ -118,7 +131,7 @@ def DNA(config, outputDir):
         baseDict[sample2lib[sampleName]].append(int(medInsertSize))
 
     # # Filter
-    outputDict = {k: v for k, v in baseDict.items() if len(v) == 7}
+    outputDict = {k: v for k, v in baseDict.items() if len(v) == 8}
     # Reformat into a matrix
     m = []
     for k, v in outputDict.items():
@@ -126,19 +139,20 @@ def DNA(config, outputDir):
                   'reads_pf_sequenced': v[1],
                   'confident_reads': v[2],
                   'optical_duplicates': v[3],
-                  'dupped_reads': v[5],
-                  'mapped_reads': v[4],
-                  'insert_size': v[6]})
+                  'dupped_reads': v[6],
+                  'mapped_reads': v[5],
+                  'insert_size': v[7],
+                  'rRNA_rate': v[4]})
     return m
 
 
-def RNA(config, outputDir):
+def RNA(config, outputDir, baseDict, sample2lib):
     """
     Parse an output directory to get a dictionary of libraries and their associated values.
 
     Add % mapped to baseDict. Filter it for those actually in the output
     """
-    baseDict, sample2lib = getBaseStatistics(config, outputDir)
+    # baseDict, sample2lib = getBaseStatistics(config, outputDir)
     # % Mapped
     for fname in glob.glob("{}/STAR/*/*.Log.final.out".format(outputDir)):
         f = open(fname)
@@ -174,7 +188,7 @@ def RNA(config, outputDir):
 
 
     # Filter
-    outputDict = {k: v for k, v in baseDict.items() if len(v) == 9}
+    outputDict = {k: v for k, v in baseDict.items() if len(v) == 10}
     # Reformat into a matrix
     m = []
     for k, v in outputDict.items():
@@ -182,11 +196,12 @@ def RNA(config, outputDir):
                   'reads_pf_sequenced': v[1],
                   'confident_reads': v[2],
                   'optical_duplicates': v[3],
-                  'mapped_reads': v[4],
-                  'uniq_mapped': v[5],
-                  'multi_mapped': v[6],
-                  'dupped_reads': v[7],
-                  'assigned_reads': v[8]})
+                  'mapped_reads': v[5],
+                  'uniq_mapped': v[6],
+                  'multi_mapped': v[7],
+                  'dupped_reads': v[8],
+                  'assigned_reads': v[9],
+                  'rRNA_rate': v[4]})
     return m
 
 
@@ -199,15 +214,28 @@ def sendToParkour(config, msg):
     res = requests.post(config.get("Parkour", "ResultsURL"), auth=(config.get("Parkour", "user"), config.get("Parkour", "password")), data=d)
 
 
-def phoneHome(config, outputDir, pipeline):
+def phoneHome(config, outputDir, pipeline, samples_tuples, organism):
     """
     Return metrics to Parkour, the results are in outputDir and pipeline needs to be run on them
     """
+    samples_id = [row[0] for row in samples_tuples]
+    baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
+
     msg = None
     if pipeline == 'DNA':
-        msg = DNA(config, outputDir)
+        msg = DNA(config, outputDir, baseDict, sample2lib)
     elif pipeline == 'RNA':
-        msg = RNA(config, outputDir)
+        msg = RNA(config, outputDir, baseDict, sample2lib)
+    else:
+        m = []
+        for k, v in baseDict.items():
+            m.append({'barcode': k,
+                      'reads_pf_sequenced': v[1],
+                      'confident_reads': v[2],
+                      'optical_duplicates': v[3],
+                      'rRNA_rate': v[4]})
+        msg = m
+
     if msg is not None:
         sendToParkour(config, msg)
 
@@ -225,13 +253,15 @@ def telegraphHome(config, group, project, skipList):
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
     outputDir = os.path.join(baseDir, "DNA_mouse") # does not matter what it is, it is just a generic name. No pipeline is run on these data
-    baseDict, sample2lib = getBaseStatistics(config, outputDir)
+    samples_id = [row[0] for row in skipList]
+    baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id)
     # Reformat into a matrix
     m = []
     for k, v in baseDict.items():
         m.append({'barcode': k,
                   'reads_pf_sequenced': v[1],
                   'confident_reads': v[2],
-                  'optical_duplicates': v[3]})
+                  'optical_duplicates': v[3],
+                  'rRNA_rate': v[4]})
     sendToParkour(config, m)
     return "Sent information on {} libraries from project {} from the {} group to Parkour\n".format(len(skipList), project, group)
