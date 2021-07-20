@@ -234,7 +234,10 @@ def DNA(config, group, project, organism, libraryType, tuples):
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    if libraryType == 'CUTandTag-seq' or libraryType == 'CUTandRUN-seq':
+        CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '--cutntag', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    else:
+        CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
@@ -355,7 +358,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'HiC', '--DAG', '--noTAD', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'HiC', '--DAG', '--noTAD', '-j', config.get('Queue', 'parallelProcesses'),'--enzyme', 'DpnII', '-i', outputDir, '-o', outputDir, org]
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
