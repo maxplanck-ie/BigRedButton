@@ -224,7 +224,6 @@ def DNA(config, group, project, organism, libraryType, tuples):
     - Remove previously linked in files
     - Clean up snakemake directory
     """
-    print(tuples[0])
     if tuples[0][2].startswith("ChIP RELACS high-throughput"):
         return RELACS(config, group, project, organism, libraryType, tuples)
 
@@ -426,11 +425,9 @@ def GetResults(config, project, libraries):
     except:
         print("external data")
         ignore = True
-
     validLibraryTypes = {v: i for i, v in enumerate(config.get('Options', 'validLibraryTypes').split(','))}
     pipelines = config.get('Options', 'pipelines').split(',')
     validOrganisms = config.get('Options', 'validOrganisms').split(',')
-
     # split by analysis type and organism, since we can only process some types of this
     analysisTypes = dict()
     skipList = []
@@ -453,30 +450,29 @@ def GetResults(config, project, libraries):
                skipList.append([library, sampleName])
             else:
                external_skipList.append([library, sampleName])
-
     msg = ""
     if len(skipList):
         for i in skipList:
             msg += "Skipping {}/{} on {}.\n".format(i[0], i[1], organism)
         msg += BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList)
-
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
             for libraryType, tuples in v2.items():
                 outputDir, rv = globals()[pipeline](config, group, BRB.misc.pacifier(project), organism, libraryType, tuples)
                 if rv == 0:
-                    galaxyUsers = BRB.misc.fetchGalaxyUsers(config.get('Galaxy','Users'))
-                    if BRB.misc.pacifier(project).split('_')[1] in galaxyUsers:
-                        try:
-                            BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
-                            msg += 'Always nice to see a Galaxy user! I linked {} into Galaxy. '.format(BRB.misc.pacifier(project))
-                        except:
-                            msg += 'I did my best to link {} into Galaxy, but I failed. '.format(BRB.misc.pacifier(project))
-                            continue
-                    else:
-                        msg += "I deliberately didn't link {} into Galaxy. ".format(BRB.misc.pacifier(project))
+                    # galaxyUsers = BRB.misc.fetchGalaxyUsers(config.get('Galaxy','Users'))
+                    # if BRB.misc.pacifier(project).split('_')[1] in galaxyUsers:
+                    #     try:
+                    #         BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
+                    #         msg += 'Always nice to see a Galaxy user! I linked {} into Galaxy. '.format(BRB.misc.pacifier(project))
+                    #     except:
+                    #         msg += 'I did my best to link {} into Galaxy, but I failed. '.format(BRB.misc.pacifier(project))
+                    #         continue
+                    # else:
+                    msg += "I deliberately didn't link {} into Galaxy. ".format(BRB.misc.pacifier(project))
+
                     try:
-                        BRB.ET.phoneHome(config, outputDir, pipeline)
+                        BRB.ET.phoneHome(config, outputDir, pipeline, tuples, organism)
                         msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
                     except:
                         msg += 'Failed to phone {} home. I was using outDir {}. I am not giving up though, BRB keeps running! \n'.format(BRB.misc.pacifier(project),outputDir)
