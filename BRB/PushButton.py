@@ -60,6 +60,11 @@ def removeLinkFiles(d):
     for fname in files:
         os.unlink(fname)
 
+def relinkFiles(config, group, project, organism, libraryType, tuples):
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
+    odir = os.path.join(outputDir, "originalFASTQ")
+    PE = linkFiles(config, group, project, odir, tuples)
+
 
 def organism2Org(config, organism):
     """Convert a parkour organism name to a Snakemake organism ID"""
@@ -131,6 +136,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1
     removeLinkFiles(outputDir)
+    relinkFiles(config, group, project, organism, libraryType, tuples)
     tidyUpABit(outputDir)
     touchDone(outputDir)
     return outputDir, 0
@@ -242,6 +248,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1
     removeLinkFiles(outputDir)
+    relinkFiles(config, group, project, organism, libraryType, tuples)
     tidyUpABit(outputDir)
     stripRights(outputDir)
     touchDone(outputDir)
@@ -267,6 +274,7 @@ def WGBS(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1
     removeLinkFiles(outputDir)
+    relinkFiles(config, group, project, organism, libraryType, tuples)
     tidyUpABit(outputDir)
     stripRights(outputDir)
     touchDone(outputDir)
@@ -363,6 +371,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1
     removeLinkFiles(outputDir)
+    relinkFiles(config, group, project, organism, libraryType, tuples)
     tidyUpABit(outputDir)
     stripRights(outputDir)
     touchDone(outputDir)
