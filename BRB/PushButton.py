@@ -63,8 +63,8 @@ def removeLinkFiles(d):
     except:
             print("check if originalFASTQ exists!")
     files = glob.glob("{}/*_R?.fastq.gz".format(d))
-    # for fname in files:
-    #     os.unlink(fname)
+    for fname in files:
+        os.unlink(fname)
 
 
 
