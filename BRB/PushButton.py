@@ -56,14 +56,26 @@ def linkFiles(config, group, project, odir, tuples):
 
 def removeLinkFiles(d):
     """Remove symlinks created by linkFiles()"""
+    try:
+        files = glob.glob("{}/originalFASTQ/*_R?.fastq.gz".format(d))
+        for fname in files:
+            os.unlink(fname)
+    except:
+            print("check if originalFASTQ exists!")
     files = glob.glob("{}/*_R?.fastq.gz".format(d))
-    for fname in files:
-        os.unlink(fname)
+    # for fname in files:
+    #     os.unlink(fname)
+
+
+
 
 def relinkFiles(config, group, project, organism, libraryType, tuples):
+    """
+    Generate symlinks under the snakepipes originalFASTQ folder directly from the project folder
+    """
     outputDir = createPath(config, group, project, organism, libraryType, tuples)
     odir = os.path.join(outputDir, "originalFASTQ")
-    PE = linkFiles(config, group, project, odir, tuples)
+    linkFiles(config, group, project, odir, tuples)
 
 
 def organism2Org(config, organism):
