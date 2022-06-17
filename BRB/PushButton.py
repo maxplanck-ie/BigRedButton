@@ -5,14 +5,21 @@ import subprocess
 import BRB.galaxy
 import BRB.ET
 import BRB.misc
+import stat
 
-def createPath(config, group, project, organism, libraryType):
+def createPath(config, group, project, organism, libraryType, tuples):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
-    baseDir = "{}/{}/sequencing_data/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
-                                                            BRB.misc.pacifier(group),
+    if tuples[0][3] == True: # if external data
+        baseDir = "{}/{}/Analysis_{}".format(config.get('Paths', 'baseData'),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
-    os.makedirs(baseDir, exist_ok=True)
+    else:
+        baseDir = "{}/{}/{}/{}/Analysis_{}".format(config.get('Paths', 'groupData'),
+                                                            BRB.misc.pacifier(group),
+                                                            BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
+                                                            config.get('Options', 'runID'),
+                                                            BRB.misc.pacifier(project))
+    os.makedirs(baseDir, mode=0o750, exist_ok=True)
 
     oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), organism))
     os.makedirs(oDir, exist_ok=True)
@@ -21,11 +28,16 @@ def createPath(config, group, project, organism, libraryType):
 
 def linkFiles(config, group, project, odir, tuples):
     """Create symlinks in odir to fastq files in {project}. Return 1 if paired-end, 0 otherwise."""
-    baseDir = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
+    if tuples[0][3] == True: # if external data
+        baseDir = "{}/{}/Project_{}".format(config.get('Paths', 'baseData'),
+                                                            config.get('Options', 'runID'),
+                                                            BRB.misc.pacifier(project))
+    else:
+        baseDir = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                            BRB.misc.pacifier(group),
+                                                           BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                            config.get('Options', 'runID'),
                                                            BRB.misc.pacifier(project))
-
     PE = False
     for t in tuples:
         currentName = "{}/{}_R1.fastq.gz".format(os.path.join(baseDir, "Sample_{}".format(t[0])), t[1])
@@ -44,9 +56,26 @@ def linkFiles(config, group, project, odir, tuples):
 
 def removeLinkFiles(d):
     """Remove symlinks created by linkFiles()"""
+    try:
+        files = glob.glob("{}/originalFASTQ/*_R?.fastq.gz".format(d))
+        for fname in files:
+            os.unlink(fname)
+    except:
+            print("check if originalFASTQ exists!")
     files = glob.glob("{}/*_R?.fastq.gz".format(d))
     for fname in files:
         os.unlink(fname)
+
+
+
+
+def relinkFiles(config, group, project, organism, libraryType, tuples):
+    """
+    Generate symlinks under the snakepipes originalFASTQ folder directly from the project folder
+    """
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
+    odir = os.path.join(outputDir, "originalFASTQ")
+    linkFiles(config, group, project, odir, tuples)
 
 
 def organism2Org(config, organism):
@@ -69,12 +98,22 @@ def tidyUpABit(d):
         shutil.rmtree(os.path.join(d, '.snakemake'))
         for f in glob.glob(os.path.join(d, '*.log')):
             os.unlink(f)
-    
+
         for d2 in glob.glob(os.path.join(d, 'FASTQ*')):
             shutil.rmtree(d2)
     except:
         pass
 
+def stripRights(d):
+    # Strip rights.
+    try:
+        for r, dirs, files in os.walk(d):
+            for d in dirs:
+                os.chmod(os.path.join(r, d), stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP)
+            for f in files:
+                os.chmod(os.path.join(r, f), stat.S_IRWXU | stat.S_IRGRP)
+    except:
+        pass
 
 def touchDone(outputDir, fname="analysis.done"):
     open(os.path.join(outputDir, fname), "w").close()
@@ -89,16 +128,13 @@ def RNA(config, group, project, organism, libraryType, tuples):
     """
     Need to set --libraryType
     """
-
-    print(tuples[0])
-
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'mRNA-seq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'mRNA-seq', '--DAG', '--trim', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     #if org == 'dm6':
     #    CMD.extend(['--star_options', '"--limitBAMsortRAM 60000000000"'])
     if tuples[0][2].startswith("SMART-Seq"):
@@ -112,13 +148,15 @@ def RNA(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1
     removeLinkFiles(outputDir)
+    relinkFiles(config, group, project, organism, libraryType, tuples)
     tidyUpABit(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
 
-    baseDir = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
+    baseDir = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                            BRB.misc.pacifier(group),
+                                                           BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                            config.get('Options', 'runID'),
                                                            BRB.misc.pacifier(project))
 def RELACS(config, group, project, organism, libraryType, tuples):
@@ -131,7 +169,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     """
     runID = config.get('Options', 'runID').split("_lanes")[0]
 
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
 
@@ -140,8 +178,9 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         print("wrong samplesheet name!", sampleSheet)
         return None, 1
 
-    baseDir = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
+    baseDir = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                            BRB.misc.pacifier(group),
+                                                           BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                            config.get('Options', 'runID'),
                                                            BRB.misc.pacifier(project))
 
@@ -186,6 +225,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         return outputDir, 1
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
+    stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -195,30 +235,36 @@ def DNA(config, group, project, organism, libraryType, tuples):
     Run the DNA mapping pipeline on the samples. Tweals could theoretically be made
     according to the libraryProtocol (tuple[2])
 
-    - Make /data/{group}/sequencing_data/{runID}/Analysis_{project}/{libraryType}_{organism} directory
+    - Make /data/{group}/{LatestSeqdir}/{runID}/Analysis_{project}/{libraryType}_{organism} directory
     - Remove previously linked in files (if any)
     - Link requested fastq files in
     - Run appropriate pipeline
     - Remove previously linked in files
     - Clean up snakemake directory
     """
-    print(tuples[0])
     if tuples[0][2].startswith("ChIP RELACS high-throughput"):
         return RELACS(config, group, project, organism, libraryType, tuples)
 
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    if libraryType == 'CUTandTag-seq' or libraryType == 'CUTandRUN-seq':
+        CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '--cutntag', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    elif libraryType == 'ATAC-Seq':
+        CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', "--trimmerOptions '-a nexteraF=CTGTCTCTTATA -A nexteraR=CTGTCTCTTATA'", '--dedup', '--mapq 2', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    else:
+        CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
         return outputDir, 1
     removeLinkFiles(outputDir)
+    relinkFiles(config, group, project, organism, libraryType, tuples)
     tidyUpABit(outputDir)
+    stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -230,7 +276,7 @@ def WGBS(config, group, project, organism, libraryType, tuples):
     TODO: set trimming according to the libraryType
     TODO: I don't think we know how to send back metrics yet
     """
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
     PE = linkFiles(config, group, project, outputDir, tuples)
@@ -242,7 +288,9 @@ def WGBS(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1
     removeLinkFiles(outputDir)
+    relinkFiles(config, group, project, organism, libraryType, tuples)
     tidyUpABit(outputDir)
+    stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -251,10 +299,10 @@ def ATAC(config, group, project, organism, libraryType, tuples):
     """
     Run the DNA mapping pipeline and then the default ATAC pipeline
     """
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
- 
+
     if not os.path.exists(os.path.join(outputDir, "DNA.done")):
         outputDir, rv = DNA(config, group, project, organism, libraryType, tuples)
         if rv != 0:
@@ -270,6 +318,7 @@ def ATAC(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1
     tidyUpABit(outputDir)
+    stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -282,7 +331,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
 
     We currently just skip unknown protocols and don't mention that!
     """
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
 
@@ -296,6 +345,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
             return outputDir, 1
         removeLinkFiles(outputDir)
         tidyUpABit(outputDir)
+        stripRights(outputDir)
     elif tuples[0][2] == "Cel-Seq 2 for single cell RNA-Seq":
         PE = linkFiles(config, group, project, outputDir, tuples)
         CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
@@ -306,6 +356,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
             return outputDir, 1
         removeLinkFiles(outputDir)
         tidyUpABit(outputDir)
+        stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -314,7 +365,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
     """
     Running the HiC pipeline on the samples.
 
-    - Make /data/{group}/sequencing_data/{runID}/Analysis_{project}/{libraryType}_{organism} directory
+    - Make /data/{group}/{LatestSeqdir}/{runID}/Analysis_{project}/{libraryType}_{organism} directory
     - Remove previously linked in files (if any)
     - Link requested fastq files in
     - Run appropriate pipeline
@@ -322,19 +373,21 @@ def HiC(config, group, project, organism, libraryType, tuples):
     - Clean up snakemake directory
     """
 
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'HiC', '--DAG', '--noTAD', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'HiC', '--DAG', '--noTAD', '-j', config.get('Queue', 'parallelProcesses'),'--enzyme', 'DpnII', '-i', outputDir, '-o', outputDir, org]
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
         return outputDir, 1
     removeLinkFiles(outputDir)
+    relinkFiles(config, group, project, organism, libraryType, tuples)
     tidyUpABit(outputDir)
+    stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
@@ -343,24 +396,29 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     """
     scATAC 10x
     """
-    outputDir = createPath(config, group, project, organism, libraryType)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
     runID = config.get('Options', 'runID').split("_lanes")[0]
     org = organism2Org(config, organism)
     if tuples[0][2] == "scATAC-Seq 10xGenomics":
-        PE = linkFiles(config, group, project, outputDir, tuples)
-        CMD = config.get('10x', 'ATAC')+" -i "+config.get('Paths', 'bclData')+runID
+        # PE = linkFiles(config, group, project, outputDir, tuples)
+        samples = ' '.join(i[1] for i in tuples)
+        inDir = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
+                                               BRB.misc.pacifier(group),
+                                               BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
+                                               config.get('Options', 'runID'),
+                                               BRB.misc.pacifier(project))
+        CMD = config.get('10x', 'ATAC')+" -i "+inDir
         CMD += " -o "+outputDir
-        CMD += " -ip "+config.get('Paths', 'interOp')+config.get('Options', 'runID')+"InterOp/ "
-        if tuples[0][4] == True:
-            CMD += " --externalDATA "
-        CMD += org
+        CMD += " "+org
+        CMD += " --projectID "+project+" --samples "+samples
         try:
             subprocess.check_call(CMD, shell=True)
         except:
             return outputDir, 1
-        removeLinkFiles(outputDir)
+        # removeLinkFiles(outputDir)
+        stripRights(outputDir)
         tidyUpABit(outputDir)
     return outputDir, 0
 
@@ -379,26 +437,27 @@ def GetResults(config, project, libraries):
 
     This doesn't return anything. It's assumed that everything within a single library type can be analysed together.
     """
-    group = project.split("_")[-1].split("-")[0].lower()
-    dataPath = "{}/{}/sequencing_data/{}/Project_{}".format(config.get('Paths', 'groupData'),
+    ignore = False
+    try:
+        group = project.split("_")[-1].split("-")[0].lower()
+        dataPath = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                             BRB.misc.pacifier(group),
+                                                            BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
-
+    except:
+        print("external data")
+        ignore = True
     validLibraryTypes = {v: i for i, v in enumerate(config.get('Options', 'validLibraryTypes').split(','))}
     pipelines = config.get('Options', 'pipelines').split(',')
     validOrganisms = config.get('Options', 'validOrganisms').split(',')
-
-    ignore = False
-    if not os.path.exists(dataPath):
-        ignore = True
-
     # split by analysis type and organism, since we can only process some types of this
     analysisTypes = dict()
     skipList = []
+    external_skipList = []
     for library, v in libraries.items():
-        sampleName, libraryType, libraryProtocol, organism = v
-        if libraryType in validLibraryTypes and organism in validOrganisms and (not ignore or libraryType=='ATAC-Seq single cell'):
+        sampleName, libraryType, libraryProtocol, organism, indexType, requestDepth = v
+        if libraryType in validLibraryTypes and organism in validOrganisms and (ignore==False or libraryType in config.get('external','LibraryTypes')):
             idx = validLibraryTypes[libraryType]
             pipeline = pipelines[idx]
             if pipeline not in analysisTypes:
@@ -409,23 +468,38 @@ def GetResults(config, project, libraries):
                 analysisTypes[pipeline][organism][libraryType] = list()
             analysisTypes[pipeline][organism][libraryType].append([library, sampleName, libraryProtocol, ignore])
         else:
-            print("Skipping {}/{} with type {} and organism {}".format(project, library, libraryType, organism))
-            skipList.append([library, sampleName])
-
+            #print("Skipping {}/{} with type {} and organism {}".format(project, library, libraryType, organism))
+            if ignore == False:
+               skipList.append([library, sampleName])
+            else:
+               external_skipList.append([library, sampleName])
     msg = ""
     if len(skipList):
         for i in skipList:
-            msg += "Skipping {}/{} on {}.\n".format(i[0], i[1], organism)	
-        msg += BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList)
-
+            msg += "Skipping {}/{} on {}.\n".format(i[0], i[1], organism)
+        msg += BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList, organism)
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
             for libraryType, tuples in v2.items():
                 outputDir, rv = globals()[pipeline](config, group, BRB.misc.pacifier(project), organism, libraryType, tuples)
                 if rv == 0:
-                    BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
-                    BRB.ET.phoneHome(config, outputDir, pipeline)
-                    msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
+                    # galaxyUsers = BRB.misc.fetchGalaxyUsers(config.get('Galaxy','Users'))
+                    # if BRB.misc.pacifier(project).split('_')[1] in galaxyUsers:
+                    #     try:
+                    #         BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
+                    #         msg += 'Always nice to see a Galaxy user! I linked {} into Galaxy. '.format(BRB.misc.pacifier(project))
+                    #     except:
+                    #         msg += 'I did my best to link {} into Galaxy, but I failed. '.format(BRB.misc.pacifier(project))
+                    #         continue
+                    # else:
+                    msg += "I deliberately didn't link {} into Galaxy. ".format(BRB.misc.pacifier(project))
+
+                    try:
+                        BRB.ET.phoneHome(config, outputDir, pipeline, tuples, organism)
+                        msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
+                    except:
+                        msg += 'Failed to phone {} home. I was using outDir {}. I am not giving up though, BRB keeps running! \n'.format(BRB.misc.pacifier(project),outputDir)
+                        continue
                 else:
                     msg += "I received an error processing {}_{}_{}_{} for you.\n".format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
 
