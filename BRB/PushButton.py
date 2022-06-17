@@ -253,6 +253,8 @@ def DNA(config, group, project, organism, libraryType, tuples):
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
     if libraryType == 'CUTandTag-seq' or libraryType == 'CUTandRUN-seq':
         CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '--cutntag', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    elif libraryType == 'ATAC-Seq':
+        CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', "--trimmerOptions '-a nexteraF=CTGTCTCTTATA -A nexteraR=CTGTCTCTTATA'", '--dedup', '--mapq 2', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     else:
         CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     try:
@@ -454,7 +456,7 @@ def GetResults(config, project, libraries):
     skipList = []
     external_skipList = []
     for library, v in libraries.items():
-        sampleName, libraryType, libraryProtocol, organism = v
+        sampleName, libraryType, libraryProtocol, organism, indexType, requestDepth = v
         if libraryType in validLibraryTypes and organism in validOrganisms and (ignore==False or libraryType in config.get('external','LibraryTypes')):
             idx = validLibraryTypes[libraryType]
             pipeline = pipelines[idx]
@@ -475,7 +477,7 @@ def GetResults(config, project, libraries):
     if len(skipList):
         for i in skipList:
             msg += "Skipping {}/{} on {}.\n".format(i[0], i[1], organism)
-        msg += BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList)
+        msg += BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList, organism)
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
             for libraryType, tuples in v2.items():

@@ -45,13 +45,15 @@ def getOffSpeciesRate(d, organism = None):
         rRNA = "{}rRNA".format(organism)
     elif organism == 'drosophila':
         rRNA = "flyrRNA"
-
     for line in csv.reader(open(fname, "r"), dialect="excel-tab") :
         if(len(line) == 0) :
             break
         if(line[0].startswith("#")) :
+            print("Hit a #")
             continue
         if(line[0].startswith("Library")) :
+            continue
+        if(line[0].startswith("Genome")) :
             continue
         if(line[0].startswith("PhiX") or line[0].startswith("Adapters") or line[0].startswith("Vectors") or line[0].startswith("rRNA")):
             continue
@@ -69,6 +71,7 @@ def getOffSpeciesRate(d, organism = None):
     for i in range(len(ohol)) :
         if(i != maxi) :
             off += ohol[i]
+    print("off is {}, rRNA_rate is {}".format(off, rRNA_rate))
     return off, rRNA_rate
 
 
@@ -82,18 +85,23 @@ def getBaseStatistics(config, outputDir, samples_id, organism = None):
     baseDict = dict()  # output dictionary
     s2l = dict()  # sample to library dictionary
     odir, adir = os.path.split(os.path.split(outputDir)[0])
-    pdir = "Project_{}".format(adir[9:])
+    pdir = "FASTQC_Project_{}".format(adir[9:])
     for sample in samples_id:
         for d in glob.glob("{}/{}/{}/Sample_{}".format(config.get('Paths','baseData'),
                                                        config.get('Options', 'runID'),
                                                        pdir, sample)):
+            print(d)
             libName = os.path.split(d)[1][7:]
-            if len(glob.glob("{}/*_R1.fastq.gz".format(d))) == 0:
+            if len(glob.glob("{}/*_R1_fastqc.zip".format(d))) == 0:
                 continue  # Skip failed samples
-            sampleName = glob.glob("{}/*_R1.fastq.gz".format(d))[0]
-            sampleName = os.path.split(sampleName)[1][:-12]
+            sampleName = glob.glob("{}/*_R1_fastqc.zip".format(d))[0]
+            sampleName = os.path.split(sampleName)[1][:-14]
+            print("Got sampleName {}".format(sampleName))
             nReads, optDupes = getNReads(d) # opt. dup.
+            print("found {} nreads and {} optDupes".format(nReads, optDupes))
+            print("Looking at {} with {}".format(d, organism))
             offRate, rRNA_rate = getOffSpeciesRate(d,organism)
+            print("found {} offs, with {} rRNA_rate".format(offRate, rRNA_rate))
             baseDict[libName] = [sampleName, nReads, offRate, optDupes, rRNA_rate]
             s2l[sampleName] = libName
     return baseDict, s2l
@@ -211,6 +219,9 @@ def sendToParkour(config, msg):
         FCID = FCID.split('-')[-1]
     d = {'flowcell_id': FCID}
     d['sequences'] = json.dumps(msg)
+    print("Sending:")
+    print("{}".format(d))
+    print("To parkour")
     res = requests.post(config.get("Parkour", "ResultsURL"), auth=(config.get("Parkour", "user"), config.get("Parkour", "password")), data=d)
 
 
@@ -220,6 +231,8 @@ def phoneHome(config, outputDir, pipeline, samples_tuples, organism):
     """
     samples_id = [row[0] for row in samples_tuples]
     baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
+    print("baseDict {}".format(baseDict))
+    print("sample2lib {}".format(sample2lib))
 
     msg = None
     if pipeline == 'DNA':
@@ -240,7 +253,7 @@ def phoneHome(config, outputDir, pipeline, samples_tuples, organism):
         sendToParkour(config, msg)
 
 
-def telegraphHome(config, group, project, skipList):
+def telegraphHome(config, group, project, skipList, organism=None):
     """
     The skipList is a list of samples/libraries for which we don't run a pipeline, but it'd be nice to still send back sequencing metrics
 
@@ -254,7 +267,11 @@ def telegraphHome(config, group, project, skipList):
                                                             BRB.misc.pacifier(project))
     outputDir = os.path.join(baseDir, "DNA_mouse") # does not matter what it is, it is just a generic name. No pipeline is run on these data
     samples_id = [row[0] for row in skipList]
-    baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id)
+    baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
+    print("baseDict IN TG:")
+    print(baseDict)
+    print("sample2lib")
+    print(sample2lib)
     # Reformat into a matrix
     m = []
     for k, v in baseDict.items():
