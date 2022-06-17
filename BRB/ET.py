@@ -20,7 +20,7 @@ def getNReads(d):
     else:
         # For machines in which we don't mark duplicates
         # Just count the number of reads in R1
-        CMD1 = ["zcat", glob.glob("{}/*_R1.fastq.gz".format(d))[0]]
+        CMD1 = ["zcat", glob.glob("{}/*_R1.fastq.gz".format(d.replace("FASTQC_", "")))[0]]
         CMD2 = ["wc", "-l"]
         c1 = subprocess.Popen(CMD1, stdout=subprocess.PIPE)
         res = subprocess.check_output(CMD2, stdin=c1.stdout)
@@ -90,18 +90,13 @@ def getBaseStatistics(config, outputDir, samples_id, organism = None):
         for d in glob.glob("{}/{}/{}/Sample_{}".format(config.get('Paths','baseData'),
                                                        config.get('Options', 'runID'),
                                                        pdir, sample)):
-            print(d)
             libName = os.path.split(d)[1][7:]
             if len(glob.glob("{}/*_R1_fastqc.zip".format(d))) == 0:
                 continue  # Skip failed samples
             sampleName = glob.glob("{}/*_R1_fastqc.zip".format(d))[0]
             sampleName = os.path.split(sampleName)[1][:-14]
-            print("Got sampleName {}".format(sampleName))
             nReads, optDupes = getNReads(d) # opt. dup.
-            print("found {} nreads and {} optDupes".format(nReads, optDupes))
-            print("Looking at {} with {}".format(d, organism))
             offRate, rRNA_rate = getOffSpeciesRate(d,organism)
-            print("found {} offs, with {} rRNA_rate".format(offRate, rRNA_rate))
             baseDict[libName] = [sampleName, nReads, offRate, optDupes, rRNA_rate]
             s2l[sampleName] = libName
     return baseDict, s2l
@@ -268,9 +263,7 @@ def telegraphHome(config, group, project, skipList, organism=None):
     outputDir = os.path.join(baseDir, "DNA_mouse") # does not matter what it is, it is just a generic name. No pipeline is run on these data
     samples_id = [row[0] for row in skipList]
     baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
-    print("baseDict IN TG:")
     print(baseDict)
-    print("sample2lib")
     print(sample2lib)
     # Reformat into a matrix
     m = []
