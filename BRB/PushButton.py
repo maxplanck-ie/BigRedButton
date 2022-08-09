@@ -254,7 +254,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
     if libraryType == 'CUTandTag-seq' or libraryType == 'CUTandRUN-seq':
         CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '--cutntag', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     elif libraryType == 'ATAC-Seq':
-        CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', "--trimmerOptions '-a nexteraF=CTGTCTCTTATA -A nexteraR=CTGTCTCTTATA'", '--dedup', '--mapq 2', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+        CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', r"--trimmerOptions '-a nexteraF=CTGTCTCTTATA -A nexteraR=CTGTCTCTTATA'", '--dedup', '--mapq 2', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     else:
         CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     try:
