@@ -11,6 +11,7 @@ import BRB.PushButton
 import BRB.email
 import BRB.ET
 import BRB.misc
+from BRB.logger import setLog, log
 import importlib
 import signal
 from threading import Event
@@ -69,21 +70,29 @@ while True:
         sleep(config)
         continue
 
+    # Open log file
+    logFile = os.path.join(config['Paths']['logPath'], config.get('Options','runID') + '.log')
+    setLog(logFile)
+
     #Process each group's data, ignore cases where the project isn't in the lanes being processed
     bdir = "{}/{}".format(config.get('Paths', 'baseData'), config.get('Options', 'runID'))
     msg = '\n'
     for k, v in ParkourDict.items():
         if not os.path.exists("{}/Project_{}".format(bdir, BRB.misc.pacifier(k))):
             print("{}/Project_{} doesn't exist".format(bdir, BRB.misc.pacifier(k)))
+            log.warning("{}/Project_{} doesn't exist".format(bdir, BRB.misc.pacifier(k)))
             continue
         try:
             msg += BRB.PushButton.GetResults(config, k, v)
         except:
             BRB.email.errorEmail(config, sys.exc_info(), "Received an error running PushButton.GetResults() with {} and {}".format(k, v))
+            log.critical("Received an error running PushButton.GetResults() with {} and {}".format(k, v))
             sys.exit("Received an error running PushButton.GetResults() with {} and {}".format(k, v))
 
     #Email finished message
     try :
+        log.info('BRB: finishedEmail')
+        log.info(msg)
         BRB.email.finishedEmail(config, msg)
     except :
         #Unrecoverable error
@@ -91,3 +100,4 @@ while True:
 
     #Mark the flow cell as having been processed
     BRB.findFinishedFlowCells.markFinished(config)
+    log.info('=== finished flowcell ===')
