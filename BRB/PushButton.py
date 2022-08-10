@@ -87,6 +87,19 @@ def organism2Org(config, organism):
             return y
     raise RuntimeError('An apparently valid organism doesn\'t have a matching snakemake genome ID!')
 
+def copyCellRanger(config, d):
+    """copy Cellranger web_summaries to sequencing facility"""
+
+    files = glob.glob(os.path.join(d, '*/outs/', 'web_summary.html'))
+    try:
+        for fname in files:
+            nname = fname.split('/')
+            nname = "_".join([nname[-5], nname[-3],nname[-1]])
+            nname = os.path.join(config.get('Paths', 'seqFacDir'), nname)
+            print("copy:", fname, nname)
+            shutil.copyfile(fname, nname)
+    except:
+        print('Warning: web_summaries maybe missing!')
 
 def tidyUpABit(d):
     """
@@ -357,6 +370,8 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         removeLinkFiles(outputDir)
         tidyUpABit(outputDir)
         stripRights(outputDir)
+        
+    copyCellRanger(config,outputDir)
     touchDone(outputDir)
     return outputDir, 0
 
