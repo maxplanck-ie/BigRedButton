@@ -8,7 +8,7 @@ def setLog(logFile):
         filename=logFile,
         level="DEBUG",
         format="%(levelname)s    %(asctime)s    %(message)s",
-        filemode='w'
+        filemode='a'
     )
     log = logging.getLogger()
     log.info("Log Initiated.")
