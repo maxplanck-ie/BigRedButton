@@ -4,6 +4,7 @@ import os
 import datetime
 import time
 import syslog
+import argparse
 import BRB.getConfig
 import BRB.findFinishedFlowCells
 import BRB.PushButton
@@ -18,6 +19,22 @@ import urllib3
 # Disable excess warning messages if we disable SSL checks
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 gotHUP = Event()
+
+def parseArgs():
+    parser = argparse.ArgumentParser(description="Run BRB")
+    parser.add_argument('configFile', help='Specify configFile')
+    parser.add_argument('--version', action='version', version="%(prog)s 1.0")
+    args = parser.parse_args()
+
+    if args.configFile is None:
+        parser.print_help()
+
+    if not os.path.exists(args.configFile):
+        print('Error: configFile {} does not exists'.format(args.configFile))
+        sys.exit(1)
+
+    return args
+
 
 def breakSleep(signo, _frame):
     gotHUP.set()
@@ -37,8 +54,11 @@ while True:
     importlib.reload(BRB.email)
     importlib.reload(BRB.misc)
 
+    # Read arguments
+    args = parseArgs()
+
     #Read the config file
-    config = BRB.getConfig.getConfig()
+    config = BRB.getConfig.getConfig(args.configFile)
     if(config is None):
         #There's no recovering from this!
         sys.exit("Error: couldn't read the config file!")
