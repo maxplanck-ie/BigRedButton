@@ -22,7 +22,7 @@ def getLatestSeqdir(groupData, PI):
     for dirs in os.listdir(os.path.join(groupData, PI)):
         if 'sequencing_data' in dirs:
             seqDirStrip = dirs.replace('sequencing_data','')
-            if seqDirStrip is not '':
+            if seqDirStrip != '':
                 if int(seqDirStrip) > seqDirNum:
                     seqDirNum = int(seqDirStrip)
     if seqDirNum == 0:

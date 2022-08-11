@@ -5,6 +5,7 @@ import subprocess
 import BRB.galaxy
 import BRB.ET
 import BRB.misc
+from BRB.logger import log
 import stat
 
 def createPath(config, group, project, organism, libraryType, tuples):
@@ -62,6 +63,7 @@ def removeLinkFiles(d):
             os.unlink(fname)
     except:
             print("check if originalFASTQ exists!")
+            log.warning("removeLinkeFiles: check if originalFASTQ exists!")
     files = glob.glob("{}/*_R?.fastq.gz".format(d))
     for fname in files:
         os.unlink(fname)
@@ -85,8 +87,23 @@ def organism2Org(config, organism):
     for x, y in zip(organisms, orgs):
         if organism == x:
             return y
+    log.critical('organism2Org: An apparently valid organism doesn\'t have a matching snakemake genome ID!')
     raise RuntimeError('An apparently valid organism doesn\'t have a matching snakemake genome ID!')
 
+def copyCellRanger(config, d):
+    """copy Cellranger web_summaries to sequencing facility"""
+
+    files = glob.glob(os.path.join(d, '*/outs/', 'web_summary.html'))
+    try:
+        for fname in files:
+            nname = fname.split('/')
+            nname = "_".join([nname[-5], nname[-3],nname[-1]])
+            nname = os.path.join(config.get('Paths', 'seqFacDir'), nname)
+            log.info("copyCellRanger:", fname, nname)
+            shutil.copyfile(fname, nname)
+    except:
+        log.warning('copyCellRanger: web_summaries maybe missing!')
+        print('Warning: web_summaries maybe missing!')
 
 def tidyUpABit(d):
     """
@@ -175,6 +192,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
 
     sampleSheet = "/dont_touch_this/solexa_runs/{}/RELACS_Project_{}.txt".format(runID, BRB.misc.pacifier(project))
     if not os.path.exists(sampleSheet) and not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
+        log.critical("RELACS: wrong samplesheet name: {}".format(sampleSheet))
         print("wrong samplesheet name!", sampleSheet)
         return None, 1
 
@@ -357,6 +375,8 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         removeLinkFiles(outputDir)
         tidyUpABit(outputDir)
         stripRights(outputDir)
+        
+    copyCellRanger(config,outputDir)
     touchDone(outputDir)
     return outputDir, 0
 

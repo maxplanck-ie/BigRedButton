@@ -5,6 +5,7 @@ import glob
 import csv
 import json
 import BRB.misc
+from BRB.logger import log
 import pandas as pd
 
 
@@ -214,6 +215,7 @@ def sendToParkour(config, msg):
         FCID = FCID.split('-')[-1]
     d = {'flowcell_id': FCID}
     d['sequences'] = json.dumps(msg)
+    log.info("sendToParkour: Sending {} to Parkour".format(d))
     print("Sending:")
     print("{}".format(d))
     print("To parkour")
@@ -228,6 +230,7 @@ def phoneHome(config, outputDir, pipeline, samples_tuples, organism):
     baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
     print("baseDict {}".format(baseDict))
     print("sample2lib {}".format(sample2lib))
+    log.info("phoneHome: baseDict: {}, sample2lib: {}".format(baseDict, sample2lib))
 
     msg = None
     if pipeline == 'DNA':
@@ -265,6 +268,7 @@ def telegraphHome(config, group, project, skipList, organism=None):
     baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
     print(baseDict)
     print(sample2lib)
+    log.info("telegraphHome: baseDict: {}, sample2lib: {}".format(baseDict, sample2lib))
     # Reformat into a matrix
     m = []
     for k, v in baseDict.items():
