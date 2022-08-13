@@ -219,7 +219,7 @@ def sendToParkour(config, msg):
     print("Sending:")
     print("{}".format(d))
     print("To parkour")
-    res = requests.post(config.get("Parkour", "ResultsURL"), auth=(config.get("Parkour", "user"), config.get("Parkour", "password")), data=d)
+    res = requests.post(config.get("Parkour", "ResultsURL"), auth=(config.get("Parkour", "user"), config.get("Parkour", "password")), data=d, verify=config.get("Parkour", "cert"))
 
 
 def phoneHome(config, outputDir, pipeline, samples_tuples, organism):
