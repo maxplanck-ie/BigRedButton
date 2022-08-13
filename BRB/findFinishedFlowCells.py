@@ -27,7 +27,7 @@ def queryParkour(config):
     if '-' in FCID:
         FCID = FCID.split('-')[-1]
     d = {'flowcell_id': FCID}
-    res = requests.get(config.get("Parkour", "QueryURL"), auth=(config.get("Parkour", "user"), config.get("Parkour", "password")), params=d)
+    res = requests.get(config.get("Parkour", "QueryURL"), auth=(config.get("Parkour", "user"), config.get("Parkour", "password")), params=d, verify=config.get("Parkour", "cert"))
     if res.status_code == 200:
         return res.json()
     return dict()
