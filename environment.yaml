@@ -1,0 +1,15 @@
+name: BRB
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - bioblend
+  - configparser
+  - editdistance
+  - matplotlib
+  - numpy
+  - python=3.10
+  - python-dateutil
+  - pytz
+
