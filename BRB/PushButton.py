@@ -7,6 +7,7 @@ import BRB.ET
 import BRB.misc
 from BRB.logger import log
 import stat
+from pathlib import Path
 
 def createPath(config, group, project, organism, libraryType, tuples):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
@@ -91,15 +92,33 @@ def organism2Org(config, organism):
     raise RuntimeError('An apparently valid organism doesn\'t have a matching snakemake genome ID!')
 
 def copyCellRanger(config, d):
-    """copy Cellranger web_summaries to sequencing facility"""
+    '''
+    copy Cellranger web_summaries to sequencing facility lane subdirectory.
+    e.g. /seqFacDir/flowcell_xxxx_lane_1/Analysis_xxx_sample_web_summary.html
+   
+          :params config: configuration parsed from .ini file
+          :params d: path to subdirectory of analysis folder, .e.g. 
+          /data/xxx/sequencing_data/yyyy_lanes_1/Analysis_2526_zzzz/RNA-Seq
+          :type config: configparser.ConfigParser
+          :type d: str
+          :return: None
+          :rtype: None
+    '''
 
     files = glob.glob(os.path.join(d, '*/outs/', 'web_summary.html'))
+
+    # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/RNA-Seqsinglecell_mouse ->
+    # yyyy_lanes_1
+    lane_dir = Path(d).parents[1].stem 
     try:
         for fname in files:
             nname = fname.split('/')
             nname = "_".join([nname[-5], nname[-3],nname[-1]])
-            nname = os.path.join(config.get('Paths', 'seqFacDir'), nname)
-            log.info("copyCellRanger:", fname, nname)
+            # make lane directory in seqFacDir and copy it over
+            seqfac_lane_dir = Path(config.get('Paths', 'seqFacDir')) / lane_dir
+            os.makedirs(seqfac_lane_dir, exist_ok=True)
+            nname = seqfac_lane_dir / nname
+            log.info("copyCellRanger from ", fname, " to ", str(nname))
             shutil.copyfile(fname, nname)
     except:
         log.warning('copyCellRanger: web_summaries maybe missing!')

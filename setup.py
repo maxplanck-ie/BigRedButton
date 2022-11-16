@@ -8,11 +8,5 @@ setup(name = 'BRB',
       author_email = "ryan@ie-freiburg.mpg.de",
       scripts = ['bin/BigRedButton.py', 'bin/demultiplex_relacs.py'],
       packages = ['BRB'],
-      include_package_data = False,
-      install_requires = ['configparser',
-                          'editdistance',
-                          'bioblend',
-                          'matplotlib',
-                          'numpy',
-                          'pytz',
-                          'python-dateutil'])
+      include_package_data = False)
+                          
