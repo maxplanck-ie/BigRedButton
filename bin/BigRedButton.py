@@ -84,10 +84,11 @@ while True:
             continue
         try:
             msg += BRB.PushButton.GetResults(config, k, v)
-        except:
+        except Exception as e:
             BRB.email.errorEmail(config, sys.exc_info(), "Received an error running PushButton.GetResults() with {} and {}".format(k, v))
             log.critical("Received an error running PushButton.GetResults() with {} and {}".format(k, v))
-            sys.exit("Received an error running PushButton.GetResults() with {} and {}".format(k, v))
+            print("Received an error running PushButton.GetResults() with {} and {}".format(k, v), file=sys.stderr)
+            raise
 
     #Email finished message
     try :
