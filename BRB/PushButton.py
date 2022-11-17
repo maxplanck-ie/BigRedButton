@@ -507,7 +507,6 @@ def GetResults(config, project, libraries):
                 analysisTypes[pipeline][organism][libraryType] = list()
             analysisTypes[pipeline][organism][libraryType].append([library, sampleName, libraryProtocol, ignore])
         else:
-            #print("Skipping {}/{} with type {} and organism {}".format(project, library, libraryType, organism))
             if ignore == False:
                skipList.append([library, sampleName])
             else:

@@ -34,6 +34,8 @@ def getOffSpeciesRate(d, organism = None):
     This is copied from the bcl2fastq pipeline
     """
     fname = glob.glob("{}/*_screen.txt".format(d))[0]
+    if not os.path.exists(fname):
+        return 0,0
     total = 0
     species=[]
     ohol=[]
@@ -97,7 +99,11 @@ def getBaseStatistics(config, outputDir, samples_id, organism = None):
             sampleName = glob.glob("{}/*_R1_fastqc.zip".format(d))[0]
             sampleName = os.path.split(sampleName)[1][:-14]
             nReads, optDupes = getNReads(d) # opt. dup.
-            offRate, rRNA_rate = getOffSpeciesRate(d,organism)
+            try:
+                offRate, rRNA_rate = getOffSpeciesRate(d,organism)
+            except:
+                offRate = 0
+                rRNA_rate = 0
             baseDict[libName] = [sampleName, nReads, offRate, optDupes, rRNA_rate]
             s2l[sampleName] = libName
     return baseDict, s2l
@@ -265,10 +271,9 @@ def telegraphHome(config, group, project, skipList, organism=None):
                                                             BRB.misc.pacifier(project))
     outputDir = os.path.join(baseDir, "DNA_mouse") # does not matter what it is, it is just a generic name. No pipeline is run on these data
     samples_id = [row[0] for row in skipList]
+    print("SAMPLESID = {}".format(samples_id))
     baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
-    print(baseDict)
-    print(sample2lib)
-    log.info("telegraphHome: baseDict: {}, sample2lib: {}".format(baseDict, sample2lib))
+    print("telegraphHome: baseDict: {}, sample2lib: {}".format(baseDict, sample2lib))
     # Reformat into a matrix
     m = []
     for k, v in baseDict.items():
