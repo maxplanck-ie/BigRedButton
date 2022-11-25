@@ -17,7 +17,11 @@ def getNReads(d):
         fname = glob.glob("{}/*.duplicate.txt".format(d))[0]
         s = open(fname).read()
         optDupes, total = s.split()
-        return int(total) - int(optDupes), 100. * float(optDupes) / float(total)
+        try:
+            opt_frac = 100. * float(optDupes) / float(total)
+        except ZeroDivisionError:
+            opt_frac = float(-1)
+        return int(total) - int(optDupes), opt_frac
     else:
         # For machines in which we don't mark duplicates
         # Just count the number of reads in R1
@@ -25,7 +29,7 @@ def getNReads(d):
         CMD2 = ["wc", "-l"]
         c1 = subprocess.Popen(CMD1, stdout=subprocess.PIPE)
         res = subprocess.check_output(CMD2, stdin=c1.stdout)
-        return (int(res)/4), 0
+        return (int(res) / 4), 0.
 
 
 def getOffSpeciesRate(d, organism = None):
