@@ -440,7 +440,11 @@ def scATAC(config, group, project, organism, libraryType, tuples):
         return outputDir, 0
     runID = config.get('Options', 'runID').split("_lanes")[0]
     org = organism2Org(config, organism)
-    if tuples[0][2] == "scATAC-Seq 10xGenomics":
+    if (
+        tuples[0][2] == "scATAC-Seq 10xGenomics"
+        or tuples[0][2] == "NextGEM_Multiome_ATAC"
+        or tuples[0][2] == "Next GEM Single Cell ATAC"
+    ):
         # PE = linkFiles(config, group, project, outputDir, tuples)
         samples = ' '.join(i[1] for i in tuples)
         inDir = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
