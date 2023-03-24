@@ -536,12 +536,12 @@ def GetResults(config, project, libraries):
                     # else:
                     msg += "I deliberately didn't link {} into Galaxy. ".format(BRB.misc.pacifier(project))
 
-                    try:
-                        BRB.ET.phoneHome(config, outputDir, pipeline, tuples, organism)
-                        msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
-                    except:
-                        msg += 'Failed to phone {} home. I was using outDir {}. I am not giving up though, BRB keeps running! \n'.format(BRB.misc.pacifier(project),outputDir)
-                        continue
+                    #try:
+                    BRB.ET.phoneHome(config, outputDir, pipeline, tuples, organism)
+                    msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
+                    #except:
+                    #    msg += 'Failed to phone {} home. I was using outDir {}. I am not giving up though, BRB keeps running! \n'.format(BRB.misc.pacifier(project),outputDir)
+                    #    continue
                 else:
                     msg += "I received an error processing {}_{}_{}_{} for you.\n".format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
 
