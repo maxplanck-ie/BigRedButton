@@ -133,7 +133,7 @@ def DNA(config, outputDir, baseDict, sample2lib):
         # % Duplicated
         dup_info = glob.glob("{}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt".format(outputDir))[0]
         dup_df = pd.read_csv(dup_info, sep ="\t", usecols=["Sample", "total_passed", "duplicates_passed"])
-        dup_df = dup_df.loc[dup_df["Sample"] == sampleName+".markdup"]
+        dup_df = dup_df.loc[dup_df["Sample"] == sampleName]
         dup_rate = dup_df["duplicates_passed"].values/dup_df["total_passed"].values*100
         dup_rate = dup_rate[0]
         baseDict[sample2lib[sampleName]].append(dup_rate)
@@ -187,7 +187,7 @@ def RNA(config, outputDir, baseDict, sample2lib):
         #  duplication
         dup_info = glob.glob("{}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt".format(outputDir))[0]
         dup_df = pd.read_csv(dup_info, sep ="\t", usecols=["Sample", "total_passed", "duplicates_passed"])
-        dup_df = dup_df.loc[dup_df["Sample"] == sampleName+".markdup"]
+        dup_df = dup_df.loc[dup_df["Sample"] == sampleName]
         dup_rate = dup_df["duplicates_passed"].values/dup_df["total_passed"].values*100
         dup_rate = dup_rate[0]
         baseDict[sample2lib[sampleName]].append(dup_rate)
@@ -226,9 +226,9 @@ def sendToParkour(config, msg):
     d = {'flowcell_id': FCID}
     d['sequences'] = json.dumps(msg)
     log.info("sendToParkour: Sending {} to Parkour".format(d))
-    print("Sending:")
-    print("{}".format(d))
-    print("To parkour")
+    #print("Sending:")
+    #print("{}".format(d))
+    #print("To parkour")
     res = requests.post(config.get("Parkour", "ResultsURL"), auth=(config.get("Parkour", "user"), config.get("Parkour", "password")), data=d, verify=config.get("Parkour", "cert"))
 
 
@@ -238,8 +238,7 @@ def phoneHome(config, outputDir, pipeline, samples_tuples, organism):
     """
     samples_id = [row[0] for row in samples_tuples]
     baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
-    print("baseDict {}".format(baseDict))
-    print("sample2lib {}".format(sample2lib))
+
     log.info("phoneHome: baseDict: {}, sample2lib: {}".format(baseDict, sample2lib))
 
     msg = None

@@ -213,7 +213,6 @@ def processPaired(args, sDict, bcLen, read1, read2, bc_dict):
               bc_dict[bc] += 1
         else: 
               false_bc += 1
-    print(bc_dict, false_bc)
     plot_bc_occurance(read1, bc_dict, false_bc, args.output)
     
 #   rname, relacs_bc = writeRead([line1_1, line1_2, line1_3, line1_4], sDict[bc][0], bc, bcLen, args, isDefault)
@@ -294,10 +293,6 @@ def plot_bc_occurance(R1, bc_dict, false_bc, output_path):
     bc_mean = np.mean(percentages[1:])
     exp_value = 100/float(len(percentages[1:]))
     bc_std = np.std(percentages[1:] - exp_value)
-    print("mean ", bc_mean, bc_std)
-
-    print(percentages)
-    print(x_ticks)
     fig,ax = plt.subplots(dpi=300)
     x = np.arange(len(percentages))
     ax.bar(x, percentages)
