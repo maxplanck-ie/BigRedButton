@@ -1,8 +1,6 @@
-name: BRB
 channels:
   - conda-forge
   - bioconda
-  - defaults
 dependencies:
   - bioblend
   - configparser
