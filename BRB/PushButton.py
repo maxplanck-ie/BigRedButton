@@ -373,7 +373,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         return outputDir, 0
 
     org = organism2Org(config, organism)
-    if tuples[0][2] == "scRNA-Seq 10xGenomics":
+    if tuples[0][2] == 'Chromium_NextGEM_SingleCell3Prime_GeneExpression_v3.1_DualIndex':
         PE = linkFiles(config, group, project, outputDir, tuples)
         CMD = [config.get('10x', 'RNA'), outputDir, outputDir, org]
         try:
