@@ -118,7 +118,7 @@ def copyCellRanger(config, d):
             seqfac_lane_dir = Path(config.get('Paths', 'seqFacDir')) / lane_dir
             os.makedirs(seqfac_lane_dir, exist_ok=True)
             nname = seqfac_lane_dir / nname
-            log.info("copyCellRanger from ", fname, " to ", str(nname))
+            log.info("copyCellRanger from {} to {}".format(fname, nname))
             shutil.copyfile(fname, nname)
     except:
         log.warning('copyCellRanger: web_summaries maybe missing!')
