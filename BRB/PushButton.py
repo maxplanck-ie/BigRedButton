@@ -93,7 +93,7 @@ def organism2Org(config, organism):
 
 def copyCellRanger(config, d):
     '''
-    copy Cellranger web_summaries to sequencing facility lane subdirectory.
+    copy Cellranger web_summaries to sequencing facility lane subdirectory & bioinfocore qc directory.
     e.g. /seqFacDir/flowcell_xxxx_lane_1/Analysis_xxx_sample_web_summary.html
    
           :params config: configuration parsed from .ini file
@@ -110,19 +110,27 @@ def copyCellRanger(config, d):
     # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/RNA-Seqsinglecell_mouse ->
     # yyyy_lanes_1
     lane_dir = Path(d).parents[1].stem 
-    try:
-        for fname in files:
-            nname = fname.split('/')
-            nname = "_".join([nname[-5], nname[-3],nname[-1]])
-            # make lane directory in seqFacDir and copy it over
-            seqfac_lane_dir = Path(config.get('Paths', 'seqFacDir')) / lane_dir
-            os.makedirs(seqfac_lane_dir, exist_ok=True)
-            nname = seqfac_lane_dir / nname
-            log.info("copyCellRanger from {} to {}".format(fname, nname))
+    for fname in files:
+        # to seqfac dir.
+        nname = fname.split('/')
+        nname = "_".join([nname[-5], nname[-3],nname[-1]])
+        # make lane directory in seqFacDir and copy it over
+        seqfac_lane_dir = Path(config.get('Paths', 'seqFacDir')) / lane_dir
+        os.makedirs(seqfac_lane_dir, exist_ok=True)
+        # Fetch flowcell ID, in case of reseq
+        short_fid = str(os.path.basename(lane_dir)).split('_')[2] + '_'
+        bioinfoCoreDirPath = Path(config.get('Paths', 'bioinfoCoreDir')) / Path(short_fid + nname)
+        nname = seqfac_lane_dir / nname
+        try:
             shutil.copyfile(fname, nname)
-    except:
-        log.warning('copyCellRanger: web_summaries maybe missing!')
-        print('Warning: web_summaries maybe missing!')
+        except:
+            log.warning("copyCellRanger from {} to {} failed.".format(fname, nname))
+        # to bioinfocore dir
+        try:
+            shutil.copyfile(fname, bioinfoCoreDirPath)
+        except:
+            log.warning("copyCellRanger from {} to {} failed.".format(fname, bioinfoCoreDirPath))
+
 
 def tidyUpABit(d):
     """
