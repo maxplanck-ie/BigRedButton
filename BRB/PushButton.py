@@ -134,6 +134,41 @@ def copyCellRanger(config, d):
             log.warning("copyCellRanger from {} to {} failed.".format(fname, bioinfoCoreDirPath))
 
 
+def copyRELACS(config, d):
+    '''
+    copy RELACS demultiplexing png files to sequencing facility lane subdirectory.
+    e.g. /seqFacDir/Sequence_Quality_yyyy/Illumina_yyyy/flowcell_xxxx_lane_1/xxx_RELACS_sample_fig.png
+   
+          :params config: configuration parsed from .ini file
+          :params d: path to subdirectory of analysis folder, .e.g. 
+          /data/xxx/sequencing_data/yyyy_lanes_1/Analysis_2526_zzzz/ChIP-Seq_bla/RELACS_demultiplexing
+          :type config: configparser.ConfigParser
+          :type d: str
+          :return: None
+          :rtype: None
+    '''
+
+    files = glob.glob(os.path.join(d, 'Sample*/', '*_fig.png'))
+
+    # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/ChIP-Seq_mouse/RELACS_demultiplexing ->
+    # Sequence_Quality_yyyy/Illumina_yyyy/yyyy_lanes_1
+    lane_dir = Path(d).parents[1].stem
+    current_year = "20" + str(lane_dir)[0:1]
+    year_postfix = Path("Sequence_Quality_" + current_year) / Path("Illumina_" + current_year)
+    for fname in files:
+        # to seqfac dir.
+        nname = fname.split('/')
+        nname = "_".join([nname[-5], nname[-3],nname[-1]])
+        # make lane directory in seqFacDir and copy it over
+        seqfac_lane_dir = Path(config.get('Paths', 'seqFacDir')) / year_postfix / lane_dir
+        os.makedirs(seqfac_lane_dir, exist_ok=True)
+        nname = seqfac_lane_dir / nname
+        try:
+            shutil.copyfile(fname, nname)
+        except:
+            log.warning("copyCellRanger from {} to {} failed.".format(fname, nname))
+
+
 def tidyUpABit(d):
     """
     If we don't tidy up we'll have a lot of dot files to upload to Galaxy
