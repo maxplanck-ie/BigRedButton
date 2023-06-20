@@ -10,4 +10,5 @@ dependencies:
   - python=3.10
   - python-dateutil
   - pytz
+  - urlib3=1.26.15
 
