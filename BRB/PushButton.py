@@ -297,6 +297,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         if not os.path.exists(newName):
             os.symlink(fname, newName)
 
+
     # Back to the normal DNA pipeline
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
@@ -307,6 +308,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         return outputDir, 1
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
+    copyRELACS(config,os.path.join(outputDir, "RELACS_demultiplexing"))
     stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
