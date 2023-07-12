@@ -537,6 +537,7 @@ def GetResults(config, project, libraries):
                                                             BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
+        log.info("Processing {}".format(dataPath))
     except:
         print("external data")
         ignore = True
@@ -559,6 +560,7 @@ def GetResults(config, project, libraries):
             if libraryType not in analysisTypes[pipeline][organism]:
                 analysisTypes[pipeline][organism][libraryType] = list()
             analysisTypes[pipeline][organism][libraryType].append([library, sampleName, libraryProtocol, ignore])
+            log.debug("Considering analysis types: {}".format(",".join(analysisTypes)))
         else:
             if ignore == False:
                skipList.append([library, sampleName])
