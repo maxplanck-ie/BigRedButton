@@ -240,6 +240,8 @@ def RNA(config, group, project, organism, libraryType, tuples):
                                                            BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                            config.get('Options', 'runID'),
                                                            BRB.misc.pacifier(project))
+
+
 def RELACS(config, group, project, organism, libraryType, tuples):
     """
     This is a variant of the DNA mapping pipeline that does RELACS demultiplexing in addition
