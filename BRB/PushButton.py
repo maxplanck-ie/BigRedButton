@@ -152,8 +152,8 @@ def copyRELACS(config, d):
 
     # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/ChIP-Seq_mouse/RELACS_demultiplexing ->
     # Sequence_Quality_yyyy/Illumina_yyyy/yyyy_lanes_1
-    lane_dir = Path(d).parents[1].stem
-    current_year = "20" + str(lane_dir)[0:1]
+    lane_dir = Path(d).parents[2].stem
+    current_year = "20" + str(lane_dir)[0:2]
     year_postfix = Path("Sequence_Quality_" + current_year) / Path("Illumina_" + current_year)
     for fname in files:
         # to seqfac dir.
