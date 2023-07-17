@@ -94,7 +94,7 @@ def organism2Org(config, organism):
 def copyCellRanger(config, d):
     '''
     copy Cellranger web_summaries to sequencing facility lane subdirectory & bioinfocore qc directory.
-    e.g. /seqFacDir/flowcell_xxxx_lane_1/Analysis_xxx_sample_web_summary.html
+    e.g. /seqFacDir/Sequence_Quality_yyyy/Illumina_yyyy/flowcell_xxxx_lane_1/Analysis_xxx_sample_web_summary.html
    
           :params config: configuration parsed from .ini file
           :params d: path to subdirectory of analysis folder, .e.g. 
@@ -109,13 +109,15 @@ def copyCellRanger(config, d):
 
     # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/RNA-Seqsinglecell_mouse ->
     # yyyy_lanes_1
-    lane_dir = Path(d).parents[1].stem 
+    lane_dir = Path(d).parents[1].stem
+    current_year = "20" + str(lane_dir)[0:1]
+    year_postfix = Path("Sequence_Quality_" + current_year) / Path("Illumina_" + current_year)
     for fname in files:
         # to seqfac dir.
         nname = fname.split('/')
         nname = "_".join([nname[-5], nname[-3],nname[-1]])
         # make lane directory in seqFacDir and copy it over
-        seqfac_lane_dir = Path(config.get('Paths', 'seqFacDir')) / lane_dir
+        seqfac_lane_dir = Path(config.get('Paths', 'seqFacDir')) / year_postfix / lane_dir
         os.makedirs(seqfac_lane_dir, exist_ok=True)
         # Fetch flowcell ID, in case of reseq
         short_fid = str(os.path.basename(lane_dir)).split('_')[2] + '_'
@@ -130,6 +132,41 @@ def copyCellRanger(config, d):
             shutil.copyfile(fname, bioinfoCoreDirPath)
         except:
             log.warning("copyCellRanger from {} to {} failed.".format(fname, bioinfoCoreDirPath))
+
+
+def copyRELACS(config, d):
+    '''
+    copy RELACS demultiplexing png files to sequencing facility lane subdirectory.
+    e.g. /seqFacDir/Sequence_Quality_yyyy/Illumina_yyyy/flowcell_xxxx_lane_1/xxx_RELACS_sample_fig.png
+   
+          :params config: configuration parsed from .ini file
+          :params d: path to subdirectory of analysis folder, .e.g. 
+          /data/xxx/sequencing_data/yyyy_lanes_1/Analysis_2526_zzzz/ChIP-Seq_bla/RELACS_demultiplexing
+          :type config: configparser.ConfigParser
+          :type d: str
+          :return: None
+          :rtype: None
+    '''
+
+    files = glob.glob(os.path.join(d, 'Sample*/', '*_fig.png'))
+
+    # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/ChIP-Seq_mouse/RELACS_demultiplexing ->
+    # Sequence_Quality_yyyy/Illumina_yyyy/yyyy_lanes_1
+    lane_dir = Path(d).parents[2].stem
+    current_year = "20" + str(lane_dir)[0:2]
+    year_postfix = Path("Sequence_Quality_" + current_year) / Path("Illumina_" + current_year)
+    for fname in files:
+        # to seqfac dir.
+        nname = fname.split('/')
+        nname = "_".join([nname[-5], nname[-3],nname[-1]])
+        # make lane directory in seqFacDir and copy it over
+        seqfac_lane_dir = Path(config.get('Paths', 'seqFacDir')) / year_postfix / lane_dir
+        os.makedirs(seqfac_lane_dir, exist_ok=True)
+        nname = seqfac_lane_dir / nname
+        try:
+            shutil.copyfile(fname, nname)
+        except:
+            log.warning("copyCellRanger from {} to {} failed.".format(fname, nname))
 
 
 def tidyUpABit(d):
@@ -172,6 +209,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     """
     Need to set --libraryType
     """
+    project = BRB.misc.pacifier(project)
     outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
@@ -203,6 +241,8 @@ def RNA(config, group, project, organism, libraryType, tuples):
                                                            BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                            config.get('Options', 'runID'),
                                                            BRB.misc.pacifier(project))
+
+
 def RELACS(config, group, project, organism, libraryType, tuples):
     """
     This is a variant of the DNA mapping pipeline that does RELACS demultiplexing in addition
@@ -213,21 +253,22 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     """
     runID = config.get('Options', 'runID').split("_lanes")[0]
 
-    outputDir = createPath(config, group, project, organism, libraryType, tuples)
+    outputDir = createPath(config, group, BRB.misc.pacifier(project), organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
 
-    sampleSheet = "/dont_touch_this/solexa_runs/{}/RELACS_Project_{}.txt".format(runID, BRB.misc.pacifier(project))
+    sampleSheet = "/dont_touch_this/solexa_runs/{}/RELACS_Project_{}.txt".format(runID,project)
     if not os.path.exists(sampleSheet) and not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
         log.critical("RELACS: wrong samplesheet name: {}".format(sampleSheet))
         print("wrong samplesheet name!", sampleSheet)
         return None, 1
 
+    project = BRB.misc.pacifier(project)
     baseDir = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                            BRB.misc.pacifier(group),
                                                            BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                            config.get('Options', 'runID'),
-                                                           BRB.misc.pacifier(project))
+                                                           project)
 
     # Link in files
     if not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
@@ -260,6 +301,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         if not os.path.exists(newName):
             os.symlink(fname, newName)
 
+
     # Back to the normal DNA pipeline
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
@@ -270,6 +312,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         return outputDir, 1
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
+    copyRELACS(config,os.path.join(outputDir, "RELACS_demultiplexing"))
     stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0
@@ -290,6 +333,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
     if tuples[0][2].startswith("ChIP RELACS high-throughput"):
         return RELACS(config, group, project, organism, libraryType, tuples)
 
+    project = BRB.misc.pacifier(project)
     outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
@@ -321,6 +365,8 @@ def WGBS(config, group, project, organism, libraryType, tuples):
     TODO: set trimming according to the libraryType
     TODO: I don't think we know how to send back metrics yet
     """
+
+    project = BRB.misc.pacifier(project)
     outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
@@ -344,6 +390,8 @@ def ATAC(config, group, project, organism, libraryType, tuples):
     """
     Run the DNA mapping pipeline and then the default ATAC pipeline
     """
+
+    project = BRB.misc.pacifier(project)
     outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
@@ -376,6 +424,8 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
 
     We currently just skip unknown protocols and don't mention that!
     """
+
+    project = BRB.misc.pacifier(project)
     outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
@@ -420,6 +470,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
     - Clean up snakemake directory
     """
 
+    project = BRB.misc.pacifier(project)
     outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
@@ -443,6 +494,8 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     """
     scATAC 10x
     """
+
+    project = BRB.misc.pacifier(project)
     outputDir = createPath(config, group, project, organism, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
@@ -491,11 +544,13 @@ def GetResults(config, project, libraries):
     ignore = False
     try:
         group = project.split("_")[-1].split("-")[0].lower()
+        group = BRB.misc.pacifier(group)
         dataPath = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
-                                                            BRB.misc.pacifier(group),
+                                                            group,
                                                             BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
+        log.info("Processing {}".format(dataPath))
     except:
         print("external data")
         ignore = True
@@ -518,6 +573,7 @@ def GetResults(config, project, libraries):
             if libraryType not in analysisTypes[pipeline][organism]:
                 analysisTypes[pipeline][organism][libraryType] = list()
             analysisTypes[pipeline][organism][libraryType].append([library, sampleName, libraryProtocol, ignore])
+            log.debug("Considering analysis types: {}".format(",".join(analysisTypes)))
         else:
             if ignore == False:
                skipList.append([library, sampleName])
@@ -531,7 +587,9 @@ def GetResults(config, project, libraries):
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
             for libraryType, tuples in v2.items():
-                outputDir, rv = globals()[pipeline](config, group, BRB.misc.pacifier(project), organism, libraryType, tuples)
+                #RELACS needs the unpacified project name to copy the original sample sheet to the dest dir
+                #hence the pacifier is applied on the project in each pipeline separately
+                outputDir, rv = globals()[pipeline](config, group, project, organism, libraryType, tuples)
                 if rv == 0:
                     # galaxyUsers = BRB.misc.fetchGalaxyUsers(config.get('Galaxy','Users'))
                     # if BRB.misc.pacifier(project).split('_')[1] in galaxyUsers:

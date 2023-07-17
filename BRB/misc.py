@@ -37,4 +37,5 @@ def pacifier(s):
     This only works in python 3
     """
     s = s.replace(" ", "")
+    s = s.replace("'","")
     return str(unicodedata.normalize('NFKD',s).encode('ASCII', 'ignore'), 'utf-8')
