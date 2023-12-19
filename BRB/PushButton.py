@@ -563,6 +563,15 @@ def GetResults(config, project, libraries):
     external_skipList = []
     for library, v in libraries.items():
         sampleName, libraryType, libraryProtocol, organism, indexType, requestDepth = v
+        # Extra checks to see where we miss out
+        if libraryType in validLibraryTypes:
+            log.info("ValidLibraryType = {}".format(libraryType))
+        else:
+            log.info("Not a ValidLibraryType = {}".format(libraryType))
+        if organism in validOrganisms:
+            log.info("ValidOrganism = {}".format(organism))
+        else:
+            log.info("Not a ValidOrganism = {}".format(organism))
         if libraryType in validLibraryTypes and organism in validOrganisms and (ignore==False or libraryType in config.get('external','LibraryTypes')):
             idx = validLibraryTypes[libraryType]
             pipeline = pipelines[idx]
