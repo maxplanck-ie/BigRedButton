@@ -43,25 +43,53 @@ This script must be run in directory containing subdirectories each having fastq
 
     return args
 
+def checkDuplicatedLabels(data):
+    """
+    Validate the samplesheet dictionary to avoid samples with same labels
+    If validation fails, it stop all
+    """
+    num_bar = 0
+    labels = set()
+    
+    for sample in data:
+        num_bar += len(data[sample])
+        for barcode in data[sample]:
+            labels.add(data[sample][barcode])
+    num_lab = len(labels)
+
+    if num_bar == num_lab:
+        print("Samplesheet has labels OK")
+    else:
+        print("Samplesheet has duplicated labels, please verify it, aborting")
+        sys.exit(1)
+
 
 def readSampleTable(sampleTable):
     """
     Read a sample table into a dict (keys are barcodes).
     Return the resulting dict and the barcode length.
     """
-    f = open(sampleTable)
     d = dict()
     bcLen = 0
-    for line in f:
-        _ = line.strip().split("\t")
-        if len(_) < 3:
-            continue
-        if _[0] not in d:
-            d[_[0]] = dict()
-        d[_[0]][_[1]] = _[2]
-        if _[1] != 'default' and len(_[1]) > bcLen:
-            bcLen = len(_[1])
-    f.close()
+    with open(sampleTable) as fh:
+        for line in fh:
+            elem = line.rstrip().split("\t")
+            if len(elem) < 3:
+                continue
+
+            sample, barcode, label = elem
+            if sample not in d:
+                d[sample] = dict()
+            d[sample][barcode] = label
+            
+            if barcode != 'default' and len(barcode) > bcLen:
+                bcLen = len(barcode)
+    
+    if len(d) < 1 or bcLen == 0:
+        print(f"Samplesheet is empty: {sampleTable}, aborting")
+        sys.exit(1)
+
+    checkDuplicatedLabels(d)
 
     return (d, bcLen)
 
@@ -269,7 +297,7 @@ def wrapper(foo):
                         subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R2.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
         processPaired(args, oDict, bcLen, R1, R2, bc_dict)
     else:
-        for k, v in ssDict.items():
+        for k, v in sDict.items():
             oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
         if 'default' not in oDict:
             k = 'default'
@@ -307,6 +335,7 @@ def plot_bc_occurance(R1, bc_dict, false_bc, output_path):
     sample_name = R1.split("_R1")[0]
     fig_path_name = os.path.join(output_path,sample_name+"_fig.png")
     plt.savefig(fig_path_name, pad_inches=0.6, bbox_inches='tight')
+
 def main(args=None):
     args = parseArgs(args)
     bc_dict = dict()
