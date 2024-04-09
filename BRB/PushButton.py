@@ -257,7 +257,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0
 
-    sampleSheet = "/dont_touch_this/solexa_runs/{}/RELACS_Project_{}.txt".format(runID, BRB.misc.pacifier(project))
+    sampleSheet = "/dont_touch_this/solexa_runs/{}/RELACS_Project_{}.txt".format(runID,project)
     if not os.path.exists(sampleSheet) and not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
         log.critical("RELACS: wrong samplesheet name: {}".format(sampleSheet))
         print("wrong samplesheet name!", sampleSheet)
