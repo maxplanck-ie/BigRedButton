@@ -8,12 +8,7 @@ import subprocess
 import gzip
 import matplotlib.pyplot as plt
 import numpy as np
-
-try:
-    import editdistance as ed
-except:
-    sys.exit("You must install 'editdistance' first")
-
+import editdistance as ed
 
 def parseArgs(args=None):
     parser = argparse.ArgumentParser(description="Process RELACS reads by moving a barcode into the header and writing output to per-barcode files.")
@@ -174,6 +169,7 @@ def writeRead2(lineList, of, bcLen, args, doTrim=True):
     of.write(lineList[2].encode())
     of.write(lineList[3].encode())
 
+
 def writePaired(read1, read2, of, bc, bcLen, args, doTrim=True):
     """
     """
@@ -242,10 +238,6 @@ def processPaired(args, sDict, bcLen, read1, read2, bc_dict):
         else: 
               false_bc += 1
     plot_bc_occurance(read1, bc_dict, false_bc, args.output)
-    
-#   rname, relacs_bc = writeRead([line1_1, line1_2, line1_3, line1_4], sDict[bc][0], bc, bcLen, args, isDefault)
-#   writeRead2([rname , line2_2, line2_3, line2_4], sDict[bc][1], bcLen, args, isDefault)
-
     f1.close()
     f2.close()
 
@@ -343,9 +335,3 @@ def main(args=None):
     p = Pool(processes=args.numThreads)
     tasks = [(d, args, v, bcLen, bc_dict) for d, v in sDict.items()]
     this_bc_dict = p.map(wrapper, tasks)
-
-if __name__ == "__main__":
-    args = None
-    if len(sys.argv) == 1:
-        args = ["-h"]
-    main(args)
