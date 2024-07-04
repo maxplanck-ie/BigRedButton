@@ -1,10 +1,10 @@
 import smtplib
 from email.mime.text import MIMEText
-
+from importlib.metadata import version
 
 def errorEmail(config, errTuple, msg) :
     msg = MIMEText(msg + "\nError type: %s\nError value: %s\n%s\n" % (errTuple[0], errTuple[1], errTuple[2]))
-    msg['Subject'] = "[BigRedButton] Error"
+    msg['Subject'] = f"[BigRedButton {version("BRB")}] Error"
     msg['From'] = config.get("Email","fromAddress")
     msg['To'] = config.get("Email","errorTo")
 
@@ -18,7 +18,7 @@ def finishedEmail(config, msg) :
     message += msg
 
     msg = MIMEText(message)
-    msg['Subject'] = "[BigRedButton] {} processed".format(config.get("Options","runID"))
+    msg['Subject'] = f"[BigRedButton {version("BRB")}] {config.get("Options","runID")} processed"
     msg['From'] = config.get("Email","fromAddress")
     msg['To'] = config.get("Email","finishedTo")
 
