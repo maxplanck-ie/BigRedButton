@@ -34,7 +34,7 @@ def run_brb(configfile):
 
     while True:
         #Read the config file
-        config = BRB.getConfig.getConfig(configFile)
+        config = BRB.getConfig.getConfig(configfile)
 
         #Get the next flow cell to process, or sleep
         config, ParkourDict = BRB.findFinishedFlowCells.newFlowCell(config)
