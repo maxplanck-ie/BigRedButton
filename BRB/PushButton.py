@@ -282,7 +282,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
             os.symlink(d, newName)
 
     # -p 10 is pretty much arbitrary
-    CMD = ["demultiplex_relacs.py", "--umiLength", "4", "-p", "10", os.path.join(outputDir, "RELACS_sampleSheet.txt"), os.path.join(outputDir, "RELACS_demultiplexing")]
+    CMD = ["demultiplex_relacs", "--umiLength", "4", "-p", "10", os.path.join(outputDir, "RELACS_sampleSheet.txt"), os.path.join(outputDir, "RELACS_demultiplexing")]
     try:
         subprocess.check_call(' '.join(CMD), shell=True, cwd=outputDir)
     except:
