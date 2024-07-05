@@ -74,11 +74,23 @@ def removeLinkFiles(d):
 
 def relinkFiles(config, group, project, organism, libraryType, tuples):
     """
-    Generate symlinks under the snakepipes originalFASTQ folder directly from the project folder
+    Generate symlinks under the snakepipes originalFASTQ folder directly from the project folder.
+    At this stage the multiqc files are copied over into the bioinfocoredir, as well.
     """
+    # relink fqs
     outputDir = createPath(config, group, project, organism, libraryType, tuples)
     odir = os.path.join(outputDir, "originalFASTQ")
     linkFiles(config, group, project, odir, tuples)
+    # Copy mqc
+    mqcf = os.path.join(outputDir, 'multiQC', 'multiqc_report.html')
+    if os.path.exists(mqcf):
+        log.info(f"Multiqc report found for {group} project {project}.")
+        of = Path(config.get('Paths', 'bioinfoCoreDir')) / 'Analysis' + project + '_multiqc.html'
+        log.info(f"Trying to copy mqc report to {of}.")
+        try:
+            shutil.copyfile(mqcf, of)
+        except:
+            log.warning(f"Copying {mqcf} to {of} failed.")
 
 
 def organism2Org(config, organism):
