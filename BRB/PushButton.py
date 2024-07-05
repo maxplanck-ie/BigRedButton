@@ -74,11 +74,23 @@ def removeLinkFiles(d):
 
 def relinkFiles(config, group, project, organism, libraryType, tuples):
     """
-    Generate symlinks under the snakepipes originalFASTQ folder directly from the project folder
+    Generate symlinks under the snakepipes originalFASTQ folder directly from the project folder.
+    At this stage the multiqc files are copied over into the bioinfocoredir, as well.
     """
+    # relink fqs
     outputDir = createPath(config, group, project, organism, libraryType, tuples)
     odir = os.path.join(outputDir, "originalFASTQ")
     linkFiles(config, group, project, odir, tuples)
+    # Copy mqc
+    mqcf = os.path.join(outputDir, 'multiQC', 'multiqc_report.html')
+    if os.path.exists(mqcf):
+        log.info(f"Multiqc report found for {group} project {project}.")
+        of = Path(config.get('Paths', 'bioinfoCoreDir')) / 'Analysis' + project + '_multiqc.html'
+        log.info(f"Trying to copy mqc report to {of}.")
+        try:
+            shutil.copyfile(mqcf, of)
+        except:
+            log.warning(f"Copying {mqcf} to {of} failed.")
 
 
 def organism2Org(config, organism):
@@ -171,12 +183,23 @@ def copyRELACS(config, d):
 
 def tidyUpABit(d):
     """
-    If we don't tidy up we'll have a lot of dot files to upload to Galaxy
+    Reduce the number of files in the analysis folder.
     """
     try:
         shutil.rmtree(os.path.join(d, 'cluster_logs'))
         os.unlink(os.path.join(d, 'config.yaml'))
         shutil.rmtree(os.path.join(d, '.snakemake'))
+        # multiqc data
+        mqc_log = os.path.join(d, 'multiQC', 'multiqc_data', 'multiqc.log')
+        mqc_out = os.path.join(d, 'multiQC', 'multiQC.out')
+        mqc_err = os.path.join(d, 'multiQC', 'multiQC.err')
+        if os.path.exists(mqc_log):
+            os.unlink(mqc_log)
+        if os.path.exists(mqc_out):
+            os.unlink(mqc_out)
+        if os.path.exists(mqc_err):
+            os.unlink(mqc_err)
+
         for f in glob.glob(os.path.join(d, '*.log')):
             os.unlink(f)
 
