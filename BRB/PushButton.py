@@ -171,12 +171,23 @@ def copyRELACS(config, d):
 
 def tidyUpABit(d):
     """
-    If we don't tidy up we'll have a lot of dot files to upload to Galaxy
+    Reduce the number of files in the analysis folder.
     """
     try:
         shutil.rmtree(os.path.join(d, 'cluster_logs'))
         os.unlink(os.path.join(d, 'config.yaml'))
         shutil.rmtree(os.path.join(d, '.snakemake'))
+        # multiqc data
+        mqc_log = os.path.join(d, 'multiQC', 'multiqc_data', 'multiqc.log')
+        mqc_out = os.path.join(d, 'multiQC', 'multiQC.out')
+        mqc_err = os.path.join(d, 'multiQC', 'multiQC.err')
+        if os.path.exists(mqc_log):
+            os.unlink(mqc_log)
+        if os.path.exists(mqc_out):
+            os.unlink(mqc_out)
+        if os.path.exists(mqc_err):
+            os.unlink(mqc_err)
+
         for f in glob.glob(os.path.join(d, '*.log')):
             os.unlink(f)
 
