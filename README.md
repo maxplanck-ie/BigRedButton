@@ -17,9 +17,8 @@ The general steps of the `BigRedButton` pipeline (in python, the `BRB` or "be ri
 3. For each newly demultiplexed run, contact Parkour to get the library types and organisms per library/sample.
 4. Filter the Parkour results for what can currently be processed (see `~/BigRedButton.ini`).
 5. Run an appropriate [Snakepipe](https://github.com/maxplanck-ie/snakepipes).
-6. Link results into Galaxy (`BRB.galaxy.linkIntoGalaxy()`).
-7. Send QC information back to Parkour (`BRB.ET.phoneHome()`).
-8. Mark a flow cell as finished by touching `analysis.done`.
+6. Send QC information back to Parkour (`BRB.ET.phoneHome()`).
+7. Mark a flow cell as finished by touching `analysis.done`.
 
 An analysis can be rerun by deleting `analysis.done` in the folder holding the demultiplexed results. The actual output is written only in the group directories (specifically, their `sequencing_data` directories).
 

@@ -2,7 +2,6 @@ import os
 import shutil
 import glob
 import subprocess
-import BRB.galaxy
 import BRB.ET
 import BRB.misc
 from BRB.logger import log
@@ -11,7 +10,7 @@ from pathlib import Path
 
 def createPath(config, group, project, organism, libraryType, tuples):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
-    if tuples[0][3] == True: # if external data
+    if tuples[0][3]:
         baseDir = "{}/{}/Analysis_{}".format(config.get('Paths', 'baseData'),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
@@ -23,14 +22,14 @@ def createPath(config, group, project, organism, libraryType, tuples):
                                                             BRB.misc.pacifier(project))
     os.makedirs(baseDir, mode=0o750, exist_ok=True)
 
-    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), organism))
+    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), organism.split(' ')[0].lower()))
     os.makedirs(oDir, exist_ok=True)
     return oDir
 
 
 def linkFiles(config, group, project, odir, tuples):
     """Create symlinks in odir to fastq files in {project}. Return 1 if paired-end, 0 otherwise."""
-    if tuples[0][3] == True: # if external data
+    if tuples[0][3]:
         baseDir = "{}/{}/Project_{}".format(config.get('Paths', 'baseData'),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
@@ -58,18 +57,13 @@ def linkFiles(config, group, project, odir, tuples):
 
 def removeLinkFiles(d):
     """Remove symlinks created by linkFiles()"""
-    try:
-        files = glob.glob("{}/originalFASTQ/*_R?.fastq.gz".format(d))
+    files = glob.glob("{}/originalFASTQ/*_R?.fastq.gz".format(d))
+    if files:
         for fname in files:
             os.unlink(fname)
-    except:
-            print("check if originalFASTQ exists!")
-            log.warning("removeLinkeFiles: check if originalFASTQ exists!")
     files = glob.glob("{}/*_R?.fastq.gz".format(d))
     for fname in files:
         os.unlink(fname)
-
-
 
 
 def relinkFiles(config, group, project, organism, libraryType, tuples):
@@ -87,10 +81,9 @@ def relinkFiles(config, group, project, organism, libraryType, tuples):
         log.info(f"Multiqc report found for {group} project {project}.")
         of = Path(config.get('Paths', 'bioinfoCoreDir')) / 'Analysis' + project + '_multiqc.html'
         log.info(f"Trying to copy mqc report to {of}.")
-        try:
-            shutil.copyfile(mqcf, of)
-        except:
-            log.warning(f"Copying {mqcf} to {of} failed.")
+        shutil.copyfile(mqcf, of)
+    else:
+        log.info(f"no multiqc report under {mqcf}.")
 
 
 def organism2Org(config, organism):
@@ -135,15 +128,10 @@ def copyCellRanger(config, d):
         short_fid = str(os.path.basename(lane_dir)).split('_')[2] + '_'
         bioinfoCoreDirPath = Path(config.get('Paths', 'bioinfoCoreDir')) / Path(short_fid + nname)
         nname = seqfac_lane_dir / nname
-        try:
-            shutil.copyfile(fname, nname)
-        except:
-            log.warning("copyCellRanger from {} to {} failed.".format(fname, nname))
+        shutil.copyfile(fname, nname)
         # to bioinfocore dir
-        try:
-            shutil.copyfile(fname, bioinfoCoreDirPath)
-        except:
-            log.warning("copyCellRanger from {} to {} failed.".format(fname, bioinfoCoreDirPath))
+        shutil.copyfile(fname, bioinfoCoreDirPath)
+        log.warning("copyCellRanger from {} to {} failed.".format(fname, bioinfoCoreDirPath))
 
 
 def copyRELACS(config, d):
@@ -175,49 +163,41 @@ def copyRELACS(config, d):
         seqfac_lane_dir = Path(config.get('Paths', 'seqFacDir')) / year_postfix / lane_dir
         os.makedirs(seqfac_lane_dir, exist_ok=True)
         nname = seqfac_lane_dir / nname
-        try:
-            shutil.copyfile(fname, nname)
-        except:
-            log.warning("copyCellRanger from {} to {} failed.".format(fname, nname))
-
+        shutil.copyfile(fname, nname)
 
 def tidyUpABit(d):
     """
     Reduce the number of files in the analysis folder.
     """
-    try:
-        shutil.rmtree(os.path.join(d, 'cluster_logs'))
-        os.unlink(os.path.join(d, 'config.yaml'))
-        shutil.rmtree(os.path.join(d, '.snakemake'))
-        # multiqc data
-        mqc_log = os.path.join(d, 'multiQC', 'multiqc_data', 'multiqc.log')
-        mqc_out = os.path.join(d, 'multiQC', 'multiQC.out')
-        mqc_err = os.path.join(d, 'multiQC', 'multiQC.err')
-        if os.path.exists(mqc_log):
-            os.unlink(mqc_log)
-        if os.path.exists(mqc_out):
-            os.unlink(mqc_out)
-        if os.path.exists(mqc_err):
-            os.unlink(mqc_err)
+    shutil.rmtree(os.path.join(d, 'cluster_logs'))
+    os.unlink(os.path.join(d, 'config.yaml'))
+    shutil.rmtree(os.path.join(d, '.snakemake'))
+    # multiqc data
+    mqc_log = os.path.join(d, 'multiQC', 'multiqc_data', 'multiqc.log')
+    mqc_out = os.path.join(d, 'multiQC', 'multiQC.out')
+    mqc_err = os.path.join(d, 'multiQC', 'multiQC.err')
+    if os.path.exists(mqc_log):
+        os.unlink(mqc_log)
+    if os.path.exists(mqc_out):
+        os.unlink(mqc_out)
+    if os.path.exists(mqc_err):
+        os.unlink(mqc_err)
 
-        for f in glob.glob(os.path.join(d, '*.log')):
-            os.unlink(f)
+    for f in glob.glob(os.path.join(d, '*.log')):
+        os.unlink(f)
 
-        for d2 in glob.glob(os.path.join(d, 'FASTQ*')):
-            shutil.rmtree(d2)
-    except:
-        pass
+    for d2 in glob.glob(os.path.join(d, 'FASTQ*')):
+        shutil.rmtree(d2)
+
 
 def stripRights(d):
     # Strip rights.
-    try:
-        for r, dirs, files in os.walk(d):
-            for d in dirs:
-                os.chmod(os.path.join(r, d), stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP)
-            for f in files:
-                os.chmod(os.path.join(r, f), stat.S_IRWXU | stat.S_IRGRP)
-    except:
-        pass
+    for r, dirs, files in os.walk(d):
+        for d in dirs:
+            os.chmod(os.path.join(r, d), stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP)
+        for f in files:
+            os.chmod(os.path.join(r, f), stat.S_IRWXU | stat.S_IRGRP)
+
 
 def touchDone(outputDir, fname="analysis.done"):
     open(os.path.join(outputDir, fname), "w").close()
@@ -623,24 +603,9 @@ def GetResults(config, project, libraries):
                 #hence the pacifier is applied on the project in each pipeline separately
                 outputDir, rv = globals()[pipeline](config, group, project, organism, libraryType, tuples)
                 if rv == 0:
-                    # galaxyUsers = BRB.misc.fetchGalaxyUsers(config.get('Galaxy','Users'))
-                    # if BRB.misc.pacifier(project).split('_')[1] in galaxyUsers:
-                    #     try:
-                    #         BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
-                    #         msg += 'Always nice to see a Galaxy user! I linked {} into Galaxy. '.format(BRB.misc.pacifier(project))
-                    #     except:
-                    #         msg += 'I did my best to link {} into Galaxy, but I failed. '.format(BRB.misc.pacifier(project))
-                    #         continue
-                    # else:
-                    msg += "I deliberately didn't link {} into Galaxy. ".format(BRB.misc.pacifier(project))
-
                     #try:
                     BRB.ET.phoneHome(config, outputDir, pipeline, tuples, organism)
                     msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
-                    #except:
-                    #    msg += 'Failed to phone {} home. I was using outDir {}. I am not giving up though, BRB keeps running! \n'.format(BRB.misc.pacifier(project),outputDir)
-                    #    continue
                 else:
                     msg += "I received an error processing {}_{}_{}_{} for you.\n".format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
-
     return msg

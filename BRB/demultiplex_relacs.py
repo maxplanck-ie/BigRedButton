@@ -5,7 +5,6 @@ import argparse
 import glob
 from multiprocessing import Pool
 import subprocess
-import gzip
 import matplotlib.pyplot as plt
 import numpy as np
 import editdistance as ed
