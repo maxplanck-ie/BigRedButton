@@ -2,7 +2,6 @@ import requests
 import subprocess
 import os
 import glob
-import csv
 import json
 import BRB.misc
 from BRB.logger import log
@@ -32,54 +31,34 @@ def getNReads(d):
         return (int(res) / 4), 0.
 
 
-def getOffSpeciesRate(d, organism = None):
+def getOffSpeciesRate(d, organism = None) -> float:
     """
-    Get the percentage of off-species reads from a directory
-    This is copied from the bcl2fastq pipeline
+    Parses 
     """
-    fname = glob.glob("{}/*_screen.txt".format(d))[0]
+    fname = glob.glob("{}/*rep".format(d))[0]
     if not os.path.exists(fname):
-        return 0,0
-    total = 0
-    species=[]
-    ohol=[]
-    mhol=[]
-    i = 0
-    maxi = 0
-    rRNA = ""
-    rRNA_rate = 0
-    if organism in ['human', 'mouse']:
-        rRNA = "{}rRNA".format(organism)
-    elif organism == 'drosophila':
-        rRNA = "flyrRNA"
-    for line in csv.reader(open(fname, "r"), dialect="excel-tab") :
-        if(len(line) == 0) :
-            break
-        if(line[0].startswith("#")) :
-            print("Hit a #")
-            continue
-        if(line[0].startswith("Library")) :
-            continue
-        if(line[0].startswith("Genome")) :
-            continue
-        if(line[0].startswith("PhiX") or line[0].startswith("Adapters") or line[0].startswith("Vectors") or line[0].startswith("rRNA")):
-            continue
-        if((len(rRNA)!=0) and (line[0].startswith(rRNA))):
-            rRNA_rate = float(line[5]) + float(line[7])
-            continue
-        species.append(line[0])
-        ohol.append(float(line[5]))
-
-        if(ohol[maxi] < ohol[i]) :
-            maxi = i
-        i += 1
-
-    off = 0
-    for i in range(len(ohol)) :
-        if(i != maxi) :
-            off += ohol[i]
-    print("off is {}, rRNA_rate is {}".format(off, rRNA_rate))
-    return off, rRNA_rate
+        return 0
+    # match parkour org to kraken db organism/group
+    org_map = {
+        'Human (GRCh38)': 'humangrp',
+        'Human (GRCh37 / hg19)': 'humangrp',
+        'Mouse (GRCm38 / mm10)': 'mousegrp',
+        'Mouse (GRCm39)': 'mousegrp',
+        'Escherichia phage Lambda':'lambdaphage',
+        'Caenorhabditis_elegans': 'c-elegans',
+        'lamprey': 'sea-lamprey',
+        'medaka': 'japanese-medaka',
+        'zebrafish': 'zebrafish',
+        'drosophila': 'flygrp',
+    }
+    if organism not in org_map:
+        return 0
+    with open(fname) as f:
+        for line in f:
+            if org_map[organism] in line:
+                off = float(line.strip().split()[0])/100
+    log.info(f"confident reads for {fname} = {off}")
+    return off
 
 
 def getBaseStatistics(config, outputDir, samples_id, organism = None):
@@ -103,12 +82,8 @@ def getBaseStatistics(config, outputDir, samples_id, organism = None):
             sampleName = glob.glob("{}/*_R1_fastqc.zip".format(d))[0]
             sampleName = os.path.split(sampleName)[1][:-14]
             nReads, optDupes = getNReads(d) # opt. dup.
-            try:
-                offRate, rRNA_rate = getOffSpeciesRate(d,organism)
-            except:
-                offRate = 0
-                rRNA_rate = 0
-            baseDict[libName] = [sampleName, nReads, offRate, optDupes, rRNA_rate]
+            offRate = getOffSpeciesRate(d,organism)
+            baseDict[libName] = [sampleName, nReads, offRate, optDupes]
             s2l[sampleName] = libName
     return baseDict, s2l
 
@@ -126,10 +101,7 @@ def DNA(config, outputDir, baseDict, sample2lib):
         sampleName = os.path.basename(fname).split(".Bowtie2_summary")[0]
         lastLine = open(fname).read().split("\n")[-2]
         mappedPercent = lastLine.split("%")[0]
-        try:
-            baseDict[sample2lib[sampleName]].append(float(mappedPercent))
-        except:
-            continue
+        baseDict[sample2lib[sampleName]].append(float(mappedPercent))
         # % Duplicated
         dup_info = glob.glob("{}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt".format(outputDir))[0]
         dup_df = pd.read_csv(dup_info, sep ="\t", usecols=["Sample", "total_passed", "duplicates_passed"])
@@ -155,8 +127,7 @@ def DNA(config, outputDir, baseDict, sample2lib):
                   'optical_duplicates': v[3],
                   'dupped_reads': v[6],
                   'mapped_reads': v[5],
-                  'insert_size': v[7],
-                  'rRNA_rate': v[4]})
+                  'insert_size': v[7]})
     return m
 
 
@@ -214,22 +185,19 @@ def RNA(config, outputDir, baseDict, sample2lib):
                   'uniq_mapped': v[6],
                   'multi_mapped': v[7],
                   'dupped_reads': v[8],
-                  'assigned_reads': v[9],
-                  'rRNA_rate': v[4]})
+                  'assigned_reads': v[9]})
     return m
 
 
 def sendToParkour(config, msg):
-    FCID = config.get("Options", "runID").split("_")[3][1:]  # C605HACXX from 150416_SN7001180_0196_BC605HACXX
+    FCID = config.get("Options", "runID").split("_")[3][1:]
     if '-' in FCID:
         FCID = FCID.split('-')[-1]
     d = {'flowcell_id': FCID}
     d['sequences'] = json.dumps(msg)
-    log.info("sendToParkour: Sending {} to Parkour".format(d))
-    #print("Sending:")
-    #print("{}".format(d))
-    #print("To parkour")
+    log.info(f"sendToParkour: Sending {d} to Parkour")
     res = requests.post(config.get("Parkour", "ResultsURL"), auth=(config.get("Parkour", "user"), config.get("Parkour", "password")), data=d, verify=config.get("Parkour", "cert"))
+    log.info(f"sendToParkour return {res}")
 
 
 def phoneHome(config, outputDir, pipeline, samples_tuples, organism):
@@ -252,8 +220,7 @@ def phoneHome(config, outputDir, pipeline, samples_tuples, organism):
             m.append({'barcode': k,
                       'reads_pf_sequenced': v[1],
                       'confident_reads': v[2],
-                      'optical_duplicates': v[3],
-                      'rRNA_rate': v[4]})
+                      'optical_duplicates': v[3]})
         msg = m
 
     if msg is not None:
@@ -283,7 +250,6 @@ def telegraphHome(config, group, project, skipList, organism=None):
         m.append({'barcode': k,
                   'reads_pf_sequenced': v[1],
                   'confident_reads': v[2],
-                  'optical_duplicates': v[3],
-                  'rRNA_rate': v[4]})
+                  'optical_duplicates': v[3]})
     sendToParkour(config, m)
     return "Sent information on {} libraries from project {} from the {} group to Parkour\n".format(len(skipList), project, group)

@@ -32,3 +32,10 @@ dependencies = [
 [project.scripts]
 BigRedButton = "BRB.run:run_brb"
 demultiplex_relacs = "BRB.demultiplex_relacs:main"
+
+[tool.ruff]
+ignore = [
+  "E722",
+  "F841",
+  "E712"
+]

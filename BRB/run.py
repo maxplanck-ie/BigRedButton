@@ -1,10 +1,6 @@
 #!/usr/bin/env python
 import sys
 import os
-import datetime
-import time
-import syslog
-import argparse
 import BRB.getConfig
 import BRB.findFinishedFlowCells
 import BRB.PushButton
@@ -12,7 +8,6 @@ import BRB.email
 import BRB.ET
 import BRB.misc
 from BRB.logger import setLog, log
-import importlib
 import rich_click as click
 from time import sleep
 
