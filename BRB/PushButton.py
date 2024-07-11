@@ -91,6 +91,8 @@ def relinkFiles(config, group, project, organism, libraryType, tuples):
             shutil.copyfile(mqcf, of)
         except:
             log.warning(f"Copying {mqcf} to {of} failed.")
+    else:
+        log.info(f"no multiqc report under {mqcf}.")
 
 
 def organism2Org(config, organism):
