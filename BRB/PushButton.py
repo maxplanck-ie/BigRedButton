@@ -2,7 +2,6 @@ import os
 import shutil
 import glob
 import subprocess
-import BRB.galaxy
 import BRB.ET
 import BRB.misc
 from BRB.logger import log
@@ -625,24 +624,9 @@ def GetResults(config, project, libraries):
                 #hence the pacifier is applied on the project in each pipeline separately
                 outputDir, rv = globals()[pipeline](config, group, project, organism, libraryType, tuples)
                 if rv == 0:
-                    # galaxyUsers = BRB.misc.fetchGalaxyUsers(config.get('Galaxy','Users'))
-                    # if BRB.misc.pacifier(project).split('_')[1] in galaxyUsers:
-                    #     try:
-                    #         BRB.galaxy.linkIntoGalaxy(config, group, BRB.misc.pacifier(project), outputDir)
-                    #         msg += 'Always nice to see a Galaxy user! I linked {} into Galaxy. '.format(BRB.misc.pacifier(project))
-                    #     except:
-                    #         msg += 'I did my best to link {} into Galaxy, but I failed. '.format(BRB.misc.pacifier(project))
-                    #         continue
-                    # else:
-                    msg += "I deliberately didn't link {} into Galaxy. ".format(BRB.misc.pacifier(project))
-
                     #try:
                     BRB.ET.phoneHome(config, outputDir, pipeline, tuples, organism)
                     msg += 'Processed project {} with the {} pipeline. The samples were of type {} from a {}.\n'.format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
-                    #except:
-                    #    msg += 'Failed to phone {} home. I was using outDir {}. I am not giving up though, BRB keeps running! \n'.format(BRB.misc.pacifier(project),outputDir)
-                    #    continue
                 else:
                     msg += "I received an error processing {}_{}_{}_{} for you.\n".format(BRB.misc.pacifier(project), pipeline, libraryType, organism)
-
     return msg

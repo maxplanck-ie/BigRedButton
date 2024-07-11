@@ -1,12 +1,6 @@
 import unicodedata
 import os
 
-def fetchGalaxyUsers(userFile):
-    l = list()
-    with open(userFile) as f:
-        for line in f:
-            l.append(line.strip().split()[1]) #Grab last name
-    return l
 
 def loadUserDictionary():
     d = dict()
