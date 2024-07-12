@@ -1,25 +1,28 @@
-'''
-This file includes anything involved in finding new flow cells to process.
-
-Note that this includes anything done after a flow cell has been processed,
-such as marking it as having been processed and sending emails.
-'''
-
-import os.path
 import sys
 import glob
 import requests
+from rich import print
+from pathlib import Path
+from BRB.logger import log
 
 
-#Returns True on processed, False on unprocessed
 def flowCellProcessed(config):
-    path = "{}/{}/analysis.done".format(config.get("Paths","baseData"), config.get("Options","runID"))
-    return os.path.exists(path)
+    return Path(
+        config.get("Paths","baseData"),
+        config.get("Options","runID"),
+        'analysis.done'
+    ).exists()
 
 
 def markFinished(config):
-    open("{}/{}/analysis.done".format(config["Paths"]["baseData"], config["Options"]["runID"]), "w").close()
-    return
+    _p = Path(
+        config["Paths"]["baseData"],
+        config["Options"]["runID"],
+        'analysis.done'
+    )
+    _p.touch()
+    log.info(f"{_p} created, flow cell processed.")
+    print(f"{_p} created, flow cell processed.")
 
 
 def queryParkour(config):
@@ -43,7 +46,7 @@ def newFlowCell(config):
             continue
 
         if not flowCellProcessed(config):
-            sys.stderr.write("Found a new flow cell: %s\n" % config.get("Options","runID"))
+            print(f"Found new flow cell: [green]{config.get("Options","runID")}[/green]")
             # Query parkour to see if there's anything to be done for this
             ParkourDict = queryParkour(config)
             if len(ParkourDict) == 0:
