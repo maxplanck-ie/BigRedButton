@@ -600,5 +600,5 @@ def GetResults(config, project, libraries):
     if external_skipList:
         assert not skipList
         libTypes = ','.join(set([i[2] for i in external_skipList]))
-        msg = msg + [project, organism, libTypes, None, None, None, False]
+        msg = msg + [[project, organism, libTypes, None, None, None, False]]
     return msg
