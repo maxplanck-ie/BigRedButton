@@ -10,7 +10,7 @@ authors = [
 ]
 description = "dixitque PI fiat computationēs et facta est computationēs et vidit PI computationēs quod esset bona"
 readme = "README.md"
-version = '0.0.2'
+version = '0.0.3'
 requires-python = ">= 3.10"
 dependencies = [
   "bioblend >= 1.2",
