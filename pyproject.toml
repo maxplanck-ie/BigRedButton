@@ -10,7 +10,7 @@ authors = [
 ]
 description = "dixitque PI fiat computationēs et facta est computationēs et vidit PI computationēs quod esset bona"
 readme = "README.md"
-version = '0.0.2'
+version = '0.0.3'
 requires-python = ">= 3.10"
 dependencies = [
   "bioblend >= 1.2",
@@ -26,7 +26,9 @@ dependencies = [
   "requests >= 2.31",
   "certifi >= 2023",
   "pyyaml >= 6.0",
-  "rich_click >= 1.8.3"
+  "rich_click >= 1.8.3",
+  "dominate >= 2.9.1",
+  "tabulate >= 0.9.0"
 ]
 
 [project.scripts]
@@ -34,7 +36,7 @@ BigRedButton = "BRB.run:run_brb"
 demultiplex_relacs = "BRB.demultiplex_relacs:main"
 
 [tool.ruff]
-ignore = [
+lint.ignore = [
   "E722",
   "F841",
   "E712"

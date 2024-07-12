@@ -10,6 +10,8 @@ import BRB.misc
 from BRB.logger import setLog, log
 import rich_click as click
 from time import sleep
+from pathlib import Path
+from rich import print
 
 @click.command(
     context_settings=dict(
@@ -38,19 +40,22 @@ def run_brb(configfile):
             continue
 
         # Open log file
-        logFile = os.path.join(config['Paths']['logPath'], config.get('Options','runID') + '.log')
+        logFile = Path(
+            config['Paths']['logPath'],
+            config.get('Options','runID') + '.log'
+        )
+        print(f"Logging into: {logFile}")
         setLog(logFile)
 
         #Process each group's data, ignore cases where the project isn't in the lanes being processed
         bdir = "{}/{}".format(config.get('Paths', 'baseData'), config.get('Options', 'runID'))
-        msg = '\n'
+        msg = []
         for k, v in ParkourDict.items():
             if not os.path.exists("{}/Project_{}".format(bdir, BRB.misc.pacifier(k))):
-                print("{}/Project_{} doesn't exist".format(bdir, BRB.misc.pacifier(k)))
-                log.warning("{}/Project_{} doesn't exist".format(bdir, BRB.misc.pacifier(k)))
+                log.info("{}/Project_{} doesn't exist, probably lives on another lane.".format(bdir, BRB.misc.pacifier(k)))
                 continue
             try:
-                msg += BRB.PushButton.GetResults(config, k, v)
+                msg = msg + BRB.PushButton.GetResults(config, k, v)
             except Exception as e:
                 BRB.email.errorEmail(config, sys.exc_info(), "Received an error running PushButton.GetResults() with {} and {}".format(k, v))
                 log.critical("Received an error running PushButton.GetResults() with {} and {}".format(k, v))
@@ -58,13 +63,9 @@ def run_brb(configfile):
                 raise
 
         #Email finished message
-        try :
-            log.info('BRB: finishedEmail')
-            log.info(msg)
-            BRB.email.finishedEmail(config, msg)
-        except :
-            #Unrecoverable error
-            sys.exit()
+        log.info('Create e-mail')
+        log.info(msg)
+        BRB.email.finishedEmail(config, msg)
 
         #Mark the flow cell as having been processed
         BRB.findFinishedFlowCells.markFinished(config)
