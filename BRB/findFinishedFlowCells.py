@@ -55,5 +55,5 @@ def newFlowCell(config):
                 ParkourDict = None
                 continue
             return config, ParkourDict
-
+    print(f"No new flow cells found...")
     return config, None
