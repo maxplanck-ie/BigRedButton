@@ -1,4 +1,3 @@
-import sys
 import glob
 import requests
 from rich import print
@@ -55,5 +54,5 @@ def newFlowCell(config):
                 ParkourDict = None
                 continue
             return config, ParkourDict
-    print(f"No new flow cells found...")
+    print("No new flow cells found...")
     return config, None

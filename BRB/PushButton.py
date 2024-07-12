@@ -594,7 +594,7 @@ def GetResults(config, project, libraries):
                     msg = msg + [BRB.ET.phoneHome(config, outputDir, pipeline, tuples, organism, project, libraryType) + [sambaUpdate]]
                     log.info(f"Processed project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {organism}")
                 else:
-                    msg = msg + [[project, organism, libType, pipeline, 'FAILED', ret, sambaupdate]]
+                    msg = msg + [[project, organism, libraryType, pipeline, 'FAILED', 'not updated', sambaUpdate]]
                     log.warning(f"FAILED project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {organism}")
     # In case there is an external_skipList, there shouldn't be a skipList !
     if external_skipList:

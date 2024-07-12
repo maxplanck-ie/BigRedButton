@@ -36,7 +36,7 @@ BigRedButton = "BRB.run:run_brb"
 demultiplex_relacs = "BRB.demultiplex_relacs:main"
 
 [tool.ruff]
-ignore = [
+lint.ignore = [
   "E722",
   "F841",
   "E712"
