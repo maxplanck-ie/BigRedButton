@@ -591,7 +591,6 @@ def GetResults(config, project, libraries):
                 #hence the pacifier is applied on the project in each pipeline separately
                 outputDir, rv, sambaUpdate = globals()[pipeline](config, group, project, organism, libraryType, tuples)
                 if rv == 0:
-                    #try:
                     msg = msg + [BRB.ET.phoneHome(config, outputDir, pipeline, tuples, organism, project, libraryType) + [sambaUpdate]]
                     log.info(f"Processed project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {organism}")
                 else:

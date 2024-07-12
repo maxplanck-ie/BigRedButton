@@ -33,14 +33,14 @@ def finishedEmail(config, msg):
         if [i[4] for i in msg].count('success') == len(msg):
             recipient = config.get("Email","deepSeq")
             _html.add(div(
-                "Post-processing is ready, deepSeq's sambda drive is updated for at least one project.",
+                f"Post-processing is ready, Samba drive is updated for {[i[6] for i in msg].count(True)} project(s).",
                 br()
             ))
-    
+
     mailer['To'] = recipient
     # Table
     tabHead = ['Project', 'organism', 'libraryType', 'workflow', 'workflow_status', 'parkour_status', 'sambaUpdate']
-    message = tabulate(
+    message =  _html.render() + '\n\n' + tabulate(
         msg, tabHead, tablefmt="html", disable_numparse=True
     )
 

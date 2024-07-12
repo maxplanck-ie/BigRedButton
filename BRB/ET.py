@@ -33,17 +33,17 @@ def getNReads(d):
 
 def getOffSpeciesRate(d, organism = None) -> float:
     """
-    Parses 
+    Parses kraken report for number of reads mapping to unexpected organisms
     """
     fname = glob.glob("{}/*rep".format(d))[0]
-    if not os.path.exists(fname):
-        return 0
     # match parkour org to kraken db organism/group
     org_map = {
         'Human (GRCh38)': 'humangrp',
         'Human (GRCh37 / hg19)': 'humangrp',
         'Mouse (GRCm38 / mm10)': 'mousegrp',
         'Mouse (GRCm39)': 'mousegrp',
+        'mouse': 'mousegrp',
+        'human': 'humangrp',
         'Escherichia phage Lambda':'lambdaphage',
         'Caenorhabditis_elegans': 'c-elegans',
         'lamprey': 'sea-lamprey',
@@ -52,6 +52,7 @@ def getOffSpeciesRate(d, organism = None) -> float:
         'drosophila': 'flygrp',
     }
     if organism not in org_map:
+        log.info(f"getOffSpeciesRate - organism {organism} is not in the org_map!")
         return 0
     with open(fname) as f:
         for line in f:
@@ -97,7 +98,20 @@ def DNA(config, outputDir, baseDict, sample2lib):
     Add % mapped, % dupped, and insert size to baseDict. Filter it for those actually in the output
     """
     # baseDict, sample2lib = getBaseStatistics(config, outputDir)
-
+    # If we have RELACS, the sample2lib won't match what we find here. 
+    # We can re-parse the sampleSheet to upload actual statistics of the RELACS demuxed samples.
+    if Path(outputDir, 'RELACS_sampleSheet.txt').exists():
+        # RELACS is a problem for parkour (matching is in sampleID / barcode level).
+        # Just return a list of dicts with the previous info
+        m = []
+        for k, v in baseDict.items():
+            m.append({'barcode': k,
+                    'reads_pf_sequenced': v[1],
+                    'confident_reads': v[2],
+                    'optical_duplicates': v[3]})
+        log.info(f"ET - DNA module detected RELACS. Returning {m}")
+        return m
+        
     # % Mapped
     for fname in glob.glob("{}/Bowtie2/*.Bowtie2_summary.txt".format(outputDir)):
         sampleName = os.path.basename(fname).split(".Bowtie2_summary")[0]
@@ -117,19 +131,19 @@ def DNA(config, outputDir, baseDict, sample2lib):
         medInsertSize = insert_size_df.loc[insert_size_df["Unnamed: 0"]=="filtered_bam/"+sampleName+".filtered.bam"]
         medInsertSize = medInsertSize["Frag. Len. Median"].values[0]
         baseDict[sample2lib[sampleName]].append(int(medInsertSize))
+    
+    log.info(f"ET - DNA module parsed {baseDict}")
 
-    # # Filter
-    outputDict = {k: v for k, v in baseDict.items() if len(v) == 8}
     # Reformat into a matrix
     m = []
-    for k, v in outputDict.items():
+    for k, v in baseDict.items():
         m.append({'barcode': k,
                   'reads_pf_sequenced': v[1],
                   'confident_reads': v[2],
                   'optical_duplicates': v[3],
-                  'dupped_reads': v[6],
-                  'mapped_reads': v[5],
-                  'insert_size': v[7]})
+                  'dupped_reads': v[5],
+                  'mapped_reads': v[4],
+                  'insert_size': v[6]})
     return m
 
 
@@ -139,8 +153,7 @@ def RNA(config, outputDir, baseDict, sample2lib):
 
     Add % mapped to baseDict. Filter it for those actually in the output
     """
-    # baseDict, sample2lib = getBaseStatistics(config, outputDir)
-    # % Mapped
+
     for fname in glob.glob("{}/STAR/*/*.Log.final.out".format(outputDir)):
         f = open(fname)
         tot = 0
@@ -173,21 +186,19 @@ def RNA(config, outputDir, baseDict, sample2lib):
         baseDict[sample2lib[sampleName]].append(assigned_rate)
 
 
-
-    # Filter
-    outputDict = {k: v for k, v in baseDict.items() if len(v) == 10}
+    log.info(f"ET - RNA module parsed {baseDict}")
     # Reformat into a matrix
     m = []
-    for k, v in outputDict.items():
+    for k, v in baseDict.items():
         m.append({'barcode': k,
                   'reads_pf_sequenced': v[1],
                   'confident_reads': v[2],
                   'optical_duplicates': v[3],
-                  'mapped_reads': v[5],
-                  'uniq_mapped': v[6],
-                  'multi_mapped': v[7],
-                  'dupped_reads': v[8],
-                  'assigned_reads': v[9]})
+                  'mapped_reads': v[4],
+                  'uniq_mapped': v[5],
+                  'multi_mapped': v[6],
+                  'dupped_reads': v[7],
+                  'assigned_reads': v[8]})
     return m
 
 
@@ -210,9 +221,6 @@ def phoneHome(config, outputDir, pipeline, samples_tuples, organism, project, li
     """
     samples_id = [row[0] for row in samples_tuples]
     baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
-
-    log.info("phoneHome: baseDict: {}, sample2lib: {}".format(baseDict, sample2lib))
-
     msg = None
     if pipeline == 'DNA':
         msg = DNA(config, outputDir, baseDict, sample2lib)
@@ -226,7 +234,7 @@ def phoneHome(config, outputDir, pipeline, samples_tuples, organism, project, li
                       'confident_reads': v[2],
                       'optical_duplicates': v[3]})
         msg = m
-
+    log.info(f"phoneHome: got msg = {msg}")
     if msg is not None:
         ret = sendToParkour(config, msg)
     else:
