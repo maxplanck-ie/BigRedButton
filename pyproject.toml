@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools >= 61.0"]
+requires = ["setuptools >= 61.0", "setuptools_scm>=8"]
 build-backed = "setuptools.build_meta"
 
 [project]
@@ -10,7 +10,7 @@ authors = [
 ]
 description = "dixitque PI fiat computationēs et facta est computationēs et vidit PI computationēs quod esset bona"
 readme = "README.md"
-version = '0.0.3'
+dynamic = ["version"]
 requires-python = ">= 3.10"
 dependencies = [
   "bioblend >= 1.2",
