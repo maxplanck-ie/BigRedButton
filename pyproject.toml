@@ -40,5 +40,6 @@ demultiplex_relacs = "BRB.demultiplex_relacs:main"
 lint.ignore = [
   "E722",
   "F841",
-  "E712"
+  "E712",
+  "E741"
 ]
