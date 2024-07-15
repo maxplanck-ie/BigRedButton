@@ -8,6 +8,7 @@ from BRB.logger import log
 import stat
 from pathlib import Path
 
+
 def createPath(config, group, project, organism, libraryType, tuples):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
     if tuples[0][3]:
@@ -97,6 +98,7 @@ def organism2Org(config, organism):
     log.critical('organism2Org: An apparently valid organism doesn\'t have a matching snakemake genome ID!')
     raise RuntimeError('An apparently valid organism doesn\'t have a matching snakemake genome ID!')
 
+
 def copyCellRanger(config, d):
     '''
     copy Cellranger web_summaries to sequencing facility lane subdirectory & bioinfocore qc directory.
@@ -166,6 +168,7 @@ def copyRELACS(config, d):
         nname = seqfac_lane_dir / nname
         shutil.copyfile(fname, nname)
 
+
 def tidyUpABit(d):
     """
     Reduce the number of files in the analysis folder.
@@ -179,6 +182,7 @@ def tidyUpABit(d):
     (Path(d) / 'multiQC' / 'multiQC.out').unlink(missing_ok=True)
     (Path(d) / 'multiQC' / 'multiQC.err').unlink(missing_ok=True)
     (Path(d) / 'config.yaml').unlink(missing_ok=True)
+
 
 def stripRights(d):
     # Strip rights.
@@ -587,18 +591,23 @@ def GetResults(config, project, libraries):
     for pipeline, v in analysisTypes.items():
         for organism, v2 in v.items():
             for libraryType, tuples in v2.items():
-                #RELACS needs the unpacified project name to copy the original sample sheet to the dest dir
-                #hence the pacifier is applied on the project in each pipeline separately
+                reruncount = 0
+                # RELACS needs the unpacified project name to copy the original sample sheet to the dest dir
+                # hence the pacifier is applied on the project in each pipeline separately
                 outputDir, rv, sambaUpdate = globals()[pipeline](config, group, project, organism, libraryType, tuples)
+                if reruncount == 0 and rv == 0:
+                    # Allow for one re-run
+                    reruncount += 1
+                    outputDir, rv, sambaUpdate = globals()[pipeline](config, group, project, organism, libraryType, tuples)
                 if rv == 0:
-                    msg = msg + [BRB.ET.phoneHome(config, outputDir, pipeline, tuples, organism, project, libraryType) + [sambaUpdate]]
-                    log.info(f"Processed project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {organism}")
+                    msg = msg + [BRB.ET.phoneHome(config, outputDir, pipeline, tuples, organism, project, libraryType) + [sambaUpdate, reruncount]]
+                    log.info(f"Processed project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {organism}. Rerun = {reruncount}")
                 else:
-                    msg = msg + [[project, organism, libraryType, pipeline, 'FAILED', 'not updated', sambaUpdate]]
-                    log.warning(f"FAILED project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {organism}")
+                    msg = msg + [[project, organism, libraryType, pipeline, 'FAILED', 'not updated', sambaUpdate, reruncount]]
+                    log.warning(f"FAILED project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {organism}. Rerun = {reruncount}")
     # In case there is an external_skipList, there shouldn't be a skipList !
     if external_skipList:
         assert not skipList
         libTypes = ','.join(set([i[2] for i in external_skipList]))
-        msg = msg + [project, organism, libTypes, None, None, None, False]
+        msg = msg + [[project, organism, libTypes, None, None, None, False, None]]
     return msg

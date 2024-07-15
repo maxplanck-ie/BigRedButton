@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools >= 61.0"]
+requires = ["setuptools >= 61.0", "setuptools_scm>=8"]
 build-backed = "setuptools.build_meta"
 
 [project]
@@ -10,7 +10,7 @@ authors = [
 ]
 description = "dixitque PI fiat computationēs et facta est computationēs et vidit PI computationēs quod esset bona"
 readme = "README.md"
-version = '0.0.3'
+dynamic = ["version"]
 requires-python = ">= 3.10"
 dependencies = [
   "bioblend >= 1.2",
@@ -28,7 +28,8 @@ dependencies = [
   "pyyaml >= 6.0",
   "rich_click >= 1.8.3",
   "dominate >= 2.9.1",
-  "tabulate >= 0.9.0"
+  "tabulate >= 0.9.0",
+  "pytest >= 8.2.2"
 ]
 
 [project.scripts]
@@ -39,5 +40,6 @@ demultiplex_relacs = "BRB.demultiplex_relacs:main"
 lint.ignore = [
   "E722",
   "F841",
-  "E712"
+  "E712",
+  "E741"
 ]
