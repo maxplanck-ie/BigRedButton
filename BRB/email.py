@@ -39,7 +39,7 @@ def finishedEmail(config, msg):
 
     mailer['To'] = recipient
     # Table
-    tabHead = ['Project', 'organism', 'libraryType', 'workflow', 'workflow_status', 'parkour_status', 'sambaUpdate']
+    tabHead = ['Project', 'organism', 'libraryType', 'workflow', 'workflow_status', 'parkour_status', 'sambaUpdate', 'reruns']
     message =  _html.render() + '\n\n' + tabulate(
         msg, tabHead, tablefmt="html", disable_numparse=True
     )
