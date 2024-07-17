@@ -72,6 +72,8 @@ def readSampleTable(sampleTable):
                 continue
 
             sample, barcode, label = elem
+            # sanitize label
+            label = label.replace(' ', '_')
             if sample not in d:
                 d[sample] = dict()
             d[sample][barcode] = label
