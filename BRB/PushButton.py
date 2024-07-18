@@ -188,10 +188,10 @@ def stripRights(d):
     # Strip rights.
     for r, dirs, files in os.walk(d):
         for d in dirs:
-            os.chmod(os.path.join(r, d), stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP)
+            os.chmod(os.path.join(r, d), stat.S_IRWXU)
         for f in files:
             if not os.path.islink(os.path.join(r, f)):
-                os.chmod(os.path.join(r, f), stat.S_IRWXU | stat.S_IRGRP)
+                os.chmod(os.path.join(r, f), stat.S_IRWXU)
 
 
 def touchDone(outputDir, fname="analysis.done"):
