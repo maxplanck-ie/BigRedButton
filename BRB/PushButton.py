@@ -166,7 +166,9 @@ def copyRELACS(config, d):
         seqfac_lane_dir = Path(config.get('Paths', 'seqFacDir')) / year_postfix / lane_dir
         os.makedirs(seqfac_lane_dir, exist_ok=True)
         nname = seqfac_lane_dir / nname
+        bname = Path(config.get('Paths', 'bioinfoCoreDir')) / nname
         shutil.copyfile(fname, nname)
+        shutil.copyfile(fname, bname)
 
 
 def tidyUpABit(d):
