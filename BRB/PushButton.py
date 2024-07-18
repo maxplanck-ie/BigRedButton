@@ -604,7 +604,7 @@ def GetResults(config, project, libraries):
                 # RELACS needs the unpacified project name to copy the original sample sheet to the dest dir
                 # hence the pacifier is applied on the project in each pipeline separately
                 outputDir, rv, sambaUpdate = globals()[pipeline](config, group, project, organism, libraryType, tuples)
-                if reruncount == 0 and rv == 0:
+                if reruncount == 0 and rv != 0:
                     # Allow for one re-run
                     reruncount += 1
                     outputDir, rv, sambaUpdate = globals()[pipeline](config, group, project, organism, libraryType, tuples)
