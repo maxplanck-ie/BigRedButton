@@ -8,6 +8,7 @@ import subprocess
 import matplotlib.pyplot as plt
 import numpy as np
 import editdistance as ed
+from rich import print
 
 def parseArgs(args=None):
     parser = argparse.ArgumentParser(description="Process RELACS reads by moving a barcode into the header and writing output to per-barcode files.")
@@ -212,7 +213,7 @@ def writePaired(read1, read2, of, bc, bcLen, args, doTrim=True):
     return bc
 
 
-def processPaired(args, sDict, bcLen, read1, read2, bc_dict):
+def processPaired(args, sDict, bcLen, read1, read2, bc_dict, ori_rDict):
     f1_ = subprocess.Popen("gunzip -c {}".format(read1), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     f2_ = subprocess.Popen("gunzip -c {}".format(read2), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     f1 = f1_.stdout
@@ -238,7 +239,7 @@ def processPaired(args, sDict, bcLen, read1, read2, bc_dict):
               bc_dict[bc] += 1
         else: 
               false_bc += 1
-    plot_bc_occurance(read1, bc_dict, false_bc, args.output)
+    plot_bc_occurance(read1, bc_dict, false_bc, args.output, ori_rDict)
     f1.close()
     f2.close()
 
@@ -259,9 +260,8 @@ def processSingle(args, sDict, bcLen, read1):
 
 
 def wrapper(foo):
-    d, args, sDict, bcLen,bc_dict = foo
-    print("Processing library {}".format(d))
-
+    d, args, sDict, bcLen, bc_dict = foo
+    print(f"Pool runner: sample {d} with bcLen {bcLen}")
     # Make the output directories
     try:
         os.makedirs("{}/{}".format(args.output, d))
@@ -288,7 +288,7 @@ def wrapper(foo):
             v = 'unknown'
             oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin,
                         subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R2.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
-        processPaired(args, oDict, bcLen, R1, R2, bc_dict)
+        processPaired(args, oDict, bcLen, R1, R2, bc_dict, sDict)
     else:
         for k, v in sDict.items():
             oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
@@ -299,16 +299,17 @@ def wrapper(foo):
         processSingle(args, oDict, bcLen, R1)
     return bc_dict
 
-def plot_bc_occurance(R1, bc_dict, false_bc, output_path):
+def plot_bc_occurance(R1, bc_dict, false_bc, output_path, sDict):
     total_sum = false_bc
     for k,v in bc_dict.items():
         total_sum += v
 
     percentages = [float(false_bc/total_sum)*100]
     x_ticks = ["false_bc"]
-    for k,v in bc_dict.items():
+
+    for k,v in sorted(bc_dict.items()):
        percentages.append(float(v/total_sum)*100)
-       x_ticks.append(str(k))
+       x_ticks.append(str(k) + '-' + sDict[str(k)])
     
     percentages = np.asarray(percentages)
     bc_mean = np.mean(percentages[1:])
@@ -322,11 +323,11 @@ def plot_bc_occurance(R1, bc_dict, false_bc, output_path):
     exp_value = 100/(len(x)-1)
     ax.axhline(y=exp_value, linestyle="--", linewidth=0.5, color='k')
     xx = [-1]+list(range(len(x)))+[len(x)+1]
-    print(xx)
     ax.fill_between(xx, [bc_mean + bc_std]*len(xx), [bc_mean - bc_std]*len(xx), color='dimgrey', alpha=0.2, zorder=3)
     plt.ylabel("% of total reads")
     sample_name = R1.split("_R1")[0]
     fig_path_name = os.path.join(output_path,sample_name+"_fig.png")
+    plt.tight_layout()
     plt.savefig(fig_path_name, pad_inches=0.6, bbox_inches='tight')
 
 def main(args=None):
