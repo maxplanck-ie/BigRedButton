@@ -188,9 +188,10 @@ def stripRights(d):
     # Strip rights.
     for r, dirs, files in os.walk(d):
         for d in dirs:
-            os.chmod(os.path.join(r, d), stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP)
+            os.chmod(os.path.join(r, d), stat.S_IRWXU)
         for f in files:
-            os.chmod(os.path.join(r, f), stat.S_IRWXU | stat.S_IRGRP)
+            if not os.path.islink(os.path.join(r, f)):
+                os.chmod(os.path.join(r, f), stat.S_IRWXU)
 
 
 def touchDone(outputDir, fname="analysis.done"):
@@ -285,11 +286,10 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     # Link in the RELACS demultiplexed files
     for fname in glob.glob(os.path.join(outputDir, "RELACS_demultiplexing", "*", "*.gz")):
         bname = os.path.basename(fname)
-        if bname.startswith('unknown'):
-            continue
-        newName = os.path.join(outputDir, bname)
-        if not os.path.exists(newName):
-            os.symlink(fname, newName)
+        if 'unknown' not in bname:
+            newName = os.path.join(outputDir, bname)
+            if not os.path.exists(newName):
+                os.symlink(fname, newName)
 
 
     # Back to the normal DNA pipeline
@@ -303,6 +303,15 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
     copyRELACS(config,os.path.join(outputDir, "RELACS_demultiplexing"))
+    # Recreate links under originalFastQ
+    for fname in glob.glob(os.path.join(outputDir, "RELACS_demultiplexing", "*", "*.gz")):
+        bname = os.path.basename(fname)
+        if bname.startswith('unknown'):
+            continue
+        if not os.path.exists(os.path.join(outputDir, 'originalFASTQ')):
+            os.mkdir(os.path.join(outputDir, 'originalFASTQ'))
+        newName = os.path.join(outputDir, 'originalFASTQ', bname)
+        os.symlink(fname, newName)
     stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0, True
@@ -595,7 +604,7 @@ def GetResults(config, project, libraries):
                 # RELACS needs the unpacified project name to copy the original sample sheet to the dest dir
                 # hence the pacifier is applied on the project in each pipeline separately
                 outputDir, rv, sambaUpdate = globals()[pipeline](config, group, project, organism, libraryType, tuples)
-                if reruncount == 0 and rv == 0:
+                if reruncount == 0 and rv != 0:
                     # Allow for one re-run
                     reruncount += 1
                     outputDir, rv, sambaUpdate = globals()[pipeline](config, group, project, organism, libraryType, tuples)
