@@ -49,7 +49,7 @@ def checkDuplicatedLabels(data):
     for sample in data:
         num_bar += len(data[sample])
         for barcode in data[sample]:
-            labels.add(data[sample][barcode])
+            labels.add(data[sample][barcode][0])
     num_lab = len(labels)
 
     if num_bar == num_lab:
@@ -71,13 +71,16 @@ def readSampleTable(sampleTable):
             elem = line.rstrip().split("\t")
             if len(elem) < 3:
                 continue
-
-            sample, barcode, label = elem
+            if len(elem) == 3:
+                sample, barcode, label = elem
+                bc_pos = ""
+            elif len(elem) == 4:
+                sample, bc_pos, barcode, label = elem
             # sanitize label
             label = label.replace(' ', '_')
             if sample not in d:
                 d[sample] = dict()
-            d[sample][barcode] = label
+            d[sample][barcode] = [label, bc_pos]
             
             if barcode != 'default' and len(barcode) > bcLen:
                 bcLen = len(barcode)
@@ -261,6 +264,7 @@ def processSingle(args, sDict, bcLen, read1):
 
 def wrapper(foo):
     d, args, sDict, bcLen, bc_dict = foo
+
     print(f"Pool runner: sample {d} with bcLen {bcLen}")
     # Make the output directories
     try:
@@ -281,21 +285,21 @@ def wrapper(foo):
     oDict = dict()
     if R2 is not None:
         for k, v in sDict.items():
-            oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin,
-                        subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R2.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
+            oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v[0]), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin,
+                        subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R2.fastq.gz'.format(args.output, d, v[0]), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
         if 'default' not in oDict:
             k = 'default'
-            v = 'unknown'
-            oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin,
-                        subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R2.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
+            v = ['unknown', '']
+            oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v[0]), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin,
+                        subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R2.fastq.gz'.format(args.output, d, v[0]), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
         processPaired(args, oDict, bcLen, R1, R2, bc_dict, sDict)
     else:
         for k, v in sDict.items():
-            oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
+            oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v[0]), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
         if 'default' not in oDict:
             k = 'default'
             v = 'unknown'
-            oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
+            oDict[k] = [subprocess.Popen(['gzip', '-c'], stdout=open('{}/{}/{}_R1.fastq.gz'.format(args.output, d, v[0]), "wb"), stdin=subprocess.PIPE, bufsize=0).stdin]
         processSingle(args, oDict, bcLen, R1)
     return bc_dict
 
@@ -308,8 +312,11 @@ def plot_bc_occurance(R1, bc_dict, false_bc, output_path, sDict):
     x_ticks = ["false_bc"]
 
     for k,v in sorted(bc_dict.items()):
-       percentages.append(float(v/total_sum)*100)
-       x_ticks.append(str(k) + '-' + sDict[str(k)])
+        percentages.append(float(v/total_sum)*100)
+        if sDict[str(k)][1] == '':
+            x_ticks.append(str(k) + ' ' + sDict[str(k)][0])
+        else:
+            x_ticks.append(sDict[str(k)][1] + ' ' + sDict[str(k)][0])
     
     percentages = np.asarray(percentages)
     bc_mean = np.mean(percentages[1:])
