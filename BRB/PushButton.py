@@ -24,7 +24,7 @@ def createPath(config, group, project, organism, libraryType, tuples):
     os.makedirs(baseDir, mode=0o700, exist_ok=True)
 
     oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), organism.split(' ')[0].lower()))
-    os.makedirs(oDir, exist_ok=True)
+    os.makedirs(oDir, mode=0o700, exist_ok=True)
     return oDir
 
 
