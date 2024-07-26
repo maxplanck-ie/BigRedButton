@@ -304,6 +304,27 @@ def wrapper(foo):
     return bc_dict
 
 def plot_bc_occurance(R1, bc_dict, false_bc, output_path, sDict):
+    # Deepseq likes to have the BC coordinates in a specific order
+    BC_ORDER = [
+        "A1-21","B1-22","C1-23","D1-24","E1-25","F1-26","G1-27",
+        "H1-28","A2-29","B2-30","C2-31","D2-32","E2-33","F2-34",
+        "G2-35","H2-36","A3-37","B3-38","C3-39","D3-40","E3-41",
+        "F3-42","G3-43","H3-44","A4-45","B4-46","C4-47","D4-48",
+        "E4-49","F4-50","A1-51","B1-52","C1-53","D1-54","E1-55",
+        "F1-56","G1-57","H1-58","A2-59","B2-60","C2-61","D2-62",
+        "E2-63","F2-64","G2-65","H2-66","A3-67","B3-68","C3-69",
+        "D3-70","E3-71","F3-72","G3-73","H3-74","A4-75","B4-76",
+        "C4-77","D4-78","E4-79","F4-80"
+    ]
+    _k_order = []
+    for _bc in BC_ORDER:
+        for k, v in sorted(bc_dict.items()):
+            if sDict[str(k)][1] == '' and k not in _k_order:
+                _k_order.append(k)
+            elif sDict[str(k)][1] == _bc:
+                _k_order.append(k)
+    assert len(_k_order) == len(bc_dict.keys())
+
     total_sum = false_bc
     for k,v in bc_dict.items():
         total_sum += v
@@ -311,7 +332,8 @@ def plot_bc_occurance(R1, bc_dict, false_bc, output_path, sDict):
     percentages = [float(false_bc/total_sum)*100]
     x_ticks = ["false_bc"]
 
-    for k,v in sorted(bc_dict.items()):
+    for k in _k_order:
+        v = bc_dict[k]
         percentages.append(float(v/total_sum)*100)
         if sDict[str(k)][1] == '':
             x_ticks.append(str(k) + ' ' + sDict[str(k)][0])
