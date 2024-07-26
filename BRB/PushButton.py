@@ -151,7 +151,7 @@ def copyRELACS(config, d):
           :rtype: None
     '''
 
-    files = glob.glob(os.path.join(d, 'Sample*/', '*_fig.png'))
+    files = glob.glob(os.path.join(d, "RELACS_demultiplexing", 'Sample*/', '*_fig.png')) + glob.glob(os.path.join(d, "multiQC", '*html'))
 
     # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/ChIP-Seq_mouse/RELACS_demultiplexing ->
     # Sequence_Quality_yyyy/Illumina_yyyy/yyyy_lanes_1
@@ -162,6 +162,8 @@ def copyRELACS(config, d):
         # to seqfac dir.
         nname = fname.split('/')
         nname = "_".join([nname[-5], nname[-3],nname[-1]])
+        if '.html' in nname:
+            nname = nname.replace('.html', 'analysis.html')
         # make lane directory in seqFacDir and copy it over
         seqfac_lane_dir = Path(config.get('Paths', 'seqFacDir')) / year_postfix / lane_dir
         os.makedirs(seqfac_lane_dir, exist_ok=True)
@@ -304,7 +306,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         return outputDir, 1, False
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
-    copyRELACS(config,os.path.join(outputDir, "RELACS_demultiplexing"))
+    copyRELACS(config, outputDir)
     # Recreate links under originalFastQ
     for fname in glob.glob(os.path.join(outputDir, "RELACS_demultiplexing", "*", "*.gz")):
         bname = os.path.basename(fname)
