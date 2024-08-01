@@ -400,9 +400,9 @@ def ATAC(config, group, project, organism, libraryType, tuples):
         return outputDir, 0, False
 
     if not os.path.exists(os.path.join(outputDir, "DNA.done")):
-        outputDir, rv = DNA(config, group, project, organism, libraryType, tuples)
+        outputDir, rv, sambaret  = DNA(config, group, project, organism, libraryType, tuples)
         if rv != 0:
-            return outputDir, rv, False
+            return outputDir, rv, sambaret
 
         removeDone(outputDir)
         touchDone(outputDir, "DNA.done")
