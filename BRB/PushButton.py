@@ -510,6 +510,7 @@ def scATAC(config, group, project, organism, libraryType, tuples):
         tuples[0][2] == "scATAC-Seq 10xGenomics"
         or tuples[0][2] == "NextGEM_Multiome_ATAC"
         or tuples[0][2] == "Next GEM Single Cell ATAC"
+        or tuples[0][2] == "Chromium Next GEM Single Cell ATAC v2"
     ):
         # PE = linkFiles(config, group, project, outputDir, tuples)
         samples = ' '.join(i[1] for i in tuples)
