@@ -268,24 +268,34 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     # Link in files
     if not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
         shutil.copyfile(sampleSheet, os.path.join(outputDir, "RELACS_sampleSheet.txt"))
-    unlinkDirs = []
-    for d in glob.glob("{}/Sample_*".format(baseDir)):
-        bname = os.path.basename(d)
-        newName = os.path.join(outputDir, bname)
-        unlinkDirs.append(newName)
-        if not os.path.exists(newName):
-            os.symlink(d, newName)
+    
+    # Only re-run RELACS demultiplexing if we don't have png files generated for every sample (pre-demux)
+    # Infer number of samples from relacs samplesheet.
+    premuxSamples = []
+    with open(os.path.join(outputDir, "RELACS_sampleSheet.txt")) as f:
+        for line in f:
+            _s = line.strip().split('\t')[0]
+            if _s not in premuxSamples:
+                premuxSamples.append(_s)
+    if len(premuxSamples) != len(list((Path(outputDir) / 'RELACS_demultiplexing').rglob("*png"))):
+        unlinkDirs = []
+        for d in glob.glob("{}/Sample_*".format(baseDir)):
+            bname = os.path.basename(d)
+            newName = os.path.join(outputDir, bname)
+            unlinkDirs.append(newName)
+            if not os.path.exists(newName):
+                os.symlink(d, newName)
 
-    # -p 10 is pretty much arbitrary
-    CMD = ["demultiplex_relacs", "--umiLength", "4", "-p", "10", os.path.join(outputDir, "RELACS_sampleSheet.txt"), os.path.join(outputDir, "RELACS_demultiplexing")]
-    try:
-        subprocess.check_call(' '.join(CMD), shell=True, cwd=outputDir)
-    except:
-        return outputDir, 1, False
+        # -p 10 is pretty much arbitrary
+        CMD = ["demultiplex_relacs", "--umiLength", "4", "-p", "10", os.path.join(outputDir, "RELACS_sampleSheet.txt"), os.path.join(outputDir, "RELACS_demultiplexing")]
+        try:
+            subprocess.check_call(' '.join(CMD), shell=True, cwd=outputDir)
+        except:
+            return outputDir, 1, False
 
-    # clean up
-    for d in unlinkDirs:
-        os.unlink(d)
+        # clean up
+        for d in unlinkDirs:
+            os.unlink(d)
 
     # Link in the RELACS demultiplexed files
     for fname in glob.glob(os.path.join(outputDir, "RELACS_demultiplexing", "*", "*.gz")):
