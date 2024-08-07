@@ -222,7 +222,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     CMD = [CMD, 'mRNA-seq', '--DAG', '--trim', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     #if org == 'dm6':
     #    CMD.extend(['--star_options', '"--limitBAMsortRAM 60000000000"'])
-    if tuples[0][2].startswith("SMART-Seq"):
+    if tuples[0][2].startswith("Smart-Seq2"):
         # SMART-seq isn't a dUTP-based method!
         CMD.extend(['--libraryType', '0'])
     elif tuples[0][2].startswith("NEBNext Low Input RNA Library"):
