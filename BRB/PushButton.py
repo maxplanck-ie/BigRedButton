@@ -7,7 +7,7 @@ import BRB.misc
 from BRB.logger import log
 import stat
 from pathlib import Path
-
+import sys
 
 def createPath(config, group, project, organism, libraryType, tuples):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
@@ -220,14 +220,13 @@ def RNA(config, group, project, organism, libraryType, tuples):
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
     CMD = [CMD, 'mRNA-seq', '--DAG', '--trim', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
-    #if org == 'dm6':
-    #    CMD.extend(['--star_options', '"--limitBAMsortRAM 60000000000"'])
     if tuples[0][2].startswith("Smart-Seq2"):
         # SMART-seq isn't a dUTP-based method!
         CMD.extend(['--libraryType', '0'])
     elif tuples[0][2].startswith("NEBNext Low Input RNA Library"):
         # Unstranded
         CMD.extend(['--libraryType', '0'])
+    log.info(f"RNA wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
@@ -289,6 +288,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
 
         # -p 10 is pretty much arbitrary
         CMD = ["demultiplex_relacs", "--umiLength", "4", "-p", "10", os.path.join(outputDir, "RELACS_sampleSheet.txt"), os.path.join(outputDir, "RELACS_demultiplexing")]
+        log.info(f"RELACS demux wf CMD: {CMD}")
         try:
             subprocess.check_call(' '.join(CMD), shell=True, cwd=outputDir)
         except:
@@ -311,6 +311,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
     CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--UMIDedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    log.info(f"RELACS DNA wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
@@ -360,6 +361,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
         CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', r"--trimmerOptions '-a nexteraF=CTGTCTCTTATA -A nexteraR=CTGTCTCTTATA'", '--dedup', '--mapq 2', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
     else:
         CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    log.info(f"DNA wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
@@ -388,6 +390,7 @@ def WGBS(config, group, project, organism, libraryType, tuples):
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
     CMD = [CMD, 'WGBS', '--DAG', '--trim', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    log.info(f"WGBS wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
@@ -420,6 +423,7 @@ def ATAC(config, group, project, organism, libraryType, tuples):
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
     CMD = [CMD, 'ATAC-seq', '--DAG', '-d', outputDir, org]
+    log.info(f"ATAC wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
@@ -447,7 +451,9 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
     org = organism2Org(config, organism)
     if tuples[0][2] == 'Chromium_NextGEM_SingleCell3Prime_GeneExpression_v3.1_DualIndex':
         PE = linkFiles(config, group, project, outputDir, tuples)
-        CMD = [config.get('10x', 'RNA'), outputDir, outputDir, org]
+        # scRNA has their own organism mapping table, just make sure no spaces are included
+        CMD = [config.get('10x', 'RNA'), outputDir, outputDir, organism.split(' ')[0].lower()]
+        log.info(f"scRNA wf CMD: {' '.join(CMD)}")
         try:
             subprocess.check_call(' '.join(CMD), shell=True)
         except:
@@ -461,6 +467,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         PE = linkFiles(config, group, project, outputDir, tuples)
         CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
         CMD = [CMD, 'scRNAseq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '--myKit CellSeq384','--skipVelocyto' , '-i', outputDir, '-o', outputDir, org]
+        log.info(f"scRNA wf CMD: {CMD}")
         try:
             subprocess.check_call(' '.join(CMD), shell=True)
         except:
@@ -494,6 +501,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
     CMD = [CMD, 'HiC', '--DAG', '--noTAD', '-j', config.get('Queue', 'parallelProcesses'),'--enzyme', 'DpnII', '-i', outputDir, '-o', outputDir, org]
+    log.info(f"HiC wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
@@ -534,6 +542,7 @@ def scATAC(config, group, project, organism, libraryType, tuples):
         CMD += " -o "+outputDir
         CMD += " "+org
         CMD += " --projectID "+project+" --samples "+samples
+        log.info(f"scATAC wf CMD: {CMD}")
         try:
             subprocess.check_call(CMD, shell=True)
         except:
