@@ -7,7 +7,6 @@ import BRB.misc
 from BRB.logger import log
 import stat
 from pathlib import Path
-import sys
 
 def createPath(config, group, project, organism, libraryType, tuples):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
