@@ -218,7 +218,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'mRNA-seq', '--DAG', '--trim', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'mRNAseq', '--DAG', '--trim', '-i', outputDir, '-o', outputDir, org]
     if tuples[0][2].startswith("Smart-Seq2"):
         # SMART-seq isn't a dUTP-based method!
         CMD.extend(['--libraryType', '0'])
@@ -309,7 +309,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     # Back to the normal DNA pipeline
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--UMIDedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'DNAmapping', '--DAG', '--trim', '--UMIDedup', '--mapq', '3', '-i', outputDir, '-o', outputDir, org]
     log.info(f"RELACS DNA wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
@@ -355,11 +355,11 @@ def DNA(config, group, project, organism, libraryType, tuples):
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
     if libraryType == 'CUTandTag-seq' or libraryType == 'CUTandRUN-seq':
-        CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '--cutntag', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+        CMD = [CMD, 'DNAmapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '--cutntag', '-i', outputDir, '-o', outputDir, org]
     elif libraryType == 'ATAC-Seq':
-        CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', r"--trimmerOptions '-a nexteraF=CTGTCTCTTATA -A nexteraR=CTGTCTCTTATA'", '--dedup', '--mapq 2', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+        CMD = [CMD, 'DNAmapping', '--DAG', '--trim', r"--trimmerOptions '-a nexteraF=CTGTCTCTTATA -A nexteraR=CTGTCTCTTATA'", '--dedup', '--mapq 2', '-i', outputDir, '-o', outputDir, org]
     else:
-        CMD = [CMD, 'DNA-mapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+        CMD = [CMD, 'DNAmapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-i', outputDir, '-o', outputDir, org]
     log.info(f"DNA wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
@@ -388,7 +388,7 @@ def WGBS(config, group, project, organism, libraryType, tuples):
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'WGBS', '--DAG', '--trim', '-j', config.get('Queue', 'parallelProcesses'), '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'WGBS', '--DAG', '--trim', '-i', outputDir, '-o', outputDir, org]
     log.info(f"WGBS wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
@@ -421,7 +421,7 @@ def ATAC(config, group, project, organism, libraryType, tuples):
         touchDone(outputDir, "DNA.done")
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'ATAC-seq', '--DAG', '-d', outputDir, org]
+    CMD = [CMD, 'ATACseq', '--DAG', '-d', outputDir, org]
     log.info(f"ATAC wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
@@ -465,7 +465,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
     elif tuples[0][2] == "Cel-Seq 2 for single cell RNA-Seq":
         PE = linkFiles(config, group, project, outputDir, tuples)
         CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-        CMD = [CMD, 'scRNAseq', '--DAG', '-j', config.get('Queue', 'parallelProcesses'), '--myKit CellSeq384','--skipVelocyto' , '-i', outputDir, '-o', outputDir, org]
+        CMD = [CMD, 'scRNAseq', '--DAG', '--myKit CellSeq384','--skipVelocyto' , '-i', outputDir, '-o', outputDir, org]
         log.info(f"scRNA wf CMD: {CMD}")
         try:
             subprocess.check_call(' '.join(CMD), shell=True)
@@ -499,7 +499,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
     PE = linkFiles(config, group, project, outputDir, tuples)
     org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'HiC', '--DAG', '--noTAD', '-j', config.get('Queue', 'parallelProcesses'),'--enzyme', 'DpnII', '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'HiC', '--DAG', '--noTAD', '--enzyme', 'DpnII', '-i', outputDir, '-o', outputDir, org]
     log.info(f"HiC wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
