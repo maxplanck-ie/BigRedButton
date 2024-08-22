@@ -448,7 +448,10 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         return outputDir, 0, True
 
     org = organism2Org(config, organism)
-    if tuples[0][2] == 'Chromium_NextGEM_SingleCell3Prime_GeneExpression_v3.1_DualIndex':
+    if (
+        tuples[0][2] == 'Chromium_NextGEM_SingleCell3Prime_GeneExpression_v3.1_DualIndex'
+        or tuples[0][2] == 'Chromium_NextGEM_Multiome_GEX'
+    ):
         PE = linkFiles(config, group, project, outputDir, tuples)
         # scRNA has their own organism mapping table, just make sure no spaces are included
         CMD = [config.get('10x', 'RNA'), outputDir, outputDir, organism.split(' ')[0].lower()]
@@ -529,6 +532,7 @@ def scATAC(config, group, project, organism, libraryType, tuples):
         or tuples[0][2] == "NextGEM_Multiome_ATAC"
         or tuples[0][2] == "Next GEM Single Cell ATAC"
         or tuples[0][2] == "Chromium Next GEM Single Cell ATAC v2"
+        or tuples[0][2] == "Chromium_NextGEM_Multiome_ATAC"
     ):
         # PE = linkFiles(config, group, project, outputDir, tuples)
         samples = ' '.join(i[1] for i in tuples)
