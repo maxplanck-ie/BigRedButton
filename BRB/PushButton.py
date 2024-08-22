@@ -450,7 +450,6 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
     org = organism2Org(config, organism)
     if (
         tuples[0][2] == 'Chromium_NextGEM_SingleCell3Prime_GeneExpression_v3.1_DualIndex'
-        or tuples[0][2] == 'Chromium_NextGEM_Multiome_GEX'
     ):
         PE = linkFiles(config, group, project, outputDir, tuples)
         # scRNA has their own organism mapping table, just make sure no spaces are included
@@ -478,9 +477,13 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         tidyUpABit(outputDir)
         stripRights(outputDir)
         sambaUpdate = False
+    else:
+        log.info(f"Unsupported protocol: {tuples[0][2]}")
+        sambaUpdate = False
 
     touchDone(outputDir)
     return outputDir, 0, sambaUpdate
+
 
 
 def HiC(config, group, project, organism, libraryType, tuples):
@@ -532,7 +535,6 @@ def scATAC(config, group, project, organism, libraryType, tuples):
         or tuples[0][2] == "NextGEM_Multiome_ATAC"
         or tuples[0][2] == "Next GEM Single Cell ATAC"
         or tuples[0][2] == "Chromium Next GEM Single Cell ATAC v2"
-        or tuples[0][2] == "Chromium_NextGEM_Multiome_ATAC"
     ):
         # PE = linkFiles(config, group, project, outputDir, tuples)
         samples = ' '.join(i[1] for i in tuples)
@@ -554,6 +556,12 @@ def scATAC(config, group, project, organism, libraryType, tuples):
         copyCellRanger(config,outputDir)
         stripRights(outputDir)
         tidyUpABit(outputDir)
+    else:
+        log.info(f"Unsupported protocol: {tuples[0][2]}, just passing the data")
+        touchDone(outputDir)
+        return outputDir, 0, False
+    
+    touchDone(outputDir)
     return outputDir, 0, True
 
 
