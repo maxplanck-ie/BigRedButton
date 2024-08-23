@@ -25,3 +25,18 @@ An analysis can be rerun by deleting `analysis.done` in the folder holding the d
 The pipeline can be woken from sleep by sending it a `HUP` signal (e.g., `killall -HUP BigRedButton.py`).
 
 The configuration file in the source directory should be copied to your home directory and modified to suite your needs (see the documentation in the file). Also, you should run `nohup BigRedButton.py &` to start the pipeline, so it continues after you log out.
+
+Installation
+
+```
+conda create -n BRB python -y
+conda activate BRB
+git clone git@github.com:maxplanck-ie/BigRedButton.git
+cd BigRedButton
+pip install .
+```
+
+Additional tools
+
+1. BRB expects snakePipes is already installed and defined in the config file
+2. In adition, it expects the [10X_snakepipe repository](https://github.com/maxplanck-ie/10X_snakepipe) also defined in the config file
