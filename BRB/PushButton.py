@@ -532,7 +532,6 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     org = organism2Org(config, organism)
     if (
         tuples[0][2] == "scATAC-Seq 10xGenomics"
-        or tuples[0][2] == "NextGEM_Multiome_ATAC"
         or tuples[0][2] == "Next GEM Single Cell ATAC"
         or tuples[0][2] == "Chromium Next GEM Single Cell ATAC v2"
     ):
