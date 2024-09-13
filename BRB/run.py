@@ -27,15 +27,21 @@ from rich import print
    help='specify a custom ini file.',
    show_default=True
 )
-def run_brb(configfile):
+@click.option(
+    "-s",
+    "--stats",
+    required=False,
+    help='specify a flowcell ID to push its stats.'
+)
+def run_brb(configfile, stats):
 
     while True:
-        #Read the config file
+        # Read the config file
         config = BRB.getConfig.getConfig(configfile)
-
-        #Get the next flow cell to process, or sleep
+        
+        # Get the next flow cell to process, or sleep
         config, ParkourDict = BRB.findFinishedFlowCells.newFlowCell(config)
-        if(config.get('Options','runID') == '') or ParkourDict is None:
+        if(config.get('Options','runID') == '') or ParkourDict is None or stats is None:
             sleep(60*60)
             continue
 
@@ -47,7 +53,17 @@ def run_brb(configfile):
         print(f"Logging into: {logFile}")
         setLog(logFile)
 
-        #Process each group's data, ignore cases where the project isn't in the lanes being processed
+        # Push stats on-demand
+        if not stats is None:
+            # stats: is the FCID specified by using CLI argument
+            d = [d for d in glob.glob("{}/*/fastq.made".format(config.get('Paths', 'baseData'))) if stats in d]
+            assert len(d) == 1
+            config.set('Options','runID',d[1].split("/")[-2])
+            if not flowCellProcessed(config):
+                print(f"Found new flow cell, this is terribly wrong: [red]{config.get("Options","runID")}[/red]")
+            ParkourDict = queryParkour(config)
+        
+        # Process each group's data, ignore cases where the project isn't in the lanes being processed
         bdir = "{}/{}".format(config.get('Paths', 'baseData'), config.get('Options', 'runID'))
         msg = []
         for k, v in ParkourDict.items():
@@ -62,11 +78,14 @@ def run_brb(configfile):
                 print("Received an error running PushButton.GetResults() with {} and {}".format(k, v), file=sys.stderr)
                 raise
 
-        #Email finished message
+        # Email finished message
         log.info('Create e-mail')
         log.info(msg)
         BRB.email.finishedEmail(config, msg)
 
-        #Mark the flow cell as having been processed
+        # Mark the flow cell as having been processed
         BRB.findFinishedFlowCells.markFinished(config)
         log.info('=== finished flowcell ===')
+
+        if not stats is None:
+            break  # exit the main loop, don't do anything else.
