@@ -54,7 +54,7 @@ def run_brb(configfile, stats):
         setLog(logFile)
 
         # Push stats on-demand
-        if not stats is None:
+        if stats is not None:
             # stats: is the FCID specified by using CLI argument
             d = [d for d in glob.glob("{}/*/fastq.made".format(config.get('Paths', 'baseData'))) if stats in d]
             assert len(d) == 1
@@ -87,5 +87,5 @@ def run_brb(configfile, stats):
         BRB.findFinishedFlowCells.markFinished(config)
         log.info('=== finished flowcell ===')
 
-        if not stats is None:
+        if stats is not None:
             break  # exit the main loop, don't do anything else.
