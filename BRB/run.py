@@ -59,7 +59,7 @@ def run_brb(configfile, stats):
             d = [d for d in glob.glob("{}/*/fastq.made".format(config.get('Paths', 'baseData'))) if stats in d]
             assert len(d) == 1
             config.set('Options','runID',d[1].split("/")[-2])
-            if not flowCellProcessed(config):
+            if not BRB.findFinishedFlowCells.flowCellProcessed(config):
                 print(f"Found new flow cell, this is terribly wrong: [red]{config.get("Options","runID")}[/red]")
             ParkourDict = queryParkour(config)
         
