@@ -61,7 +61,7 @@ def run_brb(configfile, stats):
             config.set('Options','runID',d[1].split("/")[-2])
             if not BRB.findFinishedFlowCells.flowCellProcessed(config):
                 print(f"Found new flow cell, this is terribly wrong: [red]{config.get("Options","runID")}[/red]")
-            ParkourDict = queryParkour(config)
+            ParkourDict = BRB.findFinishedFlowCells.queryParkour(config)
         
         # Process each group's data, ignore cases where the project isn't in the lanes being processed
         bdir = "{}/{}".format(config.get('Paths', 'baseData'), config.get('Options', 'runID'))
