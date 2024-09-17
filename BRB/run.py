@@ -14,6 +14,11 @@ from time import sleep
 from pathlib import Path
 from rich import print
 
+# def validate_fcid_with_stats(ctx, param, value):
+#     if ctx.params.get('stats') and not value:
+#         raise click.UsageError('--fcid is required when --stats is used')
+#     return value
+
 @click.command(
     context_settings=dict(
         help_option_names=["-h", "--help"]
@@ -32,8 +37,11 @@ from rich import print
     "-s",
     "--stats",
     required=False,
-    help='specify a flowcell ID to push its stats.'
+    is_flag=True,
+    help='specify a flowcell ID to push its stats, (WIP: --fcid not implemented yet).'
 )
+# @click.option('--fcid', callback=validate_fcid_with_stats, help='Flowcell ID that lacks stats.'
+# def run_brb(configfile, stats, fcid):
 def run_brb(configfile, stats):
 
     while True:
