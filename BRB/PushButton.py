@@ -591,7 +591,7 @@ def GetResults(config, project, libraries):
         )
         log.info(f"Processing {dataPath}")
     except:
-        print("external data")
+        print(f"GetResults with ignore=True, {project} is external data.")
         ignore = True
     validLibraryTypes = {v: i for i, v in enumerate(config.get('Options', 'validLibraryTypes').split(','))}
     pipelines = config.get('Options', 'pipelines').split(',')
