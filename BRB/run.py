@@ -15,7 +15,7 @@ from pathlib import Path
 from rich import print
 
 
-def process_data(config, ParkourDict):
+def process_data(config, ParkourDict, stats):
     bdir = "{}/{}".format(config.get('Paths', 'baseData'), config.get('Options', 'runID'))
     msg = []
     for k, v in ParkourDict.items():
@@ -23,7 +23,7 @@ def process_data(config, ParkourDict):
             log.info("{}/Project_{} doesn't exist, probably lives on another lane.".format(bdir, BRB.misc.pacifier(k)))
             continue
         try:
-            msg = msg + BRB.PushButton.GetResults(config, k, v)
+            msg = msg + BRB.PushButton.GetResults(config, k, v, stats)
         except Exception as e:
             BRB.email.errorEmail(config, sys.exc_info(), "Received an error running PushButton.GetResults() with {} and {}".format(k, v))
             log.critical("Received an error running PushButton.GetResults() with {} and {}".format(k, v))
@@ -116,10 +116,10 @@ def run_brb(configfile, stats, fcid):
             log.info(f"Pushing stats for flowcell: {fcid}")
       
         # Process each group's data, ignore cases where the project isn't in the lanes being processed
-        process_data(config, ParkourDict)
+        process_data(config, ParkourDict, stats)
         
         if stats and dual_lane:
-            process_data(config1, ParkourDict1)
+            process_data(config1, ParkourDict1, stats)
 
         
         if not stats:
