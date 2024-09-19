@@ -63,7 +63,7 @@ def validate_fcid_with_stats(ctx, param, value):
     "--stats",
     required=False,
     is_flag=True,
-    help='Standalone run, will not run any pipelines. Requires --fcid to indicate target.'
+    help='Standalone run, use only on finished flowcells. Requires --fcid to indicate target.'
 )
 @click.option('--fcid', callback=validate_fcid_with_stats, help='Flowcell ID to push stats.')
 def run_brb(configfile, stats, fcid):
@@ -89,14 +89,13 @@ def run_brb(configfile, stats, fcid):
 
         else:
             # Push stats on-demand
-            log.info(f"Pushing stats for flowcell: {fcid}")
             d = [d for d in glob.glob("{}/*/fastq.made".format(config.get('Paths', 'baseData'))) if fcid in d]
             dual_lane = len(d) == 2
             if len(d) == 0:
-                log.error(f"No fastq.made files found for {fcid}")
+                print(f"ERROR: No fastq.made files found for {fcid}")
                 return  # Exit BRB if no files found.
             elif len(d) > 2:
-                log.error(f"How many lanes does {fcid} have?!")
+                print(f"ERROR: How many lanes does {fcid} have?!")
                 return  # Exit BRB this error shouldn't happen at all.
             
             config.set('Options','runID',d[0].split("/")[-2])
@@ -111,14 +110,11 @@ def run_brb(configfile, stats, fcid):
             if not dual_lane:
                 logFile = Path(config['Paths']['logPath'], config.get('Options','runID') + '.log')
             else:
-                logFile = Path(config['Paths']['logPath'], config.get('Options','runID')[:-1] + '_both' + '.log')
+                logFile = Path(config['Paths']['logPath'], config.get('Options','runID')[:-1] + 'both' + '.log')
             print(f"Logging into: {logFile}")
             setLog(logFile)
-
-            if dual_lane:
-                log.info("Same log-file is being used for both lanes. Hopefully this is not too confusing :$")
-
-        
+            log.info(f"Pushing stats for flowcell: {fcid}")
+      
         # Process each group's data, ignore cases where the project isn't in the lanes being processed
         process_data(config, ParkourDict)
         
