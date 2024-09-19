@@ -111,7 +111,7 @@ def run_brb(configfile, stats, fcid):
             if not dual_lane:
                 logFile = Path(config['Paths']['logPath'], config.get('Options','runID') + '.log')
             else:
-                logFile = Path(config['Paths']['logPath'], config.get('Options','runID') + '_2' + '.log')
+                logFile = Path(config['Paths']['logPath'], config.get('Options','runID')[:-1] + '_both' + '.log')
             print(f"Logging into: {logFile}")
             setLog(logFile)
 
