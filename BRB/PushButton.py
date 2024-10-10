@@ -518,6 +518,29 @@ def HiC(config, group, project, organism, libraryType, tuples):
     touchDone(outputDir)
     return outputDir, 0, False
 
+def makePairs(config, group, project, organism, libraryType, tuples):
+    """
+    Running makePairs pipeline.
+    """
+    project = BRB.misc.pacifier(project)
+    outputDir = createPath(config, group, project, organism, libraryType, tuples)
+    if os.path.exists(os.path.join(outputDir, "analysis.done")):
+        return outputDir, 0, False
+    PE = linkFiles(config, group, project, outputDir, tuples)
+    org = organism2Org(config, organism)
+    CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
+    CMD = [CMD, 'makePairs', '--DAG', '-i', outputDir, '-o', outputDir, org]
+    log.info(f"makePairs wf CMD: {CMD}")
+    try:
+        subprocess.check_call(' '.join(CMD), shell=True)
+    except:
+        return outputDir, 1, False
+    removeLinkFiles(outputDir)
+    relinkFiles(config, group, project, organism, libraryType, tuples)
+    tidyUpABit(outputDir)
+    touchDone(outputDir)
+    return outputDir, 0, False
+
 
 def scATAC(config, group, project, organism, libraryType, tuples):
     """
