@@ -29,8 +29,8 @@ def finishedEmail(config, msg):
     # Inform deepseq too if we have a sambaUpdate:
     if any([i[6] for i in msg]):
         log.info("At least one sambaUpdate true in msg")
-        # Only inform deepseq if all workflows are succesfull (combat spam)
-        if [i[4] for i in msg].count('success') == len(msg):
+        # Only inform deepseq if no workflow failed
+        if [i[4] for i in msg].count('FAILED') == 0:
             recipient = config.get("Email","deepSeq")
             _html.add(div(
                 f"Post-processing is ready, Samba drive is updated for {[i[6] for i in msg].count(True)} project(s).",
