@@ -161,9 +161,12 @@ def copyRELACS(config, d):
     for fname in files:
         # to seqfac dir.
         nname = fname.split('/')
-        nname = "_".join([nname[-5], nname[-3],nname[-1]])
-        if '.html' in nname:
-            nname = nname.replace('.html', 'analysis.html')
+        if '.html' in fname:
+            # ['', 'data', PI, seqdat, fid, analysis, libtype, multiqc, mqc.html]
+            nname = "_".join([nname[-4], 'RELACS_analysis.html'])
+        else:
+            # ['', data, PI, seqdat, fid, analysis, libtype, RELACS_demultiplexing, Sample_1, mark_fig.png]
+            nname = "_".join([nname[-5], nname[-3],nname[-1]])
         # make lane directory in seqFacDir and copy it over
         seqfac_lane_dir = Path(config.get('Paths', 'seqFacDir')) / year_postfix / lane_dir
         os.makedirs(seqfac_lane_dir, exist_ok=True)
