@@ -8,32 +8,28 @@ from BRB.logger import log
 import stat
 from pathlib import Path
 
-
 # This is an interim solution. Ultimately, validOrganisms and organismNames,
 # or their mappings to human-readable strings,
 # should all be handled in a single database table.
 ORGANISM_MAP = {
     'H. sapiens (GRCh38)': 'human',
     'Human (GRCh38)': 'human',
-    'human': 'human',
     'M. musculus (GRCm38 / mm10)': 'mouse',
     'Mouse (GRCm39)': 'mouse',
-    'mouse': 'mouse',
     'D. melanogaster (dm6)': 'drosophila',
-    'drosophila': 'drosophila',
     'D. rerio (GRCz11)': 'zebrafish',
-    'zebrafish': 'zebrafish',
-    'Aedes_aegypti': 'aaegypti',
-    'A. aegypti (AaegL5)': 'aaegypti',
-    'Anopheles_gambiae': 'agambiae',
-    'A. gambiae (AgamP4)': 'agambiae',
-    'Caenorhabditis_elegans': 'worm',
-    'C. elegans (WS285)': 'worm',
-    'Rhodnius_prolixus': 'chagas',
-    'R. prolixus (RproC3)': 'chagas',
     'G. gallus (GRCg7b)': 'chicken',
-    'chicken': 'chicken'
 }
+
+# Are we supporting these? What are their mappings?
+    # 'Aedes_aegypti': '?',
+    # 'A. aegypti (AaegL5)': '?',
+    # 'Anopheles_gambiae': '?', 
+    # 'A. gambiae (AgamP4)': '?',
+    # 'Caenorhabditis_elegans': '?',
+    # 'C. elegans (WS285)': '?',
+    # 'Rhodnius_prolixus': '?',
+    # 'R. prolixus (RproC3)': '?',
 
 
 def createPath(config, group, project, organism, libraryType, tuples):
@@ -50,15 +46,9 @@ def createPath(config, group, project, organism, libraryType, tuples):
                                                             BRB.misc.pacifier(project))
     os.makedirs(baseDir, mode=0o700, exist_ok=True)
 
-    try:
-        simple_organism = ORGANISM_MAP[organism]
-    except KeyError:
-        raise RuntimeError(f"Organism '{organism}' not found in ORGANISM_MAP")
-
-    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), simple_organism))
+    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), organism.split(' ')[0].lower()))
     os.makedirs(oDir, mode=0o700, exist_ok=True)
     return oDir
-
 
 
 def linkFiles(config, group, project, odir, tuples):
@@ -662,6 +652,7 @@ def GetResults(config, project, libraries):
     external_skipList = []
     for library, v in libraries.items():
         sampleName, libraryType, libraryProtocol, organism, indexType, requestDepth = v
+        organism = ORGANISM_MAP.get(organism, organism)
         # Extra checks to see where we miss out
         if libraryType in validLibraryTypes:
             log.info(f"ValidLibraryType = {libraryType}")
