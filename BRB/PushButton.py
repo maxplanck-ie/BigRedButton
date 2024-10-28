@@ -8,6 +8,34 @@ from BRB.logger import log
 import stat
 from pathlib import Path
 
+
+# This is an interim solution. Ultimately, validOrganisms and organismNames,
+# or their mappings to human-readable strings,
+# should all be handled in a single database table.
+ORGANISM_MAP = {
+    'H. sapiens (GRCh38)': 'human',
+    'Human (GRCh38)': 'human',
+    'human': 'human',
+    'M. musculus (GRCm38 / mm10)': 'mouse',
+    'Mouse (GRCm39)': 'mouse',
+    'mouse': 'mouse',
+    'D. melanogaster (dm6)': 'drosophila',
+    'drosophila': 'drosophila',
+    'D. rerio (GRCz11)': 'zebrafish',
+    'zebrafish': 'zebrafish',
+    'Aedes_aegypti': 'aaegypti',
+    'A. aegypti (AaegL5)': 'aaegypti',
+    'Anopheles_gambiae': 'agambiae',
+    'A. gambiae (AgamP4)': 'agambiae',
+    'Caenorhabditis_elegans': 'worm',
+    'C. elegans (WS285)': 'worm',
+    'Rhodnius_prolixus': 'chagas',
+    'R. prolixus (RproC3)': 'chagas',
+    'G. gallus (GRCg7b)': 'chicken',
+    'chicken': 'chicken'
+}
+
+
 def createPath(config, group, project, organism, libraryType, tuples):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
     if tuples[0][3]:
@@ -22,9 +50,15 @@ def createPath(config, group, project, organism, libraryType, tuples):
                                                             BRB.misc.pacifier(project))
     os.makedirs(baseDir, mode=0o700, exist_ok=True)
 
-    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), organism.split(' ')[0].lower()))
+    try:
+        simple_organism = ORGANISM_MAP[organism]
+    except KeyError:
+        raise RuntimeError(f"Organism '{organism}' not found in ORGANISM_MAP")
+
+    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), simple_organism))
     os.makedirs(oDir, mode=0o700, exist_ok=True)
     return oDir
+
 
 
 def linkFiles(config, group, project, odir, tuples):
