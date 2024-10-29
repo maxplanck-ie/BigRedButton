@@ -40,7 +40,12 @@ def createPath(config, group, project, organism, libraryType, tuples):
                                                             BRB.misc.pacifier(project))
     os.makedirs(baseDir, mode=0o700, exist_ok=True)
 
-    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), organism.split(' ')[0].lower()))
+    try:
+        simple_organism = ORGANISM_MAP[organism]
+    except KeyError:
+        raise RuntimeError(f"Organism '{organism}' not found in ORGANISM_MAP")
+
+    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), simple_organism))
     os.makedirs(oDir, mode=0o700, exist_ok=True)
     return oDir
 
@@ -646,7 +651,6 @@ def GetResults(config, project, libraries):
     external_skipList = []
     for library, v in libraries.items():
         sampleName, libraryType, libraryProtocol, organism, indexType, requestDepth = v
-        organism = ORGANISM_MAP.get(organism, organism)
         # Extra checks to see where we miss out
         if libraryType in validLibraryTypes:
             log.info(f"ValidLibraryType = {libraryType}")
