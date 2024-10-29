@@ -19,17 +19,11 @@ ORGANISM_MAP = {
     'D. melanogaster (dm6)': 'drosophila',
     'D. rerio (GRCz11)': 'zebrafish',
     'G. gallus (GRCg7b)': 'chicken',
+    'A. aegypti (AaegL5)': 'Aedes_aegypti',
+    'A. gambiae (AgamP4)': 'Anopheles_gambiae',
+    'C. elegans (WS285)': 'Caenorhabditis_elegans',
+    'R. prolixus (RproC3)': 'Rhodnius_prolixus',
 }
-
-# Are we supporting these? What are their mappings?
-    # 'Aedes_aegypti': '?',
-    # 'A. aegypti (AaegL5)': '?',
-    # 'Anopheles_gambiae': '?', 
-    # 'A. gambiae (AgamP4)': '?',
-    # 'Caenorhabditis_elegans': '?',
-    # 'C. elegans (WS285)': '?',
-    # 'Rhodnius_prolixus': '?',
-    # 'R. prolixus (RproC3)': '?',
 
 
 def createPath(config, group, project, organism, libraryType, tuples):
