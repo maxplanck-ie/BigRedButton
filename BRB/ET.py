@@ -178,7 +178,7 @@ def RNA(config, outputDir, baseDict, sample2lib):
         dup_rate = dup_rate[0]
         baseDict[sample2lib[sampleName]].append(dup_rate)
         # assigned reads
-        assigned_info = glob.glob("{}/multiQC/multiqc_data/multiqc_featureCounts.txt".format(outputDir))[0]
+        assigned_info = glob.glob("{}/multiQC/multiqc_data/multiqc_featurecounts.txt".format(outputDir))[0]
         assigned_df = pd.read_csv(assigned_info, sep ="\t", usecols=["Sample", "Total", "Assigned"])
         assigned_df = assigned_df.loc[assigned_df["Sample"].astype(str) == sampleName+".filtered"]
         assigned_rate = assigned_df["Assigned"].values/assigned_df["Total"].values*100
