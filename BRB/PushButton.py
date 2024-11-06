@@ -8,7 +8,7 @@ from BRB.logger import log
 import stat
 from pathlib import Path
 
-def createPath(config, group, project, organism, libraryType, tuples):
+def createPath(config, group, project, organism, libraryType, tuples, stats):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
     if tuples[0][3]:
         baseDir = "{}/{}/Analysis_{}".format(config.get('Paths', 'baseData'),
@@ -20,10 +20,14 @@ def createPath(config, group, project, organism, libraryType, tuples):
                                                             BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
-    os.makedirs(baseDir, mode=0o700, exist_ok=True)
+    
+    if not stats:
+        os.makedirs(baseDir, mode=0o700, exist_ok=True)
 
     oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), organism.split(' ')[0].lower()))
-    os.makedirs(oDir, mode=0o700, exist_ok=True)
+    if not stats:
+        os.makedirs(oDir, mode=0o700, exist_ok=True)
+    
     return oDir
 
 
@@ -590,7 +594,7 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     return outputDir, 0, True
 
 
-def GetResults(config, project, libraries):
+def GetResults(config, project, libraries, stats):
     """
     Project is something like '352_Grzes_PearceEd' and libraries is a dictionary with libraries as keys:
         {'18L005489': ['FAT_first_A',
@@ -617,7 +621,7 @@ def GetResults(config, project, libraries):
         )
         log.info(f"Processing {dataPath}")
     except:
-        print("external data")
+        print(f"GetResults with ignore=True, {project} is external data.")
         ignore = True
     validLibraryTypes = {v: i for i, v in enumerate(config.get('Options', 'validLibraryTypes').split(','))}
     pipelines = config.get('Options', 'pipelines').split(',')
@@ -664,7 +668,12 @@ def GetResults(config, project, libraries):
                 reruncount = 0
                 # RELACS needs the unpacified project name to copy the original sample sheet to the dest dir
                 # hence the pacifier is applied on the project in each pipeline separately
-                outputDir, rv, sambaUpdate = globals()[pipeline](config, group, project, organism, libraryType, tuples)
+                if stats:
+                    outputDir, rv, sambaUpdate = (
+                        createPath(config, group, BRB.misc.pacifier(project), organism, libraryType, tuples, stats),
+                        0, False)
+                else:
+                    outputDir, rv, sambaUpdate = globals()[pipeline](config, group, project, organism, libraryType, tuples)
                 if reruncount == 0 and rv != 0:
                     # Allow for one re-run
                     reruncount += 1
