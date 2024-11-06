@@ -121,7 +121,7 @@ def DNA(config, outputDir, baseDict, sample2lib):
         # % Duplicated
         dup_info = glob.glob("{}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt".format(outputDir))[0]
         dup_df = pd.read_csv(dup_info, sep ="\t", usecols=["Sample", "total_passed", "duplicates_passed"])
-        dup_df = dup_df.loc[dup_df["Sample"] == sampleName]
+        dup_df = dup_df.loc[dup_df["Sample"].astype(str) == sampleName]
         dup_rate = dup_df["duplicates_passed"].values/dup_df["total_passed"].values*100
         dup_rate = dup_rate[0]
         baseDict[sample2lib[sampleName]].append(dup_rate)
@@ -173,14 +173,14 @@ def RNA(config, outputDir, baseDict, sample2lib):
         #  duplication
         dup_info = glob.glob("{}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt".format(outputDir))[0]
         dup_df = pd.read_csv(dup_info, sep ="\t", usecols=["Sample", "total_passed", "duplicates_passed"])
-        dup_df = dup_df.loc[dup_df["Sample"] == sampleName]
+        dup_df = dup_df.loc[dup_df["Sample"].astype(str) == sampleName]
         dup_rate = dup_df["duplicates_passed"].values/dup_df["total_passed"].values*100
         dup_rate = dup_rate[0]
         baseDict[sample2lib[sampleName]].append(dup_rate)
         # assigned reads
-        assigned_info = glob.glob("{}/multiQC/multiqc_data/multiqc_featureCounts.txt".format(outputDir))[0]
+        assigned_info = glob.glob("{}/multiQC/multiqc_data/multiqc_featurecounts.txt".format(outputDir))[0]
         assigned_df = pd.read_csv(assigned_info, sep ="\t", usecols=["Sample", "Total", "Assigned"])
-        assigned_df = assigned_df.loc[assigned_df["Sample"] == sampleName+".filtered"]
+        assigned_df = assigned_df.loc[assigned_df["Sample"].astype(str) == sampleName+".filtered"]
         assigned_rate = assigned_df["Assigned"].values/assigned_df["Total"].values*100
         assigned_rate = assigned_rate[0]
         baseDict[sample2lib[sampleName]].append(assigned_rate)
