@@ -21,8 +21,9 @@ def createPath(config, group, project, organism, libraryType, tuples):
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
     os.makedirs(baseDir, mode=0o700, exist_ok=True)
-
-    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), organism.split(' ')[0].lower()))
+    #org = organism.split(' ')[0].lower() # splitting bad idea for "M. musculus" etc.
+    org = organism2Org(config, organism)
+    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), org))
     os.makedirs(oDir, mode=0o700, exist_ok=True)
     return oDir
 
@@ -451,12 +452,14 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         return outputDir, 0, True
 
     org = organism2Org(config, organism)
-    if (
-        tuples[0][2] == 'Chromium_NextGEM_SingleCell3Prime_GeneExpression_v3.1_DualIndex'
-    ):
+    accepted_names = [
+        'Chromium_NextGEM_SingleCell3Prime_GeneExpression_v3.1_DualIndex',
+        'Chromium_GEM-X_SingleCell_3primeRNA-seq_v4'
+    ]
+    if tuples[0][2] in accepted_names:
         PE = linkFiles(config, group, project, outputDir, tuples)
         # scRNA has their own organism mapping table, just make sure no spaces are included
-        CMD = [config.get('10x', 'RNA'), outputDir, outputDir, organism.split(' ')[0].lower()]
+        CMD = [config.get('10x', 'RNA'), outputDir, outputDir, org]
         log.info(f"scRNA wf CMD: {' '.join(CMD)}")
         try:
             subprocess.check_call(' '.join(CMD), shell=True)
