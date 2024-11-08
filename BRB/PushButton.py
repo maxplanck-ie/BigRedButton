@@ -475,11 +475,20 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
 
     org = organism2Org(config, organism)
     if (
-        tuples[0][2] == 'Chromium_NextGEM_SingleCell3Prime_GeneExpression_v3.1_DualIndex'
+        tuples[0][2] in (
+            'Chromium_NextGEM_SingleCell3Prime_GeneExpression_v3.1_DualIndex',
+            'Chromium_GEM-X_SingleCell_3primeRNA-seq_v4'
+            )
     ):
         PE = linkFiles(config, group, project, outputDir, tuples)
         # scRNA has their own organism mapping table, just make sure no spaces are included
-        CMD = [config.get('10x', 'RNA'), outputDir, outputDir, organism.split(' ')[0].lower()]
+        # And, we have new organism names, so...
+        try:
+            simple_organism = ORGANISM_MAP[organism]
+        except KeyError:
+            raise RuntimeError(f"Organism '{organism}' not found in ORGANISM_MAP")
+        CMD = [config.get('10x', 'RNA'), outputDir, outputDir, simple_organism]
+]
         log.info(f"scRNA wf CMD: {' '.join(CMD)}")
         try:
             subprocess.check_call(' '.join(CMD), shell=True)
