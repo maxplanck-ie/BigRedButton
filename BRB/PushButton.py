@@ -7,6 +7,21 @@ import BRB.misc
 from BRB.logger import log
 import stat
 from pathlib import Path
+import re
+
+def organism2Dir(organism):
+    """ Convert organism name - such as 
+    M. Musculus (mm10 / GRCm39) -> M_Musculus_mm10_GRCm39
+    The main goal is to have a simple directory name
+    """
+    # Replace all spaces and special characters with underscores
+    directory = re.sub(r'[^\w]', '_', organism)
+    # Collapse multiple underscores into one
+    directory = re.sub(r'_+', '_', directory)
+    # Remove trailing underscores
+    directory = re.sub(r'_+$', '', directory)
+    return directory
+
 
 def createPath(config, group, project, organism, libraryType, tuples):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
@@ -22,8 +37,9 @@ def createPath(config, group, project, organism, libraryType, tuples):
                                                             BRB.misc.pacifier(project))
     os.makedirs(baseDir, mode=0o700, exist_ok=True)
     #org = organism.split(' ')[0].lower() # splitting bad idea for "M. musculus" etc.
-    org = organism2Org(config, organism)
-    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), org))
+    #org = organism2Org(config, organism) # bad when organism is a dir/dir/file.yaml
+    analysis_dir = organism2Dir(organism)
+    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), analysis_dir))
     os.makedirs(oDir, mode=0o700, exist_ok=True)
     return oDir
 
