@@ -445,8 +445,6 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
     ]
     if tuples[0][2] in accepted_names:
         PE = linkFiles(config, group, project, outputDir, tuples)
-        # scRNA has their own organism mapping table, just make sure no spaces are included
-        # FIXME: ^^^ this
         CMD = [config.get('10x', 'RNA'), outputDir, outputDir, org_yaml]
         log.info(f"scRNA wf CMD: {' '.join(CMD)}")
         try:
@@ -631,9 +629,6 @@ def GetResults(config, project, libraries):
             pipeline = pipelines[idx]
             if pipeline not in analysisTypes:
                 analysisTypes[pipeline] = dict()
-            # TODO: iirc labels don't have the unique constrain on our DB,
-            # and using org_yaml (which can be a path) feels awkward here, even if it works.
-            # I can make labels unique and add this constraint, no problem.
             if org_label not in analysisTypes[pipeline]:
                 analysisTypes[pipeline][org_label] = dict()
             if libraryType not in analysisTypes[pipeline][org_label]:
