@@ -7,23 +7,9 @@ import BRB.misc
 from BRB.logger import log
 import stat
 from pathlib import Path
-import re
-
-def organism2Dir(organism):
-    """ Convert organism name - such as 
-    M. Musculus (mm10 / GRCm39) -> M_Musculus_mm10_GRCm39
-    The main goal is to have a simple directory name
-    """
-    # Replace all spaces and special characters with underscores
-    directory = re.sub(r'[^\w]', '_', organism)
-    # Collapse multiple underscores into one
-    directory = re.sub(r'_+', '_', directory)
-    # Remove trailing underscores
-    directory = re.sub(r'_+$', '', directory)
-    return directory
 
 
-def createPath(config, group, project, organism, libraryType, tuples):
+def createPath(config, group, project, org_label, libraryType, tuples):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
     if tuples[0][3]:
         baseDir = "{}/{}/Analysis_{}".format(config.get('Paths', 'baseData'),
@@ -36,10 +22,7 @@ def createPath(config, group, project, organism, libraryType, tuples):
                                                             config.get('Options', 'runID'),
                                                             BRB.misc.pacifier(project))
     os.makedirs(baseDir, mode=0o700, exist_ok=True)
-    #org = organism.split(' ')[0].lower() # splitting bad idea for "M. musculus" etc.
-    #org = organism2Org(config, organism) # bad when organism is a dir/dir/file.yaml
-    analysis_dir = organism2Dir(organism)
-    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), analysis_dir))
+    oDir = os.path.join(baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), org_label))
     os.makedirs(oDir, mode=0o700, exist_ok=True)
     return oDir
 
@@ -83,13 +66,13 @@ def removeLinkFiles(d):
         os.unlink(fname)
 
 
-def relinkFiles(config, group, project, organism, libraryType, tuples):
+def relinkFiles(config, group, project, org_label, libraryType, tuples):
     """
     Generate symlinks under the snakepipes originalFASTQ folder directly from the project folder.
     At this stage the multiqc files are copied over into the bioinfocoredir, as well.
     """
     # relink fqs
-    outputDir = createPath(config, group, project, organism, libraryType, tuples)
+    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     odir = os.path.join(outputDir, "originalFASTQ")
     linkFiles(config, group, project, odir, tuples)
     # Copy mqc
@@ -102,17 +85,6 @@ def relinkFiles(config, group, project, organism, libraryType, tuples):
         shutil.copyfile(mqcf, of)
     else:
         log.info(f"no multiqc report under {mqcf}.")
-
-
-def organism2Org(config, organism):
-    """Convert a parkour organism name to a Snakemake organism ID"""
-    organisms = config.get('Options', 'validOrganisms').split(',')
-    orgs = config.get('Options', 'organismNames').split(',')
-    for x, y in zip(organisms, orgs):
-        if organism == x:
-            return y
-    log.critical('organism2Org: An apparently valid organism doesn\'t have a matching snakemake genome ID!')
-    raise RuntimeError('An apparently valid organism doesn\'t have a matching snakemake genome ID!')
 
 
 def copyCellRanger(config, d):
@@ -232,13 +204,13 @@ def RNA(config, group, project, organism, libraryType, tuples):
     Need to set --libraryType
     """
     project = BRB.misc.pacifier(project)
-    outputDir = createPath(config, group, project, organism, libraryType, tuples)
+    org_name, org_label, org_yaml = organism
+    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
     PE = linkFiles(config, group, project, outputDir, tuples)
-    org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'mRNAseq', '--DAG', '--trim', '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'mRNAseq', '--DAG', '--trim', '-i', outputDir, '-o', outputDir, org_yaml]
     if tuples[0][2].startswith("Smart-Seq2"):
         # SMART-seq isn't a dUTP-based method!
         CMD.extend(['--libraryType', '0'])
@@ -251,7 +223,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
-    relinkFiles(config, group, project, organism, libraryType, tuples)
+    relinkFiles(config, group, project, org_label, libraryType, tuples)
     tidyUpABit(outputDir)
     touchDone(outputDir)
     return outputDir, 0, False
@@ -266,8 +238,8 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     There better not be any duplicate RELACS sample names!
     """
     runID = config.get('Options', 'runID').split("_lanes")[0]
-
-    outputDir = createPath(config, group, BRB.misc.pacifier(project), organism, libraryType, tuples)
+    org_name, org_label, org_yaml = organism
+    outputDir = createPath(config, group, BRB.misc.pacifier(project), org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, True
 
@@ -327,9 +299,8 @@ def RELACS(config, group, project, organism, libraryType, tuples):
 
 
     # Back to the normal DNA pipeline
-    org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'DNAmapping', '--DAG', '--trim', '--UMIDedup', '--mapq', '3', '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'DNAmapping', '--DAG', '--trim', '--UMIDedup', '--mapq', '3', '-i', outputDir, '-o', outputDir, org_yaml]
     log.info(f"RELACS DNA wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
@@ -357,7 +328,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
     Run the DNA mapping pipeline on the samples. Tweals could theoretically be made
     according to the libraryProtocol (tuple[2])
 
-    - Make /data/{group}/{LatestSeqdir}/{runID}/Analysis_{project}/{libraryType}_{organism} directory
+    - Make /data/{group}/{LatestSeqdir}/{runID}/Analysis_{project}/{libraryType}_{org_label} directory
     - Remove previously linked in files (if any)
     - Link requested fastq files in
     - Run appropriate pipeline
@@ -368,25 +339,25 @@ def DNA(config, group, project, organism, libraryType, tuples):
         return RELACS(config, group, project, organism, libraryType, tuples)
 
     project = BRB.misc.pacifier(project)
-    outputDir = createPath(config, group, project, organism, libraryType, tuples)
+    org_name, org_label, org_yaml = organism
+    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
     PE = linkFiles(config, group, project, outputDir, tuples)
-    org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
     if libraryType == 'CUTandTag-seq' or libraryType == 'CUTandRUN-seq':
-        CMD = [CMD, 'DNAmapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '--cutntag', '-i', outputDir, '-o', outputDir, org]
+        CMD = [CMD, 'DNAmapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '--cutntag', '-i', outputDir, '-o', outputDir, org_yaml]
     elif libraryType == 'ATAC-Seq':
-        CMD = [CMD, 'DNAmapping', '--DAG', '--trim', r"--trimmerOptions '-a nexteraF=CTGTCTCTTATA -A nexteraR=CTGTCTCTTATA'", '--dedup', '--mapq 2', '-i', outputDir, '-o', outputDir, org]
+        CMD = [CMD, 'DNAmapping', '--DAG', '--trim', r"--trimmerOptions '-a nexteraF=CTGTCTCTTATA -A nexteraR=CTGTCTCTTATA'", '--dedup', '--mapq 2', '-i', outputDir, '-o', outputDir, org_yaml]
     else:
-        CMD = [CMD, 'DNAmapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-i', outputDir, '-o', outputDir, org]
+        CMD = [CMD, 'DNAmapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '-i', outputDir, '-o', outputDir, org_yaml]
     log.info(f"DNA wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
-    relinkFiles(config, group, project, organism, libraryType, tuples)
+    relinkFiles(config, group, project, org_label, libraryType, tuples)
     tidyUpABit(outputDir)
     stripRights(outputDir)
     touchDone(outputDir)
@@ -402,20 +373,20 @@ def WGBS(config, group, project, organism, libraryType, tuples):
     """
 
     project = BRB.misc.pacifier(project)
-    outputDir = createPath(config, group, project, organism, libraryType, tuples)
+    org_name, org_label, org_yaml = organism
+    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
     PE = linkFiles(config, group, project, outputDir, tuples)
-    org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'WGBS', '--DAG', '--trim', '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'WGBS', '--DAG', '--trim', '-i', outputDir, '-o', outputDir, org_yaml]
     log.info(f"WGBS wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
-    relinkFiles(config, group, project, organism, libraryType, tuples)
+    relinkFiles(config, group, project, org_label, libraryType, tuples)
     tidyUpABit(outputDir)
     stripRights(outputDir)
     touchDone(outputDir)
@@ -428,7 +399,8 @@ def ATAC(config, group, project, organism, libraryType, tuples):
     """
 
     project = BRB.misc.pacifier(project)
-    outputDir = createPath(config, group, project, organism, libraryType, tuples)
+    org_name, org_label, org_yaml = organism
+    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
 
@@ -439,9 +411,8 @@ def ATAC(config, group, project, organism, libraryType, tuples):
 
         removeDone(outputDir)
         touchDone(outputDir, "DNA.done")
-    org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'ATACseq', '--DAG', '-d', outputDir, org]
+    CMD = [CMD, 'ATACseq', '--DAG', '-d', outputDir, org_yaml]
     log.info(f"ATAC wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
@@ -463,11 +434,11 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
     """
 
     project = BRB.misc.pacifier(project)
-    outputDir = createPath(config, group, project, organism, libraryType, tuples)
+    org_name, org_label, org_yaml = organism
+    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, True
 
-    org = organism2Org(config, organism)
     accepted_names = [
         'Chromium_NextGEM_SingleCell3Prime_GeneExpression_v3.1_DualIndex',
         'Chromium_GEM-X_SingleCell_3primeRNA-seq_v4'
@@ -475,7 +446,8 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
     if tuples[0][2] in accepted_names:
         PE = linkFiles(config, group, project, outputDir, tuples)
         # scRNA has their own organism mapping table, just make sure no spaces are included
-        CMD = [config.get('10x', 'RNA'), outputDir, outputDir, org]
+        # FIXME: ^^^ this
+        CMD = [config.get('10x', 'RNA'), outputDir, outputDir, org_yaml]
         log.info(f"scRNA wf CMD: {' '.join(CMD)}")
         try:
             subprocess.check_call(' '.join(CMD), shell=True)
@@ -489,7 +461,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
     elif tuples[0][2] == "Cel-Seq 2 for single cell RNA-Seq":
         PE = linkFiles(config, group, project, outputDir, tuples)
         CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-        CMD = [CMD, 'scRNAseq', '--DAG', '--myKit CellSeq384','--skipVelocyto' , '-i', outputDir, '-o', outputDir, org]
+        CMD = [CMD, 'scRNAseq', '--DAG', '--myKit CellSeq384','--skipVelocyto' , '-i', outputDir, '-o', outputDir, org_yaml]
         log.info(f"scRNA wf CMD: {CMD}")
         try:
             subprocess.check_call(' '.join(CMD), shell=True)
@@ -512,7 +484,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
     """
     Running the HiC pipeline on the samples.
 
-    - Make /data/{group}/{LatestSeqdir}/{runID}/Analysis_{project}/{libraryType}_{organism} directory
+    - Make /data/{group}/{LatestSeqdir}/{runID}/Analysis_{project}/{libraryType}_{org_label} directory
     - Remove previously linked in files (if any)
     - Link requested fastq files in
     - Run appropriate pipeline
@@ -521,20 +493,20 @@ def HiC(config, group, project, organism, libraryType, tuples):
     """
 
     project = BRB.misc.pacifier(project)
-    outputDir = createPath(config, group, project, organism, libraryType, tuples)
+    org_name, org_label, org_yaml = organism
+    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
     PE = linkFiles(config, group, project, outputDir, tuples)
-    org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'HiC', '--DAG', '--noTAD', '--enzyme', 'DpnII', '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'HiC', '--DAG', '--noTAD', '--enzyme', 'DpnII', '-i', outputDir, '-o', outputDir, org_yaml]
     log.info(f"HiC wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
-    relinkFiles(config, group, project, organism, libraryType, tuples)
+    relinkFiles(config, group, project, org_label, libraryType, tuples)
     tidyUpABit(outputDir)
     stripRights(outputDir)
     touchDone(outputDir)
@@ -545,20 +517,20 @@ def makePairs(config, group, project, organism, libraryType, tuples):
     Running makePairs pipeline.
     """
     project = BRB.misc.pacifier(project)
-    outputDir = createPath(config, group, project, organism, libraryType, tuples)
+    org_name, org_label, org_yaml = organism
+    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
     PE = linkFiles(config, group, project, outputDir, tuples)
-    org = organism2Org(config, organism)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'makePairs', '--DAG', '-i', outputDir, '-o', outputDir, org]
+    CMD = [CMD, 'makePairs', '--DAG', '-i', outputDir, '-o', outputDir, org_yaml]
     log.info(f"makePairs wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
-    relinkFiles(config, group, project, organism, libraryType, tuples)
+    relinkFiles(config, group, project, org_label, libraryType, tuples)
     tidyUpABit(outputDir)
     touchDone(outputDir)
     return outputDir, 0, False
@@ -570,11 +542,11 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     """
 
     project = BRB.misc.pacifier(project)
-    outputDir = createPath(config, group, project, organism, libraryType, tuples)
+    org_name, org_label, org_yaml = organism
+    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, True
     runID = config.get('Options', 'runID').split("_lanes")[0]
-    org = organism2Org(config, organism)
     if (
         tuples[0][2] == "scATAC-Seq 10xGenomics"
         or tuples[0][2] == "Next GEM Single Cell ATAC"
@@ -589,7 +561,7 @@ def scATAC(config, group, project, organism, libraryType, tuples):
                                                BRB.misc.pacifier(project))
         CMD = config.get('10x', 'ATAC')+" -i "+inDir
         CMD += " -o "+outputDir
-        CMD += " "+org
+        CMD += " "+org_yaml
         CMD += " --projectID "+project+" --samples "+samples
         log.info(f"scATAC wf CMD: {CMD}")
         try:
@@ -640,32 +612,33 @@ def GetResults(config, project, libraries):
         ignore = True
     validLibraryTypes = {v: i for i, v in enumerate(config.get('Options', 'validLibraryTypes').split(','))}
     pipelines = config.get('Options', 'pipelines').split(',')
-    validOrganisms = config.get('Options', 'validOrganisms').split(',')
-    # split by analysis type and organism, since we can only process some types of this
+    # split by analysis type and species, since we can only process some types of this
     analysisTypes = dict()
     skipList = []
     external_skipList = []
     for library, v in libraries.items():
         sampleName, libraryType, libraryProtocol, organism, indexType, requestDepth = v
+        org_name, org_label, org_yaml = organism
         # Extra checks to see where we miss out
         if libraryType in validLibraryTypes:
             log.info(f"ValidLibraryType = {libraryType}")
         else:
             log.info(f"Not a ValidLibraryType = {libraryType}")
-        if organism in validOrganisms:
-            log.info(f"ValidOrganism = {organism}")
-        else:
-            log.info(f"Not a ValidOrganism = {organism}")
-        if libraryType in validLibraryTypes and organism in validOrganisms and (ignore==False or libraryType in config.get('external','LibraryTypes')):
+        if not (org_label or org_yaml):
+            log.info(f"Species label or YAML was not set for {org_name} (check Parkour DB.)")
+        if libraryType in validLibraryTypes and (org_label or org_yaml) and (ignore==False or libraryType in config.get('external','LibraryTypes')):
             idx = validLibraryTypes[libraryType]
             pipeline = pipelines[idx]
             if pipeline not in analysisTypes:
                 analysisTypes[pipeline] = dict()
-            if organism not in analysisTypes[pipeline]:
-                analysisTypes[pipeline][organism] = dict()
-            if libraryType not in analysisTypes[pipeline][organism]:
-                analysisTypes[pipeline][organism][libraryType] = list()
-            analysisTypes[pipeline][organism][libraryType].append([library, sampleName, libraryProtocol, ignore])
+            # TODO: iirc labels don't have the unique constrain on our DB,
+            # and using org_yaml (which can be a path) feels awkward here, even if it works.
+            # I can make labels unique and add this constraint, no problem.
+            if org_label not in analysisTypes[pipeline]:
+                analysisTypes[pipeline][org_label] = dict()
+            if libraryType not in analysisTypes[pipeline][org_label]:
+                analysisTypes[pipeline][org_label][libraryType] = list()
+            analysisTypes[pipeline][org_label][libraryType].append([library, sampleName, libraryProtocol, ignore])
             log.debug(f"Considering analysis types: {analysisTypes}")
         else:
             if ignore == False:
@@ -675,10 +648,10 @@ def GetResults(config, project, libraries):
     msg = []
     if len(skipList):
         for i in skipList:
-            log.info(f"Skipping sample {i[0]}/{i[0]} ({organism} - project {BRB.misc.pacifier(project)}).\n")
-        msg = msg + [BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList, organism)]
+            log.info(f"Skipping sample {i[0]}/{i[0]} ({org_name} - project {BRB.misc.pacifier(project)}).\n")
+        msg = msg + [BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList, org_name)]
     for pipeline, v in analysisTypes.items():
-        for organism, v2 in v.items():
+        for org_label, v2 in v.items():
             for libraryType, tuples in v2.items():
                 reruncount = 0
                 # RELACS needs the unpacified project name to copy the original sample sheet to the dest dir
@@ -689,14 +662,14 @@ def GetResults(config, project, libraries):
                     reruncount += 1
                     outputDir, rv, sambaUpdate = globals()[pipeline](config, group, project, organism, libraryType, tuples)
                 if rv == 0:
-                    msg = msg + [BRB.ET.phoneHome(config, outputDir, pipeline, tuples, organism, project, libraryType) + [sambaUpdate, reruncount]]
-                    log.info(f"Processed project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {organism}. Rerun = {reruncount}")
+                    msg = msg + [BRB.ET.phoneHome(config, outputDir, pipeline, tuples, org_name, project, libraryType) + [sambaUpdate, reruncount]]
+                    log.info(f"Processed project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {org_name}. Rerun = {reruncount}")
                 else:
-                    msg = msg + [[project, organism, libraryType, pipeline, 'FAILED', 'not updated', sambaUpdate, reruncount]]
-                    log.warning(f"FAILED project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {organism}. Rerun = {reruncount}")
+                    msg = msg + [[project, org_name, libraryType, pipeline, 'FAILED', 'not updated', sambaUpdate, reruncount]]
+                    log.warning(f"FAILED project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {org_name}. Rerun = {reruncount}")
     # In case there is an external_skipList, there shouldn't be a skipList !
     if external_skipList:
         assert not skipList
         libTypes = ','.join(set([i[2] for i in external_skipList]))
-        msg = msg + [[project, organism, libTypes, None, None, None, False, None]]
+        msg = msg + [[project, org_name, libTypes, None, None, None, False, None]]
     return msg

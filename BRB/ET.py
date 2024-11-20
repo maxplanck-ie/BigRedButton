@@ -37,6 +37,9 @@ def getOffSpeciesRate(d, organism = None) -> float:
     """
     fname = glob.glob("{}/*rep".format(d))[0]
     # match parkour org to kraken db organism/group
+
+    # TODO: we needed a 4th string <!> I'm just passing org_name and rely on this mapping...
+    # FIXME: BRB.ET.*() calls @ PushButton where the org_name is passed.
     org_map = {
         'Human (GRCh38)': 'humangrp',
         'Human (GRCh37 / hg19)': 'humangrp',
