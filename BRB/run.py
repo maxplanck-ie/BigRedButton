@@ -68,6 +68,12 @@ def validate_fcid_with_stats(ctx, param, value):
 @click.option('--fcid', callback=validate_fcid_with_stats, help='Flowcell ID to push stats.')
 def run_brb(configfile, stats, fcid):
 
+
+     # move stats flag here
+     # have an barebones config object, only with runID, parkourURL.. minimal
+     # no logs, print pushed dict to stdout, and status 200
+     # and pipelines shouldn't crash with pakour failure
+
     while True:
         # Read the config file
         config = BRB.getConfig.getConfig(configfile)
