@@ -216,7 +216,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
         CMD.extend(['--libraryType', '0'])
     elif tuples[0][2].startswith("NEBNext Low Input RNA Library"):
         # Unstranded
-        CMD.extend(['--libraryType', '0'])
+        CMD.extend(['--libraryType', '0', r"--trimmerOptions '-a AGATCGGAAGAGC -A AGATCGGAAGAGC'"])
     log.info(f"RNA wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
