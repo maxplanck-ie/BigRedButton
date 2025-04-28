@@ -211,7 +211,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     PE = linkFiles(config, group, project, outputDir, tuples)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
     CMD = [CMD, 'mRNAseq', '--DAG', '--trim', '-i', outputDir, '-o', outputDir, org_yaml]
-    if tuples[0][2].startswith("Smart-Seq2"):
+    if tuples[0][2].startswith("Smart-Seq2")  or tuples[0][2].startswith("NEBNext Single Cell RNA Library Preparation"):
         # SMART-seq isn't a dUTP-based method!
         CMD.extend(['--libraryType', '0'])
     elif tuples[0][2].startswith("NEBNext Low Input RNA Library"):
