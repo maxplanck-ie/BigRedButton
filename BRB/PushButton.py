@@ -211,7 +211,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     PE = linkFiles(config, group, project, outputDir, tuples)
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
     CMD = [CMD, 'mRNAseq', '--DAG', '--trim', '-i', outputDir, '-o', outputDir, org_yaml]
-    if tuples[0][2].startswith("Smart-Seq2"):
+    if tuples[0][2].startswith("Smart-Seq2")  or tuples[0][2].startswith("NEBNext Single Cell RNA Library Preparation"):
         # SMART-seq isn't a dUTP-based method!
         CMD.extend(['--libraryType', '0'])
     elif tuples[0][2].startswith("NEBNext Low Input RNA Library"):
@@ -243,7 +243,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, True
 
-    sampleSheet = "/dont_touch_this/solexa_runs/{}/RELACS_Project_{}.txt".format(runID, BRB.misc.pacifier(project))
+    sampleSheet = "/dont_touch_this/short_runs/{}/RELACS_Project_{}.txt".format(runID, BRB.misc.pacifier(project))
     if not os.path.exists(sampleSheet) and not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
         log.critical("RELACS: wrong samplesheet name: {}".format(sampleSheet))
         print("wrong samplesheet name!", sampleSheet)
