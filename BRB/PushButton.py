@@ -617,14 +617,15 @@ def GetResults(config, project, libraries):
     skipList = []
     external_skipList = []
     org_dict = {}
+    print(libraries)
     for library, v in libraries.items():
         sampleName, libraryType, libraryProtocol, organism, indexType, requestDepth = v
         org_name, org_label, org_yaml = organism
         # Extra checks to see where we miss out
         if libraryType in validLibraryTypes:
-            log.info(f"ValidLibraryType = {libraryType}")
+            log.info(f"ValidLibraryType for sample {library} = {libraryType}")
         else:
-            log.info(f"Not a ValidLibraryType = {libraryType}")
+            log.info(f"Not a ValidLibraryType for sample {library} = {libraryType}")
         if not (org_label or org_yaml):
             log.info(f"Species label or YAML was not set for {org_name} (check Parkour DB.)")
         if libraryType in validLibraryTypes and (org_label or org_yaml) and (ignore==False or libraryType in config.get('external','LibraryTypes')):
@@ -656,6 +657,7 @@ def GetResults(config, project, libraries):
         for org_label, v2 in v.items():
             log.debug('Running organism label ' + org_label)
             organism = org_dict[org_label]
+            org_name, org_label, org_yaml = organism
             log.debug(organism)
             for libraryType, tuples in v2.items():
                 log.debug('Running libraryType ' + libraryType)
