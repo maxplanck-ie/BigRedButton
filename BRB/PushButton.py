@@ -341,9 +341,11 @@ def DNA(config, group, project, organism, libraryType, tuples):
     project = BRB.misc.pacifier(project)
     org_name, org_label, org_yaml = organism
     outputDir = createPath(config, group, project, org_label, libraryType, tuples)
+    log.debug('Running snakePipes in output dir ' + outputDir )
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
     PE = linkFiles(config, group, project, outputDir, tuples)
+    log.debug(os.listdir(outputDir))
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
     if libraryType == 'CUTandTag-seq' or libraryType == 'CUTandRUN-seq':
         CMD = [CMD, 'DNAmapping', '--DAG', '--trim', '--dedup', '--mapq', '3', '--cutntag', '-i', outputDir, '-o', outputDir, org_yaml]
@@ -443,7 +445,11 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         'Chromium_NextGEM_SingleCell3Prime_GeneExpression_v3.1_DualIndex',
         'Chromium_GEM-X_SingleCell_3primeRNA-seq_v4'
     ]
+
+
     if tuples[0][2] in accepted_names:
+        if 'GRCh38' in org_yaml:
+            org_yaml = 'GRCh38'
         PE = linkFiles(config, group, project, outputDir, tuples)
         CMD = [config.get('10x', 'RNA'), outputDir, outputDir, org_yaml]
         log.info(f"scRNA wf CMD: {' '.join(CMD)}")
@@ -590,7 +596,7 @@ def GetResults(config, project, libraries):
                        'Other',
                        'scRNA-Seq 10xGenomics',
                        'mouse'],
-
+        }
     This doesn't return anything. It's assumed that everything within a single library type can be analysed together.
     """
     ignore = False
@@ -614,17 +620,21 @@ def GetResults(config, project, libraries):
     analysisTypes = dict()
     skipList = []
     external_skipList = []
+    org_dict = {}
+    print(libraries)
     for library, v in libraries.items():
         sampleName, libraryType, libraryProtocol, organism, indexType, requestDepth = v
         org_name, org_label, org_yaml = organism
         # Extra checks to see where we miss out
         if libraryType in validLibraryTypes:
-            log.info(f"ValidLibraryType = {libraryType}")
+            log.info(f"ValidLibraryType for sample {library} = {libraryType}")
         else:
-            log.info(f"Not a ValidLibraryType = {libraryType}")
+            log.info(f"Not a ValidLibraryType for sample {library} = {libraryType}")
         if not (org_label or org_yaml):
             log.info(f"Species label or YAML was not set for {org_name} (check Parkour DB.)")
         if libraryType in validLibraryTypes and (org_label or org_yaml) and (ignore==False or libraryType in config.get('external','LibraryTypes')):
+            if org_label not in org_dict:
+                org_dict[org_label] = organism
             idx = validLibraryTypes[libraryType]
             pipeline = pipelines[idx]
             if pipeline not in analysisTypes:
@@ -645,18 +655,28 @@ def GetResults(config, project, libraries):
         for i in skipList:
             log.info(f"Skipping sample {i[0]}/{i[0]} ({org_name} - project {BRB.misc.pacifier(project)}).\n")
         msg = msg + [BRB.ET.telegraphHome(config, group, BRB.misc.pacifier(project), skipList, org_name)]
+    log.debug(config)
     for pipeline, v in analysisTypes.items():
+        log.debug('Running pipeline ' + pipeline)
         for org_label, v2 in v.items():
+            log.debug('Running organism label ' + org_label)
+            organism = org_dict[org_label]
+            org_name, org_label, org_yaml = organism
+            log.debug(organism)
             for libraryType, tuples in v2.items():
+                log.debug('Running libraryType ' + libraryType)
+                log.debug(tuples)
                 reruncount = 0
                 # RELACS needs the unpacified project name to copy the original sample sheet to the dest dir
                 # hence the pacifier is applied on the project in each pipeline separately
+                
                 outputDir, rv, sambaUpdate = globals()[pipeline](config, group, project, organism, libraryType, tuples)
                 if reruncount == 0 and rv != 0:
                     # Allow for one re-run
                     reruncount += 1
                     outputDir, rv, sambaUpdate = globals()[pipeline](config, group, project, organism, libraryType, tuples)
                 if rv == 0:
+                    log.debug('BRB run for {} {} {} {} complete.'.format(pipeline,org_label,libraryType,tuples))
                     msg = msg + [BRB.ET.phoneHome(config, outputDir, pipeline, tuples, org_name, project, libraryType) + [sambaUpdate, reruncount]]
                     log.info(f"Processed project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {org_name}. Rerun = {reruncount}")
                 else:
