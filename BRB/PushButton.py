@@ -445,7 +445,11 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         'Chromium_NextGEM_SingleCell3Prime_GeneExpression_v3.1_DualIndex',
         'Chromium_GEM-X_SingleCell_3primeRNA-seq_v4'
     ]
+
+
     if tuples[0][2] in accepted_names:
+        if 'GRCh38' in org_yaml:
+            org_yaml = 'GRCh38'
         PE = linkFiles(config, group, project, outputDir, tuples)
         CMD = [config.get('10x', 'RNA'), outputDir, outputDir, org_yaml]
         log.info(f"scRNA wf CMD: {' '.join(CMD)}")
