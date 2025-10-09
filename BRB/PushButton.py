@@ -106,7 +106,6 @@ def copyCellRanger(config, d):
     # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/RNA-Seqsinglecell_mouse ->
     # yyyy_lanes_1
     lane_dir = Path(d).parents[1].stem
-    print(lane_dir)
     sequencing_type=lane_dir.split("_")[1]
     if sequencing_type.startswith("AV"):
         current_year = str(lane_dir)[0:4]
@@ -150,7 +149,6 @@ def copyRELACS(config, d):
     # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/ChIP-Seq_mouse/RELACS_demultiplexing ->
     # Sequence_Quality_yyyy/Illumina_yyyy/yyyy_lanes_1
     lane_dir = Path(d).parents[1].stem
-    print(lane_dir)
     sequencing_type=lane_dir.split("_")[1]
     if sequencing_type.startswith("AV"):
         current_year = str(lane_dir)[0:4]
@@ -266,7 +264,6 @@ def RELACS(config, group, project, organism, libraryType, tuples):
 
     if not os.path.exists(sampleSheet) and not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
         log.critical("RELACS: wrong samplesheet name: {}".format(sampleSheet))
-        print("wrong samplesheet name!", sampleSheet)
         return None, 1, False
 
 
@@ -636,7 +633,6 @@ def GetResults(config, project, libraries):
         )
         log.info(f"Processing {dataPath}")
     except:
-        print("external data")
         ignore = True
     validLibraryTypes = {v: i for i, v in enumerate(config.get('Options', 'validLibraryTypes').split(','))}
     pipelines = config.get('Options', 'pipelines').split(',')
@@ -645,7 +641,6 @@ def GetResults(config, project, libraries):
     skipList = []
     external_skipList = []
     org_dict = {}
-    print(libraries)
     for library, v in libraries.items():
         sampleName, libraryType, libraryProtocol, organism, indexType, requestDepth = v
         org_name, org_label, org_yaml = organism
