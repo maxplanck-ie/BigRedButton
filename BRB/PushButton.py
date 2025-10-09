@@ -106,8 +106,14 @@ def copyCellRanger(config, d):
     # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/RNA-Seqsinglecell_mouse ->
     # yyyy_lanes_1
     lane_dir = Path(d).parents[1].stem
-    current_year = "20" + str(lane_dir)[0:2]
-    year_postfix = Path("Sequence_Quality_" + current_year) / Path("Illumina_" + current_year)
+    print(lane_dir)
+    sequencing_type=lane_dir.split("_")[1]
+    if sequencing_type.startswith("AV"):
+        current_year = str(lane_dir)[0:4]
+        year_postfix = Path("Sequence_Quality_" + current_year) / Path("AVITI24_" + current_year)
+    else:
+        current_year = "20" + str(lane_dir)[0:2]
+        year_postfix = Path("Sequence_Quality_" + current_year) / Path("Illumina_" + current_year)
     for fname in files:
         # to seqfac dir.
         nname = fname.split('/')
@@ -144,8 +150,15 @@ def copyRELACS(config, d):
     # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/ChIP-Seq_mouse/RELACS_demultiplexing ->
     # Sequence_Quality_yyyy/Illumina_yyyy/yyyy_lanes_1
     lane_dir = Path(d).parents[1].stem
-    current_year = "20" + str(lane_dir)[0:2]
-    year_postfix = Path("Sequence_Quality_" + current_year) / Path("Illumina_" + current_year)
+    print(lane_dir)
+    sequencing_type=lane_dir.split("_")[1]
+    if sequencing_type.startswith("AV"):
+        current_year = str(lane_dir)[0:4]
+        year_postfix = Path("Sequence_Quality_" + current_year) / Path("AVITI24_" + current_year)
+    else:
+        current_year = "20" + str(lane_dir)[0:2]
+        year_postfix = Path("Sequence_Quality_" + current_year) / Path("Illumina_" + current_year)
+
     log.info(f"copyRELACS - copying over RELACS files to samba path {year_postfix}")
     for fname in files:
         # to seqfac dir.
@@ -243,13 +256,20 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, True
 
-    sampleSheet = "/dont_touch_this/short_runs/{}/RELACS_Project_{}.txt".format(runID, BRB.misc.pacifier(project))
+    project = BRB.misc.pacifier(project)
+    sampleSheet = f"/dont_touch_this/short_runs/{runID}/RELACS_Project_{project}.txt"
+
+    # Fallback if exact path doesn't exist
+    if not os.path.exists(sampleSheet):
+        matches = glob.glob(f"/dont_touch_this/short_runs/AV*/{runID}/RELACS_Project_{project}.txt")
+        sampleSheet = matches[0] if matches else None
+
     if not os.path.exists(sampleSheet) and not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
         log.critical("RELACS: wrong samplesheet name: {}".format(sampleSheet))
         print("wrong samplesheet name!", sampleSheet)
         return None, 1, False
 
-    project = BRB.misc.pacifier(project)
+
     baseDir = "{}/{}/{}/{}/Project_{}".format(config.get('Paths', 'groupData'),
                                                            BRB.misc.pacifier(group),
                                                            BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
@@ -300,7 +320,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
 
     # Back to the normal DNA pipeline
     CMD = "PATH={}/bin:$PATH".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
-    CMD = [CMD, 'DNAmapping', '--DAG', '--trim', '--UMIDedup', '--mapq', '3', '-i', outputDir, '-o', outputDir, org_yaml]
+    CMD = [CMD, 'DNAmapping', '--DAG', '--trim', r"--trimmerOptions '-a AGATCGGAAGAG -A AGATCGGAAGAG'", '--UMIDedup', '--mapq', '3', '-i', outputDir, '-o', outputDir, org_yaml]
     log.info(f"RELACS DNA wf CMD: {CMD}")
     try:
         subprocess.check_call(' '.join(CMD), shell=True)
@@ -451,7 +471,8 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         if 'GRCh38' in org_yaml:
             org_yaml = 'GRCh38'
         PE = linkFiles(config, group, project, outputDir, tuples)
-        CMD = [config.get('10x', 'RNA'), outputDir, outputDir, org_yaml]
+        snakeMakePath= "{}/bin".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
+        CMD = [config.get('10x', 'RNA'), outputDir, outputDir, org_yaml, " --snakemakePath ", snakeMakePath]
         log.info(f"scRNA wf CMD: {' '.join(CMD)}")
         try:
             subprocess.check_call(' '.join(CMD), shell=True)
@@ -544,7 +565,7 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     """
     scATAC 10x
     """
-
+    
     project = BRB.misc.pacifier(project)
     org_name, org_label, org_yaml = organism
     outputDir = createPath(config, group, project, org_label, libraryType, tuples)
@@ -563,10 +584,13 @@ def scATAC(config, group, project, organism, libraryType, tuples):
                                                BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                config.get('Options', 'runID'),
                                                BRB.misc.pacifier(project))
+        snakeMakePath= "{}/bin".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
         CMD = config.get('10x', 'ATAC')+" -i "+inDir
         CMD += " -o "+outputDir
         CMD += " "+org_yaml
         CMD += " --projectID "+project+" --samples "+samples
+        CMD += " --snakemakePath "+snakeMakePath
+
         log.info(f"scATAC wf CMD: {CMD}")
         try:
             subprocess.check_call(CMD, shell=True)
