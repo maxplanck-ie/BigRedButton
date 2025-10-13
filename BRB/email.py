@@ -8,7 +8,7 @@ from BRB.logger import log
 
 def errorEmail(config, errTuple, msg) :
     msg = MIMEText(msg + "\nError type: %s\nError value: %s\n%s\n" % (errTuple[0], errTuple[1], errTuple[2]))
-    msg['Subject'] = f"[BigRedButton {version("BRB")}] Error"
+    msg['Subject'] = f'[BigRedButton {version("BRB")}] Error'
     msg['From'] = config.get("Email","fromAddress")
     msg['To'] = config.get("Email","errorTo")
 
@@ -19,7 +19,7 @@ def errorEmail(config, errTuple, msg) :
 
 def finishedEmail(config, msg):
     mailer = MIMEMultipart('alternative')
-    mailer['Subject'] = f"[BigRedButton {version("BRB")}] {config.get("Options","runID")} processed"
+    mailer['Subject'] = f'[BigRedButton {version("BRB")}] {config.get("Options","runID")} processed'
     mailer['From'] = config.get("Email","fromAddress")
     
     # Create the table head
@@ -33,7 +33,7 @@ def finishedEmail(config, msg):
         if [i[4] for i in msg].count('FAILED') == 0:
             recipient = config.get("Email","deepSeq")
             _html.add(div(
-                f"Post-processing is ready, Samba drive is updated for {[i[6] for i in msg].count(True)} project(s).",
+                f'Post-processing is ready, Samba drive is updated for {[i[6] for i in msg].count(True)} project(s).',
                 br()
             ))
 
