@@ -87,6 +87,16 @@ def relinkFiles(config, group, project, org_label, libraryType, tuples):
         log.info(f"no multiqc report under {mqcf}.")
 
 
+def getsambaPath(lane_dir,Sequencer):
+    if Sequencer == "Aviti":
+        current_year = str(lane_dir)[0:4]
+        year_postfix = Path("Sequence_Quality_" + current_year) / Path("AVITI24_" + current_year)
+    else:
+        current_year = "20" + str(lane_dir)[0:2]
+        year_postfix = Path("Sequence_Quality_" + current_year) / Path("Illumina_" + current_year)
+    return current_year, year_postfix
+
+
 def copyCellRanger(config, d):
     '''
     copy Cellranger web_summaries to sequencing facility lane subdirectory & bioinfocore qc directory.
@@ -102,17 +112,13 @@ def copyCellRanger(config, d):
     '''
 
     files = glob.glob(os.path.join(d, '*/outs/', 'web_summary.html'))
-
+    sequencing_type= config.get("Options", "sequencerType")
+    
+    
     # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/RNA-Seqsinglecell_mouse ->
     # yyyy_lanes_1
     lane_dir = Path(d).parents[1].stem
-    sequencing_type=lane_dir.split("_")[1]
-    if sequencing_type.startswith("AV"):
-        current_year = str(lane_dir)[0:4]
-        year_postfix = Path("Sequence_Quality_" + current_year) / Path("AVITI24_" + current_year)
-    else:
-        current_year = "20" + str(lane_dir)[0:2]
-        year_postfix = Path("Sequence_Quality_" + current_year) / Path("Illumina_" + current_year)
+    current_year, year_postfix = getsambaPath(lane_dir,sequencing_type)
     for fname in files:
         # to seqfac dir.
         nname = fname.split('/')
@@ -145,18 +151,12 @@ def copyRELACS(config, d):
     '''
 
     files = glob.glob(os.path.join(d, "RELACS_demultiplexing", 'Sample*/', '*_fig.png')) + glob.glob(os.path.join(d, "multiQC", '*html'))
+    sequencing_type=config.get("Options", "sequencerType")
 
     # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/ChIP-Seq_mouse/RELACS_demultiplexing ->
     # Sequence_Quality_yyyy/Illumina_yyyy/yyyy_lanes_1
     lane_dir = Path(d).parents[1].stem
-    sequencing_type=lane_dir.split("_")[1]
-    if sequencing_type.startswith("AV"):
-        current_year = str(lane_dir)[0:4]
-        year_postfix = Path("Sequence_Quality_" + current_year) / Path("AVITI24_" + current_year)
-    else:
-        current_year = "20" + str(lane_dir)[0:2]
-        year_postfix = Path("Sequence_Quality_" + current_year) / Path("Illumina_" + current_year)
-
+    current_year, year_postfix = getsambaPath(lane_dir, sequencing_type)
     log.info(f"copyRELACS - copying over RELACS files to samba path {year_postfix}")
     for fname in files:
         # to seqfac dir.
@@ -249,19 +249,21 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     There better not be any duplicate RELACS sample names!
     """
     runID = config.get('Options', 'runID').split("_lanes")[0]
+    sequencerType = config.get('Options', 'sequencerType') 
     org_name, org_label, org_yaml = organism
     outputDir = createPath(config, group, BRB.misc.pacifier(project), org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, True
 
     project = BRB.misc.pacifier(project)
-    sampleSheet = f"/dont_touch_this/short_runs/{runID}/RELACS_Project_{project}.txt"
 
-    # Fallback if exact path doesn't exist
-    if not os.path.exists(sampleSheet):
+    if sequencerType == "Aviti":
         matches = glob.glob(f"/dont_touch_this/short_runs/AV*/{runID}/RELACS_Project_{project}.txt")
         sampleSheet = matches[0] if matches else None
+    else:
+        sampleSheet = f"/dont_touch_this/short_runs/{runID}/RELACS_Project_{project}.txt"
 
+    # Fallback if exact path doesn't exist
     if not os.path.exists(sampleSheet) and not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
         log.critical("RELACS: wrong samplesheet name: {}".format(sampleSheet))
         return None, 1, False
@@ -581,11 +583,12 @@ def scATAC(config, group, project, organism, libraryType, tuples):
                                                BRB.misc.getLatestSeqdir(config.get('Paths','groupData'), group),
                                                config.get('Options', 'runID'),
                                                BRB.misc.pacifier(project))
+
         snakeMakePath= "{}/bin".format(os.path.join(config.get('Options', 'snakemakeWorkflowBaseDir')))
         CMD = config.get('10x', 'ATAC')+" -i "+inDir
         CMD += " -o "+outputDir
         CMD += " "+org_yaml
-        CMD += " --projectID "+project+" --samples "+samples
+        CMD += " --projectID "+project+" --samples "+ samples
         CMD += " --snakemakePath "+snakeMakePath
 
         log.info(f"scATAC wf CMD: {CMD}")
