@@ -203,18 +203,26 @@ def RNA(config, outputDir, baseDict, sample2lib):
 
 
 def sendToParkour(config, msg):
-    FCID = config.get("Options", "runID").split("_")[3][1:]
-    if '-' in FCID:
-        FCID = FCID.split('-')[-1]
-    d = {'flowcell_id': FCID}
-    d['sequences'] = json.dumps(msg)
+    basePath= config.get("Paths","baseData")
+    aviti_check= glob.glob(f"{basePath}/*/RunManifest.csv")
+    if aviti_check:
+        FCID = config.get("Options", "runID").split("_")[2]
+        if '-' in FCID:
+            FCID = FCID.split('-')[-1]
+        d = {'flowcell_id': FCID}
+        d['sequences'] = json.dumps(msg)
+    else:
+        FCID = config.get("Options", "runID").split("_")[3][1:]
+        if '-' in FCID:
+            FCID = FCID.split('-')[-1]
+        d = {'flowcell_id': FCID}
+        d['sequences'] = json.dumps(msg)
     log.info(f"sendToParkour: Sending {d} to Parkour")
     res = requests.post(config.get("Parkour", "ResultsURL"), auth=(config.get("Parkour", "user"), config.get("Parkour", "password")), data=d, verify=config.get("Parkour", "cert"))
     log.info(f"sendToParkour return {res}")
     return res
-
-
-
+    
+    
 def phoneHome(config, outputDir, pipeline, samples_tuples, organism, project, libType):
     """
     Return metrics to Parkour, the results are in outputDir and pipeline needs to be run on them
