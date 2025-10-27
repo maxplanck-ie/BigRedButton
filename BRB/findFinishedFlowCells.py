@@ -71,7 +71,7 @@ def newFlowCell(config):
         config.set("Options", "sequencerType", seq_type)
 
         if not flowCellProcessed(config):
-            print(f"Found new flow cell: [green]{config.get("Options","runID")}[/green]")
+            print(f'Found new flow cell: [green]{config.get("Options","runID")}[/green]')
             # Query parkour to see if there's anything to be done for this
             ParkourDict = queryParkour(config)
             if len(ParkourDict) == 0:
