@@ -7,7 +7,6 @@ import BRB.misc
 from BRB.logger import log
 import pandas as pd
 from pathlib import Path
-import numpy as np
 
 def getNReads(d):
     """
@@ -138,7 +137,7 @@ def DNA(config, outputDir, baseDict, sample2lib):
         medInsertSize = insert_size_df.loc[insert_size_df["Unnamed: 0"]=="filtered_bam/"+sampleName+".filtered.bam"]
         medInsertSize = medInsertSize["Frag. Len. Median"].values[0]
         baseDict[sample2lib[sampleName]].append(int(medInsertSize))
-        
+
     log.info(f"ET - DNA module parsed {baseDict}")
 
     # Reformat into a matrix
