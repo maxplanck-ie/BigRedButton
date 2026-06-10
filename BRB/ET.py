@@ -7,6 +7,7 @@ import BRB.misc
 from BRB.logger import log
 import pandas as pd
 from pathlib import Path
+import numpy as np
 
 def getNReads(d):
     """
@@ -121,9 +122,15 @@ def DNA(config, outputDir, baseDict, sample2lib):
         # % Duplicated
         dup_info = glob.glob("{}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt".format(outputDir))[0]
         dup_df = pd.read_csv(dup_info, sep ="\t", usecols=["Sample", "total_passed", "duplicates_passed"])
-        dup_df = dup_df.loc[dup_df["Sample"].astype(str) == sampleName]
-        dup_rate = dup_df["duplicates_passed"].values/dup_df["total_passed"].values*100
-        dup_rate = dup_rate[0]
+
+        # Following condition handle sample-name mismatches caused by trailing '_' or any other sign in parsed filenames
+        # Assign "0 (zero)" if the sample is not present in dup_df.
+        if sampleName not in list(dup_df["Sample"].astype(str)):
+            dup_rate= 0
+        else:
+            dup_df = dup_df.loc[dup_df["Sample"].astype(str) == sampleName]
+            dup_rate = dup_df["duplicates_passed"].values/dup_df["total_passed"].values*100
+            dup_rate = dup_rate[0]
         baseDict[sample2lib[sampleName]].append(dup_rate)
         # Median insert size
         insert_size_info = os.path.join(outputDir, "deepTools_qc/bamPEFragmentSize/fragmentSize.metric.tsv")
@@ -131,7 +138,7 @@ def DNA(config, outputDir, baseDict, sample2lib):
         medInsertSize = insert_size_df.loc[insert_size_df["Unnamed: 0"]=="filtered_bam/"+sampleName+".filtered.bam"]
         medInsertSize = medInsertSize["Frag. Len. Median"].values[0]
         baseDict[sample2lib[sampleName]].append(int(medInsertSize))
-    
+        
     log.info(f"ET - DNA module parsed {baseDict}")
 
     # Reformat into a matrix
