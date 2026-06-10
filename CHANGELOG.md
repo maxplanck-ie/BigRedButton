@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.2.0...v0.3.0) (2026-06-10)
+
+
+### Features
+
+* duplication rate 0 for samples irretrievable due to poor naming ([82e7498](https://github.com/maxplanck-ie/BigRedButton/commit/82e749898f7e5d643434f444e44c57e3faa8ccc1))
+* duplication rate 0 for samples irretrievable due to poor naming ([#120](https://github.com/maxplanck-ie/BigRedButton/issues/120)) ([82e7498](https://github.com/maxplanck-ie/BigRedButton/commit/82e749898f7e5d643434f444e44c57e3faa8ccc1))
+
 ## [0.2.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.1.0...v0.2.0) (2025-10-27)
 
 
