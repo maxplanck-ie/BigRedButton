@@ -3,9 +3,6 @@ on: [push, pull_request]
 jobs:
   pip:
     runs-on: ubuntu-latest
-    env:
-      CC: gcc
-      CXX: g++
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5

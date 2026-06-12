@@ -36,12 +36,6 @@ cd BigRedButton
 pip install .
 ```
 
-If you install on a system without a prebuilt `editdistance` wheel for your Python version, you may need a C++ compiler available and set the compiler explicitly, e.g.:
-
-```bash
-CXX=g++ pip install .
-```
-
 Additional tools
 
 1. BRB expects snakePipes is already installed and defined in the config file
