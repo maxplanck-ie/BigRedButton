@@ -4,10 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = 'BRB'
-authors = [
-    {name = "Devon P. Ryan"},
-    {name = "Bioinfo-Core MPI-IE"}
-]
+authors = [{ name = "Devon P. Ryan" }, { name = "Bioinfo-Core MPI-IE" }]
 description = "dixitque PI fiat computationēs et facta est computationēs et vidit PI computationēs quod esset bona"
 readme = "README.md"
 dynamic = ["version"]
@@ -29,7 +26,7 @@ dependencies = [
   "rich_click >= 1.8.3",
   "dominate >= 2.9.1",
   "tabulate >= 0.9.0",
-  "pytest >= 8.2.2"
+  "pytest >= 8.2.2",
 ]
 
 [project.scripts]
@@ -37,11 +34,9 @@ BigRedButton = "BRB.run:run_brb"
 demultiplex_relacs = "BRB.demultiplex_relacs:main"
 
 [tool.setuptools_scm]
+fallback_version = "0+unknown"
+write_to = "BRB/_version.py"
+write_to_template = '__version__ = "{version}"\n'
 
 [tool.ruff]
-lint.ignore = [
-  "E722",
-  "F841",
-  "E712",
-  "E741"
-]
+lint.ignore = ["E722", "F841", "E712", "E741"]
