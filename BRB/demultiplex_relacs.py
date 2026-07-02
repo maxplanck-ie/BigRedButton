@@ -7,7 +7,7 @@ from multiprocessing import Pool
 import subprocess
 import matplotlib.pyplot as plt
 import numpy as np
-import editdistance as ed
+from BRB import editdistance as ed
 from rich import print
 
 def parseArgs(args=None):

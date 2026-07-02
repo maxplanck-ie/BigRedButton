@@ -36,7 +36,11 @@ cd BigRedButton
 pip install .
 ```
 
+> [!NOTE]
+> If you get `LookupError: setuptools-scm was unable to detect version`. Ensure that git is available on the conda environment you've just activated: `conda install git`.
+
 Additional tools
 
 1. BRB expects snakePipes is already installed and defined in the config file
 2. In adition, it expects the [10X_snakepipe repository](https://github.com/maxplanck-ie/10X_snakepipe) also defined in the config file
+
