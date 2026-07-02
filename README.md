@@ -42,5 +42,5 @@ pip install .
 Additional tools
 
 1. BRB expects snakePipes is already installed and defined in the config file
-2. In adition, it expects the [10X_snakepipe repository](https://github.com/maxplanck-ie/10X_snakepipe) also defined in the config file
+2. In addition, it expects the [10X_snakepipe repository](https://github.com/maxplanck-ie/10X_snakepipe) also defined in the config file
 
