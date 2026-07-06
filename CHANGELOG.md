@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.3.0...v0.4.0) (2026-07-06)
+
+
+### Features
+
+* built-in Levenshtein distance ([#123](https://github.com/maxplanck-ie/BigRedButton/issues/123)) ([46b4ea3](https://github.com/maxplanck-ie/BigRedButton/commit/46b4ea3572cfa84938551fe74b053b6182573929))
+
 ## [0.3.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.2.0...v0.3.0) (2026-06-10)
 
 
