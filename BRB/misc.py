@@ -11,18 +11,20 @@ def loadUserDictionary():
     f.close()
     return d
 
+
 def getLatestSeqdir(groupData, PI):
     seqDirNum = 0
     for dirs in os.listdir(os.path.join(groupData, PI)):
-        if 'sequencing_data' in dirs:
-            seqDirStrip = dirs.replace('sequencing_data','')
-            if seqDirStrip != '':
+        if "sequencing_data" in dirs:
+            seqDirStrip = dirs.replace("sequencing_data", "")
+            if seqDirStrip != "":
                 if int(seqDirStrip) > seqDirNum:
                     seqDirNum = int(seqDirStrip)
     if seqDirNum == 0:
-        return 'sequencing_data'
+        return "sequencing_data"
     else:
-        return 'sequencing_data' + str(seqDirNum)
+        return "sequencing_data" + str(seqDirNum)
+
 
 def pacifier(s):
     """
@@ -31,5 +33,5 @@ def pacifier(s):
     This only works in python 3
     """
     s = s.replace(" ", "")
-    s = s.replace("'","")
-    return str(unicodedata.normalize('NFKD',s).encode('ASCII', 'ignore'), 'utf-8')
+    s = s.replace("'", "")
+    return str(unicodedata.normalize("NFKD", s).encode("ASCII", "ignore"), "utf-8")
