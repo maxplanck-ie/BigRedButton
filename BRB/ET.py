@@ -255,7 +255,8 @@ def RNA(config, outputDir, baseDict, sample2lib):
 
 def sendToParkour(config, msg):
     basePath = config.get("Paths", "baseData")
-    aviti_check = glob.glob(f"{basePath}/*/RunManifest.csv")
+    runID = config.get("Options", "runID")
+    aviti_check = glob.glob(f"{basePath}/{runID}/RunManifest.csv")
     if aviti_check:
         FCID = config.get("Options", "runID").split("_")[2]
         if "-" in FCID:
