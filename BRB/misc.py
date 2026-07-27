@@ -1,5 +1,5 @@
-import unicodedata
 import os
+import unicodedata
 
 
 def loadUserDictionary():
@@ -18,8 +18,7 @@ def getLatestSeqdir(groupData, PI):
         if "sequencing_data" in dirs:
             seqDirStrip = dirs.replace("sequencing_data", "")
             if seqDirStrip != "":
-                if int(seqDirStrip) > seqDirNum:
-                    seqDirNum = int(seqDirStrip)
+                seqDirNum = max(seqDirNum, int(seqDirStrip))
     if seqDirNum == 0:
         return "sequencing_data"
     else:

@@ -1,14 +1,16 @@
-from pathlib import Path
-import pytest
 import configparser
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pytest
 import urllib3
+
 from BRB.findFinishedFlowCells import (
+    detect_sequencer_type,
     flowCellProcessed,
     markFinished,
     queryParkour,
-    detect_sequencer_type,
 )
-from unittest.mock import patch, Mock
 
 
 @pytest.fixture(scope="session")

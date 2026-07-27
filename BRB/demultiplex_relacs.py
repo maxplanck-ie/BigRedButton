@@ -1,14 +1,16 @@
 #!/usr/bin/env python
-import sys
-import os
 import argparse
 import glob
-from multiprocessing import Pool
+import os
 import subprocess
+import sys
+from multiprocessing import Pool
+
 import matplotlib.pyplot as plt
 import numpy as np
-import BRB.editdistance as ed
 from rich import print
+
+import BRB.editdistance as ed
 
 
 def parseArgs(args=None):
@@ -168,9 +170,9 @@ def writeRead(lineList, of, bc, bcLen, args, doTrim=True):
         # Fix the read name
         rname = rname.split()
         if args.umiLength > 0:
-            rname[0] = "{}_{}_{}".format(rname[0], bc, UMI)
+            rname[0] = f"{rname[0]}_{bc}_{UMI}"
         else:
-            rname[0] = "{}_{}".format(rname[0], bc)
+            rname[0] = f"{rname[0]}_{bc}"
         rname = " ".join(rname)
 
     if rname[-1] != "\n":
@@ -188,7 +190,7 @@ def writeRead2(lineList, of, bcLen, args, doTrim=True):
     # Fix the read name so it's read #2 rather than #1
     rname = lineList[0]
     rname = rname.split()
-    rname[1] = "2{}".format(rname[1][1:])
+    rname[1] = f"2{rname[1][1:]}"
     rname = " ".join(rname)
 
     if rname[-1] != "\n":
@@ -224,9 +226,9 @@ def writePaired(read1, read2, of, bc, bcLen, args, doTrim=True):
         # Fix the read name
         rname = rname.split()
         if args.umiLength > 0:
-            rname[0] = "{}_{}_{}".format(rname[0], bc, UMI)
+            rname[0] = f"{rname[0]}_{bc}_{UMI}"
         else:
-            rname[0] = "{}_{}".format(rname[0], bc)
+            rname[0] = f"{rname[0]}_{bc}"
         rname = " ".join(rname)
 
     if rname[-1] != "\n":
@@ -247,13 +249,13 @@ def writePaired(read1, read2, of, bc, bcLen, args, doTrim=True):
 
 def processPaired(args, sDict, bcLen, read1, read2, bc_dict, ori_rDict):
     f1_ = subprocess.Popen(
-        "gunzip -c {}".format(read1),
+        f"gunzip -c {read1}",
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
     f2_ = subprocess.Popen(
-        "gunzip -c {}".format(read2),
+        f"gunzip -c {read2}",
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -296,7 +298,7 @@ def processPaired(args, sDict, bcLen, read1, read2, bc_dict, ori_rDict):
 
 def processSingle(args, sDict, bcLen, read1):
     f1_ = subprocess.Popen(
-        "gunzip -c {}".format(read1),
+        f"gunzip -c {read1}",
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -322,22 +324,20 @@ def wrapper(foo):
     print(f"Pool runner: sample {d} with bcLen {bcLen}")
     # Make the output directories
     try:
-        os.makedirs("{}/{}".format(args.output, d))
+        os.makedirs(f"{args.output}/{d}")
     except:
         pass
 
     # Find the fastq files
-    R1 = glob.glob("{}/*_R1.fastq.gz".format(d))
+    R1 = glob.glob(f"{d}/*_R1.fastq.gz")
     R2 = None
     if len(R1) > 1:
         print(
-            "Warning, there was more than 1 sample found in {}, only {} will be used".format(
-                d, R1[0]
-            )
+            f"Warning, there was more than 1 sample found in {d}, only {R1[0]} will be used"
         )
     R1 = R1[0]
-    if os.path.exists("{}_R2.fastq.gz".format(R1[:-12])):
-        R2 = "{}_R2.fastq.gz".format(R1[:-12])
+    if os.path.exists(f"{R1[:-12]}_R2.fastq.gz"):
+        R2 = f"{R1[:-12]}_R2.fastq.gz"
 
     # Open the output files and process
     oDict = dict()
@@ -346,17 +346,13 @@ def wrapper(foo):
             oDict[k] = [
                 subprocess.Popen(
                     ["gzip", "-c"],
-                    stdout=open(
-                        "{}/{}/{}_R1.fastq.gz".format(args.output, d, v[0]), "wb"
-                    ),
+                    stdout=open(f"{args.output}/{d}/{v[0]}_R1.fastq.gz", "wb"),
                     stdin=subprocess.PIPE,
                     bufsize=0,
                 ).stdin,
                 subprocess.Popen(
                     ["gzip", "-c"],
-                    stdout=open(
-                        "{}/{}/{}_R2.fastq.gz".format(args.output, d, v[0]), "wb"
-                    ),
+                    stdout=open(f"{args.output}/{d}/{v[0]}_R2.fastq.gz", "wb"),
                     stdin=subprocess.PIPE,
                     bufsize=0,
                 ).stdin,
@@ -367,17 +363,13 @@ def wrapper(foo):
             oDict[k] = [
                 subprocess.Popen(
                     ["gzip", "-c"],
-                    stdout=open(
-                        "{}/{}/{}_R1.fastq.gz".format(args.output, d, v[0]), "wb"
-                    ),
+                    stdout=open(f"{args.output}/{d}/{v[0]}_R1.fastq.gz", "wb"),
                     stdin=subprocess.PIPE,
                     bufsize=0,
                 ).stdin,
                 subprocess.Popen(
                     ["gzip", "-c"],
-                    stdout=open(
-                        "{}/{}/{}_R2.fastq.gz".format(args.output, d, v[0]), "wb"
-                    ),
+                    stdout=open(f"{args.output}/{d}/{v[0]}_R2.fastq.gz", "wb"),
                     stdin=subprocess.PIPE,
                     bufsize=0,
                 ).stdin,
@@ -388,9 +380,7 @@ def wrapper(foo):
             oDict[k] = [
                 subprocess.Popen(
                     ["gzip", "-c"],
-                    stdout=open(
-                        "{}/{}/{}_R1.fastq.gz".format(args.output, d, v[0]), "wb"
-                    ),
+                    stdout=open(f"{args.output}/{d}/{v[0]}_R1.fastq.gz", "wb"),
                     stdin=subprocess.PIPE,
                     bufsize=0,
                 ).stdin
@@ -401,9 +391,7 @@ def wrapper(foo):
             oDict[k] = [
                 subprocess.Popen(
                     ["gzip", "-c"],
-                    stdout=open(
-                        "{}/{}/{}_R1.fastq.gz".format(args.output, d, v[0]), "wb"
-                    ),
+                    stdout=open(f"{args.output}/{d}/{v[0]}_R1.fastq.gz", "wb"),
                     stdin=subprocess.PIPE,
                     bufsize=0,
                 ).stdin
@@ -479,9 +467,7 @@ def plot_bc_occurance(R1, bc_dict, false_bc, output_path, sDict):
     _k_order = []
     for _bc in BC_ORDER:
         for k, v in sorted(bc_dict.items()):
-            if sDict[str(k)][1] == "" and k not in _k_order:
-                _k_order.append(k)
-            elif sDict[str(k)][1] == _bc:
+            if sDict[str(k)][1] == "" and k not in _k_order or sDict[str(k)][1] == _bc:
                 _k_order.append(k)
     assert len(_k_order) == len(bc_dict.keys())
 

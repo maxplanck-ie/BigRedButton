@@ -1,12 +1,13 @@
+import glob
 import os
 import shutil
-import glob
+import stat
 import subprocess
+from pathlib import Path
+
 import BRB.ET
 import BRB.misc
 from BRB.logger import log
-import stat
-from pathlib import Path
 
 
 def createPath(config, group, project, org_label, libraryType, tuples):
@@ -26,9 +27,7 @@ def createPath(config, group, project, org_label, libraryType, tuples):
             BRB.misc.pacifier(project),
         )
     os.makedirs(baseDir, mode=0o700, exist_ok=True)
-    oDir = os.path.join(
-        baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), org_label)
-    )
+    oDir = os.path.join(baseDir, f"{BRB.misc.pacifier(libraryType)}_{org_label}")
     os.makedirs(oDir, mode=0o700, exist_ok=True)
     return oDir
 
@@ -52,16 +51,16 @@ def linkFiles(config, group, project, odir, tuples):
     PE = False
     for t in tuples:
         currentName = "{}/{}_R1.fastq.gz".format(
-            os.path.join(baseDir, "Sample_{}".format(t[0])), t[1]
+            os.path.join(baseDir, f"Sample_{t[0]}"), t[1]
         )
-        newName = "{}/{}_R1.fastq.gz".format(odir, t[1])
+        newName = f"{odir}/{t[1]}_R1.fastq.gz"
         if os.path.exists(currentName):
             if not os.path.exists(newName):
                 os.symlink(currentName, newName)
         currentName = "{}/{}_R2.fastq.gz".format(
-            os.path.join(baseDir, "Sample_{}".format(t[0])), t[1]
+            os.path.join(baseDir, f"Sample_{t[0]}"), t[1]
         )
-        newName = "{}/{}_R2.fastq.gz".format(odir, t[1])
+        newName = f"{odir}/{t[1]}_R2.fastq.gz"
         if os.path.exists(currentName):
             if not os.path.exists(newName):
                 os.symlink(currentName, newName)
@@ -71,11 +70,11 @@ def linkFiles(config, group, project, odir, tuples):
 
 def removeLinkFiles(d):
     """Remove symlinks created by linkFiles()"""
-    files = glob.glob("{}/originalFASTQ/*_R?.fastq.gz".format(d))
+    files = glob.glob(f"{d}/originalFASTQ/*_R?.fastq.gz")
     if files:
         for fname in files:
             os.unlink(fname)
-    files = glob.glob("{}/*_R?.fastq.gz".format(d))
+    files = glob.glob(f"{d}/*_R?.fastq.gz")
     for fname in files:
         os.unlink(fname)
 
@@ -317,7 +316,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     if not os.path.exists(sampleSheet) and not os.path.exists(
         os.path.join(outputDir, "RELACS_sampleSheet.txt")
     ):
-        log.critical("RELACS: wrong samplesheet name: {}".format(sampleSheet))
+        log.critical(f"RELACS: wrong samplesheet name: {sampleSheet}")
         return None, 1, False
 
     baseDir = "{}/{}/{}/{}/Project_{}".format(
@@ -344,7 +343,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         list((Path(outputDir) / "RELACS_demultiplexing").rglob("*png"))
     ):
         unlinkDirs = []
-        for d in glob.glob("{}/Sample_*".format(baseDir)):
+        for d in glob.glob(f"{baseDir}/Sample_*"):
             bname = os.path.basename(d)
             newName = os.path.join(outputDir, bname)
             unlinkDirs.append(newName)
@@ -893,9 +892,7 @@ def GetResults(config, project, libraries):
                     )
                 if rv == 0:
                     log.debug(
-                        "BRB run for {} {} {} {} complete.".format(
-                            pipeline, org_label, libraryType, tuples
-                        )
+                        f"BRB run for {pipeline} {org_label} {libraryType} {tuples} complete."
                     )
                     msg = msg + [
                         BRB.ET.phoneHome(

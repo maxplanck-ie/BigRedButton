@@ -2,8 +2,10 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from importlib.metadata import version
-from dominate.tags import html, div, br
+
+from dominate.tags import br, div, html
 from tabulate import tabulate
+
 from BRB.logger import log
 
 

@@ -1,7 +1,9 @@
 import glob
+from pathlib import Path
+
 import requests
 from rich import print
-from pathlib import Path
+
 from BRB.logger import log
 
 

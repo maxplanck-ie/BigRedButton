@@ -1,6 +1,7 @@
 import pytest
 
-from BRB.editdistance import edit_distance, eval as editdistance_eval
+from BRB.editdistance import edit_distance
+from BRB.editdistance import eval as editdistance_eval
 
 
 @pytest.mark.parametrize(
