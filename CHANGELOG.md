@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/maxplanck-ie/BigRedButton/compare/v0.4.0...v0.4.1) (2026-07-23)
+
+
+### Bug Fixes
+
+* Scope Aviti detection glob to the current run directory ([#129](https://github.com/maxplanck-ie/BigRedButton/issues/129)) ([e164d4d](https://github.com/maxplanck-ie/BigRedButton/commit/e164d4d6a1bf08329414d99500d7acc03371a721))
+
 ## [0.4.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.3.0...v0.4.0) (2026-07-06)
 
 
