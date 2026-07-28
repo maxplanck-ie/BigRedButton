@@ -1,7 +1,9 @@
 import glob
+from pathlib import Path
+
 import requests
 from rich import print
-from pathlib import Path
+
 from BRB.logger import log
 
 
@@ -41,7 +43,7 @@ def queryParkour(config):
     )
     if res.status_code == 200:
         return res.json()
-    return dict()
+    return {}
 
 
 def detect_sequencer_type(base_path: str) -> str:

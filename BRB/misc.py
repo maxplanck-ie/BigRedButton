@@ -1,14 +1,13 @@
-import unicodedata
 import os
+import unicodedata
 
 
 def loadUserDictionary():
-    d = dict()
-    f = open("/home/pipegrp/parkourUsers.txt")
-    for line in f:
-        cols = line.split("\t")
-        d[cols[1]] = [cols[0], cols[2]]
-    f.close()
+    d = {}
+    with open("/home/pipegrp/parkourUsers.txt") as f:
+        for line in f:
+            cols = line.split("\t")
+            d[cols[1]] = [cols[0], cols[2]]
     return d
 
 
@@ -18,8 +17,7 @@ def getLatestSeqdir(groupData, PI):
         if "sequencing_data" in dirs:
             seqDirStrip = dirs.replace("sequencing_data", "")
             if seqDirStrip != "":
-                if int(seqDirStrip) > seqDirNum:
-                    seqDirNum = int(seqDirStrip)
+                seqDirNum = max(seqDirNum, int(seqDirStrip))
     if seqDirNum == 0:
         return "sequencing_data"
     else:

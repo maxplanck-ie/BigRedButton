@@ -42,5 +42,7 @@ lint.ignore = [
   "E722",
   "F841",
   "E712",
-  "E741"
+  "E741",
+  "N999",   # historical module names (BRB, ET, PushButton, ...) are part of the public/pipeline API
+  "SIM115", # file handles that must outlive the enclosing function (e.g. subprocess stdout)
 ]

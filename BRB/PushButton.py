@@ -1,12 +1,13 @@
+import glob
 import os
 import shutil
-import glob
+import stat
 import subprocess
+from pathlib import Path
+
 import BRB.ET
 import BRB.misc
 from BRB.logger import log
-import stat
-from pathlib import Path
 
 
 def createPath(config, group, project, org_label, libraryType, tuples):
@@ -26,9 +27,7 @@ def createPath(config, group, project, org_label, libraryType, tuples):
             BRB.misc.pacifier(project),
         )
     os.makedirs(baseDir, mode=0o700, exist_ok=True)
-    oDir = os.path.join(
-        baseDir, "{}_{}".format(BRB.misc.pacifier(libraryType), org_label)
-    )
+    oDir = os.path.join(baseDir, f"{BRB.misc.pacifier(libraryType)}_{org_label}")
     os.makedirs(oDir, mode=0o700, exist_ok=True)
     return oDir
 
@@ -52,16 +51,15 @@ def linkFiles(config, group, project, odir, tuples):
     PE = False
     for t in tuples:
         currentName = "{}/{}_R1.fastq.gz".format(
-            os.path.join(baseDir, "Sample_{}".format(t[0])), t[1]
+            os.path.join(baseDir, f"Sample_{t[0]}"), t[1]
         )
-        newName = "{}/{}_R1.fastq.gz".format(odir, t[1])
-        if os.path.exists(currentName):
-            if not os.path.exists(newName):
-                os.symlink(currentName, newName)
+        newName = f"{odir}/{t[1]}_R1.fastq.gz"
+        if os.path.exists(currentName) and not os.path.exists(newName):
+            os.symlink(currentName, newName)
         currentName = "{}/{}_R2.fastq.gz".format(
-            os.path.join(baseDir, "Sample_{}".format(t[0])), t[1]
+            os.path.join(baseDir, f"Sample_{t[0]}"), t[1]
         )
-        newName = "{}/{}_R2.fastq.gz".format(odir, t[1])
+        newName = f"{odir}/{t[1]}_R2.fastq.gz"
         if os.path.exists(currentName):
             if not os.path.exists(newName):
                 os.symlink(currentName, newName)
@@ -71,11 +69,11 @@ def linkFiles(config, group, project, odir, tuples):
 
 def removeLinkFiles(d):
     """Remove symlinks created by linkFiles()"""
-    files = glob.glob("{}/originalFASTQ/*_R?.fastq.gz".format(d))
+    files = glob.glob(f"{d}/originalFASTQ/*_R?.fastq.gz")
     if files:
         for fname in files:
             os.unlink(fname)
-    files = glob.glob("{}/*_R?.fastq.gz".format(d))
+    files = glob.glob(f"{d}/*_R?.fastq.gz")
     for fname in files:
         os.unlink(fname)
 
@@ -135,7 +133,7 @@ def copyCellRanger(config, d):
     # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/RNA-Seqsinglecell_mouse ->
     # yyyy_lanes_1
     lane_dir = Path(d).parents[1].stem
-    current_year, year_postfix = getsambaPath(lane_dir, sequencing_type)
+    _current_year, year_postfix = getsambaPath(lane_dir, sequencing_type)
     for fname in files:
         # to seqfac dir.
         nname = fname.split("/")
@@ -178,7 +176,7 @@ def copyRELACS(config, d):
     # /data/xxx/yyyy_lanes_1/Analysis_2526_zzzz/ChIP-Seq_mouse/RELACS_demultiplexing ->
     # Sequence_Quality_yyyy/Illumina_yyyy/yyyy_lanes_1
     lane_dir = Path(d).parents[1].stem
-    current_year, year_postfix = getsambaPath(lane_dir, sequencing_type)
+    _current_year, year_postfix = getsambaPath(lane_dir, sequencing_type)
     log.info(f"copyRELACS - copying over RELACS files to samba path {year_postfix}")
     for fname in files:
         # to seqfac dir.
@@ -218,8 +216,8 @@ def tidyUpABit(d):
 def stripRights(d):
     # Strip rights.
     for r, dirs, files in os.walk(d):
-        for d in dirs:
-            os.chmod(os.path.join(r, d), stat.S_IRWXU)
+        for subdir in dirs:
+            os.chmod(os.path.join(r, subdir), stat.S_IRWXU)
         for f in files:
             if not os.path.islink(os.path.join(r, f)):
                 os.chmod(os.path.join(r, f), stat.S_IRWXU)
@@ -239,7 +237,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
     Need to set --libraryType
     """
     project = BRB.misc.pacifier(project)
-    org_name, org_label, org_yaml = organism
+    _org_name, org_label, org_yaml = organism
     outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
@@ -294,7 +292,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     """
     runID = config.get("Options", "runID").split("_lanes")[0]
     sequencerType = config.get("Options", "sequencerType")
-    org_name, org_label, org_yaml = organism
+    _org_name, org_label, org_yaml = organism
     outputDir = createPath(
         config, group, BRB.misc.pacifier(project), org_label, libraryType, tuples
     )
@@ -317,7 +315,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     if not os.path.exists(sampleSheet) and not os.path.exists(
         os.path.join(outputDir, "RELACS_sampleSheet.txt")
     ):
-        log.critical("RELACS: wrong samplesheet name: {}".format(sampleSheet))
+        log.critical(f"RELACS: wrong samplesheet name: {sampleSheet}")
         return None, 1, False
 
     baseDir = "{}/{}/{}/{}/Project_{}".format(
@@ -344,7 +342,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         list((Path(outputDir) / "RELACS_demultiplexing").rglob("*png"))
     ):
         unlinkDirs = []
-        for d in glob.glob("{}/Sample_*".format(baseDir)):
+        for d in glob.glob(f"{baseDir}/Sample_*"):
             bname = os.path.basename(d)
             newName = os.path.join(outputDir, bname)
             unlinkDirs.append(newName)
@@ -440,7 +438,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
         return RELACS(config, group, project, organism, libraryType, tuples)
 
     project = BRB.misc.pacifier(project)
-    org_name, org_label, org_yaml = organism
+    _org_name, org_label, org_yaml = organism
     outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     log.debug("Running snakePipes in output dir " + outputDir)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
@@ -518,7 +516,7 @@ def WGBS(config, group, project, organism, libraryType, tuples):
     """
 
     project = BRB.misc.pacifier(project)
-    org_name, org_label, org_yaml = organism
+    _org_name, org_label, org_yaml = organism
     outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
@@ -546,7 +544,7 @@ def ATAC(config, group, project, organism, libraryType, tuples):
     """
 
     project = BRB.misc.pacifier(project)
-    org_name, org_label, org_yaml = organism
+    _org_name, org_label, org_yaml = organism
     outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
@@ -585,7 +583,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
     """
 
     project = BRB.misc.pacifier(project)
-    org_name, org_label, org_yaml = organism
+    _org_name, org_label, org_yaml = organism
     outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, True
@@ -667,7 +665,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
     """
 
     project = BRB.misc.pacifier(project)
-    org_name, org_label, org_yaml = organism
+    _org_name, org_label, org_yaml = organism
     outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
@@ -706,7 +704,7 @@ def makePairs(config, group, project, organism, libraryType, tuples):
     Running makePairs pipeline.
     """
     project = BRB.misc.pacifier(project)
-    org_name, org_label, org_yaml = organism
+    _org_name, org_label, org_yaml = organism
     outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
@@ -733,7 +731,7 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     """
 
     project = BRB.misc.pacifier(project)
-    org_name, org_label, org_yaml = organism
+    _org_name, org_label, org_yaml = organism
     outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, True
@@ -814,12 +812,19 @@ def GetResults(config, project, libraries):
     }
     pipelines = config.get("Options", "pipelines").split(",")
     # split by analysis type and species, since we can only process some types of this
-    analysisTypes = dict()
+    analysisTypes = {}
     skipList = []
     external_skipList = []
     org_dict = {}
     for library, v in libraries.items():
-        sampleName, libraryType, libraryProtocol, organism, indexType, requestDepth = v
+        (
+            sampleName,
+            libraryType,
+            libraryProtocol,
+            organism,
+            _indexType,
+            _requestDepth,
+        ) = v
         org_name, org_label, org_yaml = organism
         # Extra checks to see where we miss out
         if libraryType in validLibraryTypes:
@@ -842,11 +847,11 @@ def GetResults(config, project, libraries):
             idx = validLibraryTypes[libraryType]
             pipeline = pipelines[idx]
             if pipeline not in analysisTypes:
-                analysisTypes[pipeline] = dict()
+                analysisTypes[pipeline] = {}
             if org_label not in analysisTypes[pipeline]:
-                analysisTypes[pipeline][org_label] = dict()
+                analysisTypes[pipeline][org_label] = {}
             if libraryType not in analysisTypes[pipeline][org_label]:
-                analysisTypes[pipeline][org_label][libraryType] = list()
+                analysisTypes[pipeline][org_label][libraryType] = []
             analysisTypes[pipeline][org_label][libraryType].append(
                 [library, sampleName, libraryProtocol, ignore]
             )
@@ -893,9 +898,7 @@ def GetResults(config, project, libraries):
                     )
                 if rv == 0:
                     log.debug(
-                        "BRB run for {} {} {} {} complete.".format(
-                            pipeline, org_label, libraryType, tuples
-                        )
+                        f"BRB run for {pipeline} {org_label} {libraryType} {tuples} complete."
                     )
                     msg = msg + [
                         BRB.ET.phoneHome(
@@ -931,6 +934,6 @@ def GetResults(config, project, libraries):
     # In case there is an external_skipList, there shouldn't be a skipList !
     if external_skipList:
         assert not skipList
-        libTypes = ",".join(set([i[2] for i in external_skipList]))
+        libTypes = ",".join({i[2] for i in external_skipList})
         msg = msg + [[project, org_name, libTypes, None, None, None, False, None]]
     return msg

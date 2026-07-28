@@ -23,8 +23,7 @@ def edit_distance(a: str, b: str, max_dist: int | None = None) -> int:
                 current[j - 1] + 1,
                 previous[j - 1] + cost,
             )
-            if current[j] < best:
-                best = current[j]
+            best = min(best, current[j])
         if max_dist is not None and best > max_dist:
             return max_dist + 1
         previous = current

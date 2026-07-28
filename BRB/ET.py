@@ -1,21 +1,24 @@
-import requests
-import subprocess
-import os
 import glob
 import json
+import os
+import subprocess
+from pathlib import Path
+
+import pandas as pd
+import requests
+
 import BRB.misc
 from BRB.logger import log
-import pandas as pd
-from pathlib import Path
 
 
 def getNReads(d):
     """
     Get the number of reads and % optical dupes from a directory
     """
-    if len(glob.glob("{}/*.duplicate.txt".format(d))):
-        fname = glob.glob("{}/*.duplicate.txt".format(d))[0]
-        s = open(fname).read()
+    if len(glob.glob(f"{d}/*.duplicate.txt")):
+        fname = glob.glob(f"{d}/*.duplicate.txt")[0]
+        with open(fname) as fh:
+            s = fh.read()
         optDupes, total = s.split()
         try:
             opt_frac = 100.0 * float(optDupes) / float(total)
@@ -39,7 +42,7 @@ def getOffSpeciesRate(d, organism=None) -> float:
     """
     Parses kraken report for number of reads mapping to unexpected organisms
     """
-    fname = glob.glob("{}/*rep".format(d))[0]
+    fname = glob.glob(f"{d}/*rep")[0]
     # match parkour org to kraken db organism/group
     org_map = {
         "Human (GRCh38)": "humangrp",
@@ -75,10 +78,10 @@ def getBaseStatistics(config, outputDir, samples_id, organism=None):
 
     Also return the mapping of sample names to library names
     """
-    baseDict = dict()  # output dictionary
-    s2l = dict()  # sample to library dictionary
-    odir, adir = os.path.split(os.path.split(outputDir)[0])
-    pdir = "FASTQC_Project_{}".format(adir[9:])
+    baseDict = {}  # output dictionary
+    s2l = {}  # sample to library dictionary
+    _odir, adir = os.path.split(os.path.split(outputDir)[0])
+    pdir = f"FASTQC_Project_{adir[9:]}"
     for sample in samples_id:
         for d in glob.glob(
             "{}/{}/{}/Sample_{}".format(
@@ -89,9 +92,9 @@ def getBaseStatistics(config, outputDir, samples_id, organism=None):
             )
         ):
             libName = os.path.split(d)[1][7:]
-            if len(glob.glob("{}/*_R1_fastqc.zip".format(d))) == 0:
+            if len(glob.glob(f"{d}/*_R1_fastqc.zip")) == 0:
                 continue  # Skip failed samples
-            sampleName = glob.glob("{}/*_R1_fastqc.zip".format(d))[0]
+            sampleName = glob.glob(f"{d}/*_R1_fastqc.zip")[0]
             sampleName = os.path.split(sampleName)[1][:-14]
             nReads, optDupes = getNReads(d)  # opt. dup.
             offRate = getOffSpeciesRate(d, organism)
@@ -126,14 +129,15 @@ def DNA(config, outputDir, baseDict, sample2lib):
         return m
 
     # % Mapped
-    for fname in glob.glob("{}/Bowtie2/*.Bowtie2_summary.txt".format(outputDir)):
+    for fname in glob.glob(f"{outputDir}/Bowtie2/*.Bowtie2_summary.txt"):
         sampleName = os.path.basename(fname).split(".Bowtie2_summary")[0]
-        lastLine = open(fname).read().split("\n")[-2]
+        with open(fname) as fh:
+            lastLine = fh.read().split("\n")[-2]
         mappedPercent = lastLine.split("%")[0]
         baseDict[sample2lib[sampleName]].append(float(mappedPercent))
         # % Duplicated
         dup_info = glob.glob(
-            "{}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt".format(outputDir)
+            f"{outputDir}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt"
         )[0]
         dup_df = pd.read_csv(
             dup_info, sep="\t", usecols=["Sample", "total_passed", "duplicates_passed"]
@@ -188,25 +192,25 @@ def RNA(config, outputDir, baseDict, sample2lib):
     Add % mapped to baseDict. Filter it for those actually in the output
     """
 
-    for fname in glob.glob("{}/STAR/*/*.Log.final.out".format(outputDir)):
-        f = open(fname)
+    for fname in glob.glob(f"{outputDir}/STAR/*/*.Log.final.out"):
         tot = 0
         uniq = 0
         multimap = 0
-        for line in f:
-            if "Uniquely mapped reads %" in line:
-                uniq = float(line.strip().split("\t")[-1][:-1])
-                tot += uniq
-            elif "% of reads mapped to multiple loci" in line:
-                multimap = float(line.strip().split("\t")[-1][:-1])
-                tot += multimap
+        with open(fname) as f:
+            for line in f:
+                if "Uniquely mapped reads %" in line:
+                    uniq = float(line.strip().split("\t")[-1][:-1])
+                    tot += uniq
+                elif "% of reads mapped to multiple loci" in line:
+                    multimap = float(line.strip().split("\t")[-1][:-1])
+                    tot += multimap
         sampleName = os.path.basename(fname).split(".")[0]
         baseDict[sample2lib[sampleName]].append(tot)
         baseDict[sample2lib[sampleName]].append(uniq)
         baseDict[sample2lib[sampleName]].append(multimap)
         #  duplication
         dup_info = glob.glob(
-            "{}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt".format(outputDir)
+            f"{outputDir}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt"
         )[0]
         dup_df = pd.read_csv(
             dup_info, sep="\t", usecols=["Sample", "total_passed", "duplicates_passed"]
@@ -219,7 +223,7 @@ def RNA(config, outputDir, baseDict, sample2lib):
         baseDict[sample2lib[sampleName]].append(dup_rate)
         # assigned reads
         assigned_info = glob.glob(
-            "{}/multiQC/multiqc_data/multiqc_featurecounts.txt".format(outputDir)
+            f"{outputDir}/multiQC/multiqc_data/multiqc_featurecounts.txt"
         )[0]
         assigned_df = pd.read_csv(
             assigned_info, sep="\t", usecols=["Sample", "Total", "Assigned"]
@@ -330,7 +334,7 @@ def telegraphHome(config, group, project, skipList, organism=None):
     # Mock path
     outputDir = baseDir / "DNA_mouse"
     samples_id = [row[0] for row in skipList]
-    baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
+    baseDict, _sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
     # Reformat into a matrix
     m = []
     for k, v in baseDict.items():
@@ -344,6 +348,6 @@ def telegraphHome(config, group, project, skipList, organism=None):
         )
     ret = sendToParkour(config, m)
     # Format the libtypes
-    libTypes = ",".join(set([i[2] for i in skipList]))
+    libTypes = ",".join({i[2] for i in skipList})
     # [project, organism, libtypes, workflow, workflow status, parkour status, sambaUpdate]
     return [project, organism, libTypes, None, None, ret, False]

@@ -1,20 +1,22 @@
 #!/usr/bin/env python
-import sys
 import os
-import BRB.getConfig
-import BRB.findFinishedFlowCells
-import BRB.PushButton
-import BRB.email
-import BRB.ET
-import BRB.misc
-from BRB.logger import setLog, log
-import rich_click as click
-from time import sleep
+import sys
 from pathlib import Path
+from time import sleep
+
+import rich_click as click
 from rich import print
 
+import BRB.email
+import BRB.ET
+import BRB.findFinishedFlowCells
+import BRB.getConfig
+import BRB.misc
+import BRB.PushButton
+from BRB.logger import log, setLog
 
-@click.command(context_settings=dict(help_option_names=["-h", "--help"]))
+
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option(
     "-c",
     "--configfile",
@@ -48,11 +50,9 @@ def run_brb(configfile):
         )
         msg = []
         for k, v in ParkourDict.items():
-            if not os.path.exists("{}/Project_{}".format(bdir, BRB.misc.pacifier(k))):
+            if not os.path.exists(f"{bdir}/Project_{BRB.misc.pacifier(k)}"):
                 log.info(
-                    "{}/Project_{} doesn't exist, probably lives on another lane.".format(
-                        bdir, BRB.misc.pacifier(k)
-                    )
+                    f"{bdir}/Project_{BRB.misc.pacifier(k)} doesn't exist, probably lives on another lane."
                 )
                 continue
             try:
@@ -61,19 +61,13 @@ def run_brb(configfile):
                 BRB.email.errorEmail(
                     config,
                     sys.exc_info(),
-                    "Received an error running PushButton.GetResults() with {} and {}".format(
-                        k, v
-                    ),
+                    f"Received an error running PushButton.GetResults() with {k} and {v}",
                 )
                 log.critical(
-                    "Received an error running PushButton.GetResults() with {} and {}".format(
-                        k, v
-                    )
+                    f"Received an error running PushButton.GetResults() with {k} and {v}"
                 )
                 print(
-                    "Received an error running PushButton.GetResults() with {} and {}".format(
-                        k, v
-                    ),
+                    f"Received an error running PushButton.GetResults() with {k} and {v}",
                     file=sys.stderr,
                 )
                 raise
