@@ -12,8 +12,7 @@ from BRB.logger import log
 def errorEmail(config, errTuple, msg):
     msg = MIMEText(
         msg
-        + "\nError type: %s\nError value: %s\n%s\n"
-        % (errTuple[0], errTuple[1], errTuple[2])
+        + f"\nError type: {errTuple[0]}\nError value: {errTuple[1]}\n{errTuple[2]}\n"
     )
     msg["Subject"] = f"[BigRedButton {version('BRB')}] Error"
     msg["From"] = config.get("Email", "fromAddress")
@@ -36,7 +35,7 @@ def finishedEmail(config, msg):
     # Default recipient is finishedTo (bioinfocore)
     recipient = config.get("Email", "finishedTo")
     # Inform deepseq too if we have a sambaUpdate:
-    if any([i[6] for i in msg]):
+    if any(i[6] for i in msg):
         log.info("At least one sambaUpdate true in msg")
         # Only inform deepseq if no workflow failed
         if [i[4] for i in msg].count("FAILED") == 0:

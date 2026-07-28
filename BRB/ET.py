@@ -17,7 +17,8 @@ def getNReads(d):
     """
     if len(glob.glob(f"{d}/*.duplicate.txt")):
         fname = glob.glob(f"{d}/*.duplicate.txt")[0]
-        s = open(fname).read()
+        with open(fname) as fh:
+            s = fh.read()
         optDupes, total = s.split()
         try:
             opt_frac = 100.0 * float(optDupes) / float(total)
@@ -77,9 +78,9 @@ def getBaseStatistics(config, outputDir, samples_id, organism=None):
 
     Also return the mapping of sample names to library names
     """
-    baseDict = dict()  # output dictionary
-    s2l = dict()  # sample to library dictionary
-    odir, adir = os.path.split(os.path.split(outputDir)[0])
+    baseDict = {}  # output dictionary
+    s2l = {}  # sample to library dictionary
+    _odir, adir = os.path.split(os.path.split(outputDir)[0])
     pdir = f"FASTQC_Project_{adir[9:]}"
     for sample in samples_id:
         for d in glob.glob(
@@ -130,7 +131,8 @@ def DNA(config, outputDir, baseDict, sample2lib):
     # % Mapped
     for fname in glob.glob(f"{outputDir}/Bowtie2/*.Bowtie2_summary.txt"):
         sampleName = os.path.basename(fname).split(".Bowtie2_summary")[0]
-        lastLine = open(fname).read().split("\n")[-2]
+        with open(fname) as fh:
+            lastLine = fh.read().split("\n")[-2]
         mappedPercent = lastLine.split("%")[0]
         baseDict[sample2lib[sampleName]].append(float(mappedPercent))
         # % Duplicated
@@ -191,17 +193,17 @@ def RNA(config, outputDir, baseDict, sample2lib):
     """
 
     for fname in glob.glob(f"{outputDir}/STAR/*/*.Log.final.out"):
-        f = open(fname)
         tot = 0
         uniq = 0
         multimap = 0
-        for line in f:
-            if "Uniquely mapped reads %" in line:
-                uniq = float(line.strip().split("\t")[-1][:-1])
-                tot += uniq
-            elif "% of reads mapped to multiple loci" in line:
-                multimap = float(line.strip().split("\t")[-1][:-1])
-                tot += multimap
+        with open(fname) as f:
+            for line in f:
+                if "Uniquely mapped reads %" in line:
+                    uniq = float(line.strip().split("\t")[-1][:-1])
+                    tot += uniq
+                elif "% of reads mapped to multiple loci" in line:
+                    multimap = float(line.strip().split("\t")[-1][:-1])
+                    tot += multimap
         sampleName = os.path.basename(fname).split(".")[0]
         baseDict[sample2lib[sampleName]].append(tot)
         baseDict[sample2lib[sampleName]].append(uniq)
@@ -332,7 +334,7 @@ def telegraphHome(config, group, project, skipList, organism=None):
     # Mock path
     outputDir = baseDir / "DNA_mouse"
     samples_id = [row[0] for row in skipList]
-    baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
+    baseDict, _sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
     # Reformat into a matrix
     m = []
     for k, v in baseDict.items():
@@ -346,6 +348,6 @@ def telegraphHome(config, group, project, skipList, organism=None):
         )
     ret = sendToParkour(config, m)
     # Format the libtypes
-    libTypes = ",".join(set([i[2] for i in skipList]))
+    libTypes = ",".join({i[2] for i in skipList})
     # [project, organism, libtypes, workflow, workflow status, parkour status, sambaUpdate]
     return [project, organism, libTypes, None, None, ret, False]

@@ -27,13 +27,15 @@ def ifs(tmp_path_factory):
     return fp
 
 
-def create_conf(l=[]):
+def create_conf(l=None):
     """
     sets up a config, where every list (_l) in l gets set in config as :
     config[_l[0]] = {_l[1]: _l[2]}
 
     Additionally some garbage values for parkour API gets set
     """
+    if l is None:
+        l = []
     config = configparser.ConfigParser()
     config["Parkour"] = {
         "QueryURL": "https://parkour-demo.ie-freiburg.mpg.de/nonext_api",

@@ -43,7 +43,7 @@ def queryParkour(config):
     )
     if res.status_code == 200:
         return res.json()
-    return dict()
+    return {}
 
 
 def detect_sequencer_type(base_path: str) -> str:

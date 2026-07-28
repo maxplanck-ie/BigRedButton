@@ -13,7 +13,8 @@ def getConfig(configFile=None):
         sys.exit(1)
 
     config = configparser.ConfigParser()
-    config.read_file(open(configFile))
+    with open(configFile) as fh:
+        config.read_file(fh)
 
     if "Paths" not in config.sections():
         print(f"Error: No Paths defined in config {configFile}")

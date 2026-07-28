@@ -16,7 +16,7 @@ import BRB.PushButton
 from BRB.logger import log, setLog
 
 
-@click.command(context_settings=dict(help_option_names=["-h", "--help"]))
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option(
     "-c",
     "--configfile",

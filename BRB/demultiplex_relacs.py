@@ -94,7 +94,7 @@ def readSampleTable(sampleTable):
     Read a sample table into a dict (keys are barcodes).
     Return the resulting dict and the barcode length.
     """
-    d = dict()
+    d = {}
     bcLen = 0
     with open(sampleTable) as fh:
         for line in fh:
@@ -109,7 +109,7 @@ def readSampleTable(sampleTable):
             # sanitize label
             label = label.replace(" ", "_")
             if sample not in d:
-                d[sample] = dict()
+                d[sample] = {}
             d[sample][barcode] = [label, bc_pos]
 
             if barcode != "default" and len(barcode) > bcLen:
@@ -141,7 +141,7 @@ def matchSample(sequence, sequence2, oDict, bcLen, umiLength):
             return (bc, True)
 
     # Look for a 1 base mismatch
-    for k, v in oDict.items():
+    for k in oDict:
         if ed.eval(k, bc) == 1:
             if not bc2:
                 return (k, True)
@@ -208,7 +208,6 @@ def writeRead2(lineList, of, bcLen, args, doTrim=True):
 
 
 def writePaired(read1, read2, of, bc, bcLen, args, doTrim=True):
-    """ """
     rname = read1[0]
     if doTrim:
         UMI = ""
@@ -285,7 +284,7 @@ def processPaired(args, sDict, bcLen, read1, read2, bc_dict, ori_rDict):
         )
 
         if isDefault is True:
-            if relacs_bc not in bc_dict.keys():
+            if relacs_bc not in bc_dict:
                 bc_dict[bc] = 1
             else:
                 bc_dict[bc] += 1
@@ -323,10 +322,7 @@ def wrapper(foo):
 
     print(f"Pool runner: sample {d} with bcLen {bcLen}")
     # Make the output directories
-    try:
-        os.makedirs(f"{args.output}/{d}")
-    except:
-        pass
+    os.makedirs(f"{args.output}/{d}", exist_ok=True)
 
     # Find the fastq files
     R1 = glob.glob(f"{d}/*_R1.fastq.gz")
@@ -340,7 +336,7 @@ def wrapper(foo):
         R2 = f"{R1[:-12]}_R2.fastq.gz"
 
     # Open the output files and process
-    oDict = dict()
+    oDict = {}
     if R2 is not None:
         for k, v in sDict.items():
             oDict[k] = [
@@ -490,7 +486,7 @@ def plot_bc_occurance(R1, bc_dict, false_bc, output_path, sDict):
     bc_mean = np.mean(percentages[1:])
     exp_value = 100 / float(len(percentages[1:]))
     bc_std = np.std(percentages[1:] - exp_value)
-    fig, ax = plt.subplots(dpi=300)
+    _fig, ax = plt.subplots(dpi=300)
     x = np.arange(len(percentages))
     ax.bar(x, percentages)
     ax.set_xticks(x)
@@ -515,7 +511,7 @@ def plot_bc_occurance(R1, bc_dict, false_bc, output_path, sDict):
 
 def main(args=None):
     args = parseArgs(args)
-    bc_dict = dict()
+    bc_dict = {}
     sDict, bcLen = readSampleTable(args.sampleTable)
     p = Pool(processes=args.numThreads)
     tasks = [(d, args, v, bcLen, bc_dict) for d, v in sDict.items()]
