@@ -26,13 +26,21 @@ from BRB.logger import log, setLog
     help="specify a custom ini file.",
     show_default=True,
 )
-def run_brb(configfile):
+@click.option(
+    "-s",
+    "--sequencer",
+    type=click.Choice(["illumina", "aviti"]),
+    required=False,
+    default=None,
+    help="Restrict polling to a single platform's baseData/logPath.",
+)
+def run_brb(configfile, sequencer):
     while True:
         # Read the config file
         config = BRB.getConfig.getConfig(configfile)
 
         # Get the next flow cell to process, or sleep
-        config, ParkourDict = BRB.findFinishedFlowCells.newFlowCell(config)
+        config, ParkourDict = BRB.findFinishedFlowCells.newFlowCell(config, sequencer)
         if (config.get("Options", "runID") == "") or ParkourDict is None:
             sleep(60 * 60)
             continue

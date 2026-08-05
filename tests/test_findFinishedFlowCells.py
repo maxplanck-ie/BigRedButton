@@ -9,6 +9,7 @@ from BRB.findFinishedFlowCells import (
     detect_sequencer_type,
     flowCellProcessed,
     markFinished,
+    newFlowCell,
     queryParkour,
 )
 
@@ -143,3 +144,61 @@ class TestfindFinishedFlowCells:
             verify="",
         )
         assert result == {"some": "data"}
+
+
+@pytest.fixture(scope="session")
+def platform_dirs(tmp_path_factory):
+    fp = tmp_path_factory.mktemp("platform_dirs")
+    illu_base = fp / "illumina"
+    aviti_base = fp / "aviti"
+    (illu_base / "20250101_illumina_runXXX").mkdir(parents=True)
+    (illu_base / "20250101_illumina_runXXX" / "fastq.made").touch()
+    (aviti_base / "20250101_AV999999_runYYY").mkdir(parents=True)
+    (aviti_base / "20250101_AV999999_runYYY" / "fastq.made").touch()
+    return illu_base, aviti_base
+
+
+def create_platform_conf(illu_base, aviti_base):
+    config = configparser.ConfigParser()
+    config["Parkour"] = {
+        "QueryURL": "https://parkour-demo.ie-freiburg.mpg.de/nonext_api",
+        "user": "jefke",
+        "password": "123",
+        "cert": "",
+    }
+    config["Paths"] = {
+        "baseData_illumina": str(illu_base),
+        "baseData_aviti": str(aviti_base),
+        "logPath_illumina": str(illu_base / "LOG"),
+        "logPath_aviti": str(aviti_base / "LOG"),
+    }
+    config["Options"] = {}
+    return config
+
+
+class TestNewFlowCellSequencerGating:
+    @patch("BRB.findFinishedFlowCells.queryParkour")
+    def test_illumina_only_never_touches_aviti(self, mock_query, platform_dirs):
+        illu_base, aviti_base = platform_dirs
+        mock_query.return_value = {"some": "data"}
+        config = create_platform_conf(illu_base, aviti_base)
+
+        config, ParkourDict = newFlowCell(config, sequencer="illumina")
+
+        assert config.get("Options", "runID") == "20250101_illumina_runXXX"
+        assert config.get("Paths", "baseData") == str(illu_base)
+        assert config.get("Paths", "logPath") == str(illu_base / "LOG")
+        assert not Path(aviti_base, "20250101_AV999999_runYYY", "analysis.done").exists()
+
+    @patch("BRB.findFinishedFlowCells.queryParkour")
+    def test_aviti_only_never_touches_illumina(self, mock_query, platform_dirs):
+        illu_base, aviti_base = platform_dirs
+        mock_query.return_value = {"some": "data"}
+        config = create_platform_conf(illu_base, aviti_base)
+
+        config, ParkourDict = newFlowCell(config, sequencer="aviti")
+
+        assert config.get("Options", "runID") == "20250101_AV999999_runYYY"
+        assert config.get("Paths", "baseData") == str(aviti_base)
+        assert config.get("Paths", "logPath") == str(aviti_base / "LOG")
+        assert not Path(illu_base, "20250101_illumina_runXXX", "analysis.done").exists()

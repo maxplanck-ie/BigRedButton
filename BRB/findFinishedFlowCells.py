@@ -58,32 +58,45 @@ def detect_sequencer_type(base_path: str) -> str:
         return "Illumina"
 
 
-def newFlowCell(config):
-    dirs = glob.glob("{}/*/fastq.made".format(config.get("Paths", "baseData")))
-    for d in dirs:
-        # Get the flow cell ID (e.g., 150416_SN7001180_0196_BC605HACXX)
-        run_id = Path(d).parents[0].name
-        config.set("Options", "runID", run_id)
+def newFlowCell(config, sequencer=None):
+    platforms = []
+    if sequencer in (None, "illumina"):
+        platforms.append(
+            (config.get("Paths", "baseData_illumina"), config.get("Paths", "logPath_illumina"))
+        )
+    if sequencer in (None, "aviti"):
+        platforms.append(
+            (config.get("Paths", "baseData_aviti"), config.get("Paths", "logPath_aviti"))
+        )
 
-        if config.get("Options", "runID")[:4] < "1804":
-            continue
+    for baseData, logPath in platforms:
+        dirs = glob.glob(f"{baseData}/*/fastq.made")
+        for d in dirs:
+            # Get the flow cell ID (e.g., 150416_SN7001180_0196_BC605HACXX)
+            run_id = Path(d).parents[0].name
+            config.set("Options", "runID", run_id)
 
-        # Detect sequencer type
-        base_path = str(Path(d).parents[0])
-        seq_type = detect_sequencer_type(base_path)
-        config.set("Options", "sequencerType", seq_type)
-
-        if not flowCellProcessed(config):
-            print(
-                f"Found new flow cell: [green]{config.get('Options', 'runID')}[/green]"
-            )
-            # Query parkour to see if there's anything to be done for this
-            ParkourDict = queryParkour(config)
-            if len(ParkourDict) == 0:
-                markFinished(config)
-                config.set("Options", "runID", "")
-                ParkourDict = None
+            if config.get("Options", "runID")[:4] < "1804":
                 continue
-            return config, ParkourDict
+
+            # Detect sequencer type
+            base_path = str(Path(d).parents[0])
+            seq_type = detect_sequencer_type(base_path)
+            config.set("Options", "sequencerType", seq_type)
+            config.set("Paths", "baseData", baseData)
+            config.set("Paths", "logPath", logPath)
+
+            if not flowCellProcessed(config):
+                print(
+                    f"Found new flow cell: [green]{config.get('Options', 'runID')}[/green]"
+                )
+                # Query parkour to see if there's anything to be done for this
+                ParkourDict = queryParkour(config)
+                if len(ParkourDict) == 0:
+                    markFinished(config)
+                    config.set("Options", "runID", "")
+                    ParkourDict = None
+                    continue
+                return config, ParkourDict
     print("No new flow cells found...")
     return config, None
