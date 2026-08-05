@@ -62,11 +62,17 @@ def newFlowCell(config, sequencer=None):
     platforms = []
     if sequencer in (None, "illumina"):
         platforms.append(
-            (config.get("Paths", "baseData_illumina"), config.get("Paths", "logPath_illumina"))
+            (
+                config.get("Paths", "baseData_illumina"),
+                config.get("Paths", "logPath_illumina"),
+            )
         )
     if sequencer in (None, "aviti"):
         platforms.append(
-            (config.get("Paths", "baseData_aviti"), config.get("Paths", "logPath_aviti"))
+            (
+                config.get("Paths", "baseData_aviti"),
+                config.get("Paths", "logPath_aviti"),
+            )
         )
 
     for baseData, logPath in platforms:

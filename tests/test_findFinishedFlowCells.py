@@ -188,7 +188,9 @@ class TestNewFlowCellSequencerGating:
         assert config.get("Options", "runID") == "20250101_illumina_runXXX"
         assert config.get("Paths", "baseData") == str(illu_base)
         assert config.get("Paths", "logPath") == str(illu_base / "LOG")
-        assert not Path(aviti_base, "20250101_AV999999_runYYY", "analysis.done").exists()
+        assert not Path(
+            aviti_base, "20250101_AV999999_runYYY", "analysis.done"
+        ).exists()
 
     @patch("BRB.findFinishedFlowCells.queryParkour")
     def test_aviti_only_never_touches_illumina(self, mock_query, platform_dirs):
