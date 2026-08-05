@@ -183,7 +183,7 @@ class TestNewFlowCellSequencerGating:
         mock_query.return_value = {"some": "data"}
         config = create_platform_conf(illu_base, aviti_base)
 
-        config, ParkourDict = newFlowCell(config, sequencer="illumina")
+        config, _ = newFlowCell(config, sequencer="illumina")
 
         assert config.get("Options", "runID") == "20250101_illumina_runXXX"
         assert config.get("Paths", "baseData") == str(illu_base)
@@ -198,7 +198,7 @@ class TestNewFlowCellSequencerGating:
         mock_query.return_value = {"some": "data"}
         config = create_platform_conf(illu_base, aviti_base)
 
-        config, ParkourDict = newFlowCell(config, sequencer="aviti")
+        config, _ = newFlowCell(config, sequencer="aviti")
 
         assert config.get("Options", "runID") == "20250101_AV999999_runYYY"
         assert config.get("Paths", "baseData") == str(aviti_base)
