@@ -42,6 +42,7 @@ def run_brb(configfile, sequencer):
         # Get the next flow cell to process, or sleep
         config, ParkourDict = BRB.findFinishedFlowCells.newFlowCell(config, sequencer)
         if (config.get("Options", "runID") == "") or ParkourDict is None:
+            print("Going back to sleep for 60 minutes.")
             sleep(60 * 60)
             continue
 

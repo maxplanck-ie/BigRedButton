@@ -63,6 +63,7 @@ def newFlowCell(config, sequencer=None):
     if sequencer in (None, "illumina"):
         platforms.append(
             (
+                "illumina",
                 config.get("Paths", "baseData_illumina"),
                 config.get("Paths", "logPath_illumina"),
             )
@@ -70,13 +71,16 @@ def newFlowCell(config, sequencer=None):
     if sequencer in (None, "aviti"):
         platforms.append(
             (
+                "aviti",
                 config.get("Paths", "baseData_aviti"),
                 config.get("Paths", "logPath_aviti"),
             )
         )
 
-    for baseData, logPath in platforms:
+    print("Checking for new flowcells...")
+    for platform, baseData, logPath in platforms:
         dirs = glob.glob(f"{baseData}/*/fastq.made")
+        found = False
         for d in dirs:
             # Get the flow cell ID (e.g., 150416_SN7001180_0196_BC605HACXX)
             run_id = Path(d).parents[0].name
@@ -93,6 +97,7 @@ def newFlowCell(config, sequencer=None):
             config.set("Paths", "logPath", logPath)
 
             if not flowCellProcessed(config):
+                found = True
                 print(
                     f"Found new flow cell: [green]{config.get('Options', 'runID')}[/green]"
                 )
@@ -104,5 +109,6 @@ def newFlowCell(config, sequencer=None):
                     ParkourDict = None
                     continue
                 return config, ParkourDict
-    print("No new flow cells found...")
+        if not found:
+            print(f"  No new {platform} flowcells found.")
     return config, None
