@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.4.1...v0.5.0) (2026-08-10)
+
+
+### Features
+
+* Add -s/--sequencer to restrict polling to one platform's baseData/logPath ([#134](https://github.com/maxplanck-ie/BigRedButton/issues/134)) ([0782d96](https://github.com/maxplanck-ie/BigRedButton/commit/0782d96ade6faaecbea3b15d8581419a5f5ba1b0))
+
 ## [0.4.1](https://github.com/maxplanck-ie/BigRedButton/compare/v0.4.0...v0.4.1) (2026-07-23)
 
 
