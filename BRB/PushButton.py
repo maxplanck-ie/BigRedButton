@@ -10,6 +10,25 @@ import BRB.misc
 from BRB.logger import log
 
 
+def parseExternalAllowlist(configValue):
+    """Split a comma-separated ini value into a clean list of entries."""
+    return [x.strip() for x in configValue.split(",") if x.strip()]
+
+
+def isExternallyAllowed(
+    libraryType, libraryProtocol, externalLibraryTypes, externalLibraryProtocols
+):
+    """
+    Whether a sample should still be processed for an external (non-PI)
+    project, based on its Parkour library type (exact match against
+    externalLibraryTypes) or library protocol (startswith match against
+    externalLibraryProtocols).
+    """
+    if libraryType in externalLibraryTypes:
+        return True
+    return any(libraryProtocol.startswith(p) for p in externalLibraryProtocols)
+
+
 def createPath(config, group, project, org_label, libraryType, tuples):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
     if tuples[0][3]:
@@ -81,12 +100,18 @@ def removeLinkFiles(d):
 def relinkFiles(config, group, project, org_label, libraryType, tuples):
     """
     Generate symlinks under the snakepipes originalFASTQ folder directly from the project folder.
-    At this stage the multiqc files are copied over into the bioinfocoredir, as well.
+    At this stage the multiqc files are copied over into the bioinfocoredir, as well
+    (skipped for external/ignored projects, since bioinfoCoreDir is internal-only).
     """
     # relink fqs
     outputDir = createPath(config, group, project, org_label, libraryType, tuples)
     odir = os.path.join(outputDir, "originalFASTQ")
     linkFiles(config, group, project, odir, tuples)
+    if tuples[0][3]:
+        log.info(
+            f"Skipping bioinfoCoreDir multiqc copy for external project {project}."
+        )
+        return
     # Copy mqc
     mqcf = os.path.join(outputDir, "multiQC", "multiqc_report.html")
     if os.path.exists(mqcf):
@@ -113,19 +138,27 @@ def getsambaPath(lane_dir, Sequencer):
     return current_year, year_postfix
 
 
-def copyCellRanger(config, d):
+def copyCellRanger(config, d, ignore=False):
     """
     copy Cellranger web_summaries to sequencing facility lane subdirectory & bioinfocore qc directory.
     e.g. /seqFacDir/Sequence_Quality_yyyy/Illumina_yyyy/flowcell_xxxx_lane_1/Analysis_xxx_sample_web_summary.html
 
+    Skipped entirely when `ignore` is true (external/non-PI project), since
+    both destinations are internal-only.
+
           :params config: configuration parsed from .ini file
           :params d: path to subdirectory of analysis folder, .e.g.
           /data/xxx/sequencing_data/yyyy_lanes_1/Analysis_2526_zzzz/RNA-Seq
+          :params ignore: whether this is an external/non-PI project
           :type config: configparser.ConfigParser
           :type d: str
+          :type ignore: bool
           :return: None
           :rtype: None
     """
+    if ignore:
+        log.info(f"Skipping copyCellRanger for external project under {d}.")
+        return
 
     files = glob.glob(os.path.join(d, "*/outs/", "web_summary.html"))
     sequencing_type = config.get("Options", "sequencerType")
@@ -159,6 +192,11 @@ def copyRELACS(config, d):
     copy RELACS demultiplexing png files to sequencing facility lane subdirectory.
     e.g. /seqFacDir/Sequence_Quality_yyyy/Illumina_yyyy/flowcell_xxxx_lane_1/xxx_RELACS_sample_fig.png
 
+    Runs the same for internal and external (non-PI) projects: the
+    sequencing facility (seqFacDir) and bioinfo-core (bioinfoCoreDir) QC
+    diagnostics for a RELACS run are shared regardless of who owns the
+    project, unlike the raw/processed data itself.
+
           :params config: configuration parsed from .ini file
           :params d: path to subdirectory of analysis folder, .e.g.
           /data/xxx/sequencing_data/yyyy_lanes_1/Analysis_2526_zzzz/ChIP-Seq_bla/RELACS_demultiplexing
@@ -167,7 +205,6 @@ def copyRELACS(config, d):
           :return: None
           :rtype: None
     """
-
     files = glob.glob(
         os.path.join(d, "RELACS_demultiplexing", "Sample*/", "*_fig.png")
     ) + glob.glob(os.path.join(d, "multiQC", "*html"))
@@ -192,8 +229,13 @@ def copyRELACS(config, d):
             Path(config.get("Paths", "seqFacDir")) / year_postfix / lane_dir
         )
         os.makedirs(seqfac_lane_dir, exist_ok=True)
-        nname = seqfac_lane_dir / nname
+        # bname must be computed from the plain (relative) nname, before it's
+        # turned into an absolute seqFacDir path below -- Path(a) / b drops
+        # `a` entirely when `b` is already absolute, which previously made
+        # this silently re-copy to the seqFacDir path a second time instead
+        # of ever reaching bioinfoCoreDir.
         bname = Path(config.get("Paths", "bioinfoCoreDir")) / nname
+        nname = seqfac_lane_dir / nname
         shutil.copyfile(fname, nname)
         shutil.copyfile(fname, bname)
 
@@ -293,17 +335,25 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     runID = config.get("Options", "runID").split("_lanes")[0]
     sequencerType = config.get("Options", "sequencerType")
     _org_name, org_label, org_yaml = organism
+    ignore = tuples[0][3]
     outputDir = createPath(
         config, group, BRB.misc.pacifier(project), org_label, libraryType, tuples
     )
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
+        if ignore and not os.path.exists(
+            os.path.join(outputDir, "external_delivery.done")
+        ):
+            deliverExternalRELACS(config, outputDir, BRB.misc.pacifier(project))
         return outputDir, 0, True
 
     project = BRB.misc.pacifier(project)
 
     if sequencerType == "Aviti":
+        # short_runs nests an extra instrument-id directory between the
+        # sequencer prefix and the run itself, e.g.
+        # short_runs/AVITI/AV251009/<runID>/RELACS_Project_<project>.txt
         matches = glob.glob(
-            f"/dont_touch_this/short_runs/AV*/{runID}/RELACS_Project_{project}.txt"
+            f"/dont_touch_this/short_runs/AV*/AV*/{runID}/RELACS_Project_{project}.txt"
         )
         sampleSheet = matches[0] if matches else None
     else:
@@ -312,19 +362,30 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         )
 
     # Fallback if exact path doesn't exist
-    if not os.path.exists(sampleSheet) and not os.path.exists(
-        os.path.join(outputDir, "RELACS_sampleSheet.txt")
+    if not sampleSheet or (
+        not os.path.exists(sampleSheet)
+        and not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt"))
     ):
         log.critical(f"RELACS: wrong samplesheet name: {sampleSheet}")
         return None, 1, False
 
-    baseDir = "{}/{}/{}/{}/Project_{}".format(
-        config.get("Paths", "groupData"),
-        BRB.misc.pacifier(group),
-        BRB.misc.getLatestSeqdir(config.get("Paths", "groupData"), group),
-        config.get("Options", "runID"),
-        project,
-    )
+    if ignore:
+        # External (non-PI) project: the raw pooled Sample_* directories
+        # live directly under baseData/runID/Project_{project}, since there's
+        # no PI group directory under groupData for an external user.
+        baseDir = "{}/{}/Project_{}".format(
+            config.get("Paths", "baseData"),
+            config.get("Options", "runID"),
+            project,
+        )
+    else:
+        baseDir = "{}/{}/{}/{}/Project_{}".format(
+            config.get("Paths", "groupData"),
+            BRB.misc.pacifier(group),
+            BRB.misc.getLatestSeqdir(config.get("Paths", "groupData"), group),
+            config.get("Options", "runID"),
+            project,
+        )
 
     # Link in files
     if not os.path.exists(os.path.join(outputDir, "RELACS_sampleSheet.txt")):
@@ -419,7 +480,71 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         os.symlink(fname, newName)
     stripRights(outputDir)
     touchDone(outputDir)
+    if ignore:
+        deliverExternalRELACS(config, outputDir, project)
     return outputDir, 0, True
+
+
+def deliverExternalRELACS(config, outputDir, project):
+    """
+    For external (non-PI) RELACS projects: once the pipeline has succeeded,
+    reclaim space by truncating the bulky, fully-reproducible intermediate
+    FASTQs (RELACS_demultiplexing/, FASTQ_Cutadapt/), then package the real
+    result files (BAMs, bigwigs, multiQC, and run metadata -- no symlinks,
+    no intermediates) into a tar.gz and deliver it via fexsend to the
+    configured recipient.
+
+    Guarded by a separate external_delivery.done marker (distinct from
+    analysis.done), so if this step is interrupted after the pipeline itself
+    succeeded, the next poll retries delivery instead of the outer
+    analysis.done check silently skipping it forever.
+
+    Failure here is logged but non-fatal: the analysis itself already
+    succeeded, and delivery can be retried on the next poll or by hand.
+    """
+    doneMarker = os.path.join(outputDir, "external_delivery.done")
+    if os.path.exists(doneMarker):
+        return
+    try:
+        for subdir in ("RELACS_demultiplexing", "FASTQ_Cutadapt"):
+            pattern = os.path.join(outputDir, subdir, "**", "*.gz")
+            for fname in glob.glob(pattern, recursive=True):
+                open(fname, "w").close()
+
+        includeNames = ["Bowtie2", "filtered_bam", "bamCoverage", "multiQC"]
+        for fname in sorted(os.listdir(outputDir)):
+            full = os.path.join(outputDir, fname)
+            if os.path.islink(full) or not os.path.isfile(full):
+                continue
+            if fname.endswith((".config.yaml", "_organism.yaml")) or (
+                fname == "RELACS_sampleSheet.txt"
+            ):
+                includeNames.append(fname)
+        includeNames = [
+            n for n in includeNames if os.path.exists(os.path.join(outputDir, n))
+        ]
+
+        archiveName = f"Analysis_{project}.tar.gz"
+        fexBin = os.path.expanduser(
+            config.get("external", "fexsendBin", fallback="fexsend")
+        )
+        fexRecipient = config.get("external", "fexRecipient", fallback="")
+        comment = f"BRB external delivery: project {project}"
+        CMD = "tar -czf - {} | {} -s {} -C '{}' {}".format(
+            " ".join(includeNames),
+            fexBin,
+            archiveName,
+            comment,
+            fexRecipient,
+        )
+        log.info(f"External delivery CMD: {CMD}")
+        subprocess.check_call(CMD, shell=True, cwd=outputDir)
+        open(doneMarker, "w").close()
+    except:
+        log.error(
+            f"External delivery failed for {outputDir}; the analysis itself "
+            "succeeded, delivery will be retried on the next poll."
+        )
 
 
 def DNA(config, group, project, organism, libraryType, tuples):
@@ -616,7 +741,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         removeLinkFiles(outputDir)
         tidyUpABit(outputDir)
         stripRights(outputDir)
-        copyCellRanger(config, outputDir)
+        copyCellRanger(config, outputDir, tuples[0][3])
         sambaUpdate = True
     elif tuples[0][2] == "Cel-Seq 2 for single cell RNA-Seq":
         PE = linkFiles(config, group, project, outputDir, tuples)
@@ -743,13 +868,21 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     ):
         # PE = linkFiles(config, group, project, outputDir, tuples)
         samples = " ".join(i[1] for i in tuples)
-        inDir = "{}/{}/{}/{}/Project_{}".format(
-            config.get("Paths", "groupData"),
-            BRB.misc.pacifier(group),
-            BRB.misc.getLatestSeqdir(config.get("Paths", "groupData"), group),
-            config.get("Options", "runID"),
-            BRB.misc.pacifier(project),
-        )
+        if tuples[0][3]:
+            # External (non-PI) project: no group directory under groupData.
+            inDir = "{}/{}/Project_{}".format(
+                config.get("Paths", "baseData"),
+                config.get("Options", "runID"),
+                BRB.misc.pacifier(project),
+            )
+        else:
+            inDir = "{}/{}/{}/{}/Project_{}".format(
+                config.get("Paths", "groupData"),
+                BRB.misc.pacifier(group),
+                BRB.misc.getLatestSeqdir(config.get("Paths", "groupData"), group),
+                config.get("Options", "runID"),
+                BRB.misc.pacifier(project),
+            )
 
         snakeMakePath = "{}/bin".format(
             os.path.join(config.get("Options", "snakemakeWorkflowBaseDir"))
@@ -766,7 +899,7 @@ def scATAC(config, group, project, organism, libraryType, tuples):
         except:
             return outputDir, 1, False
         # removeLinkFiles(outputDir)
-        copyCellRanger(config, outputDir)
+        copyCellRanger(config, outputDir, tuples[0][3])
         stripRights(outputDir)
         tidyUpABit(outputDir)
     else:
@@ -811,6 +944,16 @@ def GetResults(config, project, libraries):
         for i, v in enumerate(config.get("Options", "validLibraryTypes").split(","))
     }
     pipelines = config.get("Options", "pipelines").split(",")
+    # Library types/protocols that should still be processed for external
+    # (non-PI) projects. Split into real lists up front: `x in "a,b,c"`
+    # would otherwise do substring matching against the raw config string
+    # (e.g. "RNA-Seq" would false-positive against "stranded mRNA-Seq").
+    externalLibraryTypes = parseExternalAllowlist(
+        config.get("external", "LibraryTypes", fallback="")
+    )
+    externalLibraryProtocols = parseExternalAllowlist(
+        config.get("external", "LibraryProtocols", fallback="")
+    )
     # split by analysis type and species, since we can only process some types of this
     analysisTypes = {}
     skipList = []
@@ -835,12 +978,13 @@ def GetResults(config, project, libraries):
             log.info(
                 f"Species label or YAML was not set for {org_name} (check Parkour DB.)"
             )
+        externallyAllowed = isExternallyAllowed(
+            libraryType, libraryProtocol, externalLibraryTypes, externalLibraryProtocols
+        )
         if (
             libraryType in validLibraryTypes
             and (org_label or org_yaml)
-            and (
-                ignore == False or libraryType in config.get("external", "LibraryTypes")
-            )
+            and (ignore == False or externallyAllowed)
         ):
             if org_label not in org_dict:
                 org_dict[org_label] = organism
