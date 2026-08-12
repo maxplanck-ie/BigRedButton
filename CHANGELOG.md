@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.6.0...v0.7.0) (2026-08-12)
+
+
+### Features
+
+* process external RELACS ChIP-Seq and fix RELACS QC-sharing bugs ([#137](https://github.com/maxplanck-ie/BigRedButton/issues/137)) ([9a9d932](https://github.com/maxplanck-ie/BigRedButton/commit/9a9d932ac2de721062b43cd6b9bf39b3ced8ded3))
+
 ## [0.6.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.5.0...v0.6.0) (2026-08-11)
 
 
