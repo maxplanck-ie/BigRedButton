@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.5.0...v0.6.0) (2026-08-11)
+
+
+### Features
+
+* add install_brb.sh for versioned conda env installs from tags ([#138](https://github.com/maxplanck-ie/BigRedButton/issues/138)) ([05ca608](https://github.com/maxplanck-ie/BigRedButton/commit/05ca6082a0b44fb7cbf9a2e4cf256bef5aa47c9f))
+
 ## [0.5.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.4.1...v0.5.0) (2026-08-10)
 
 
