@@ -110,11 +110,15 @@ class TestIsExternallyAllowed:
 
 class TestInternalShareSkip:
     """
-    copyCellRanger/copyRELACS read config['Paths']['seqFacDir'] and
-    ['bioinfoCoreDir'] as soon as they proceed past the ignore check. A
-    config missing those keys makes that a hard failure, which we use here
-    to prove the functions return immediately (without touching them) when
-    ignore=True, and do NOT return early when ignore=False.
+    copyCellRanger reads config['Paths']['seqFacDir'] and ['bioinfoCoreDir']
+    as soon as it proceeds past the ignore check. A config missing those
+    keys makes that a hard failure, which we use here to prove the function
+    returns immediately (without touching them) when ignore=True, and does
+    NOT return early when ignore=False.
+
+    copyRELACS has no such skip: RELACS QC diagnostics (seqFacDir +
+    bioinfoCoreDir) are shared for internal and external projects alike, see
+    TestCopyRELACSAlwaysRuns below.
     """
 
     def test_copyCellRanger_skips_when_ignored(self, tmp_path):
@@ -131,21 +135,6 @@ class TestInternalShareSkip:
         with pytest.raises(configparser.NoSectionError):
             copyCellRanger(config, str(tmp_path), ignore=False)
 
-    def test_copyRELACS_skips_when_ignored(self, tmp_path):
-        config = configparser.ConfigParser()
-        config["Options"] = {"sequencerType": "Aviti"}
-        copyRELACS(config, str(tmp_path), ignore=True)
-
-    def test_copyRELACS_raises_when_not_ignored_and_misconfigured(self, tmp_path):
-        config = configparser.ConfigParser()
-        config["Options"] = {"sequencerType": "Aviti"}
-        (tmp_path / "RELACS_demultiplexing" / "Sample1").mkdir(parents=True)
-        (tmp_path / "RELACS_demultiplexing" / "Sample1" / "mark_fig.png").write_text(
-            "x"
-        )
-        with pytest.raises(configparser.NoSectionError):
-            copyRELACS(config, str(tmp_path), ignore=False)
-
     def test_relinkFiles_skips_mqc_copy_when_ignored(self, tmp_path):
         config = configparser.ConfigParser()
         config["Paths"] = {"baseData": str(tmp_path), "groupData": str(tmp_path)}
@@ -155,6 +144,55 @@ class TestInternalShareSkip:
         # missing bioinfoCoreDir key.
         tuples = [["lib1", "sample1", "protocol", True]]
         PushButton.relinkFiles(config, "group", "proj", "org", "ChIP-Seq", tuples)
+
+
+class TestCopyRELACSAlwaysRuns:
+    """
+    copyRELACS() takes no `ignore` param and ships the same seqFacDir +
+    bioinfoCoreDir QC diagnostics regardless of whether the project is
+    internal or external -- unlike copyCellRanger, which is still skipped
+    for external projects.
+    """
+
+    def _make_output_dir(self, tmp_path):
+        outputDir = (
+            tmp_path
+            / "20260101_AV999999_1234567_lanes_1_2"
+            / "Analysis_99_Foo_Bar"
+            / "ChIP-Seq_h38"
+        )
+        (outputDir / "RELACS_demultiplexing" / "Sample_1").mkdir(parents=True)
+        (outputDir / "RELACS_demultiplexing" / "Sample_1" / "mark_fig.png").write_text(
+            "x"
+        )
+        (outputDir / "multiQC").mkdir(parents=True)
+        (outputDir / "multiQC" / "multiqc_report.html").write_text("x")
+        return outputDir
+
+    def test_copies_to_seqfac_and_bioinfocore(self, tmp_path):
+        outputDir = self._make_output_dir(tmp_path)
+        seqfac = tmp_path / "seqfac"
+        bioinfocore = tmp_path / "bioinfocore"
+        bioinfocore.mkdir()
+        config = make_config(
+            overrides={
+                "Paths": {"seqFacDir": str(seqfac), "bioinfoCoreDir": str(bioinfocore)}
+            }
+        )
+
+        copyRELACS(config, str(outputDir))
+
+        seqfac_files = list(seqfac.rglob("*"))
+        assert any(f.name.endswith("mark_fig.png") for f in seqfac_files)
+        assert any(f.name.endswith("RELACS_analysis.html") for f in seqfac_files)
+        bioinfocore_files = list(bioinfocore.iterdir())
+        assert any(f.name.endswith("mark_fig.png") for f in bioinfocore_files)
+        assert any(f.name.endswith("RELACS_analysis.html") for f in bioinfocore_files)
+
+    def test_no_ignore_param_accepted(self):
+        import inspect
+
+        assert "ignore" not in inspect.signature(copyRELACS).parameters
 
 
 class TestDeliverExternalRELACS:
@@ -268,11 +306,18 @@ class TestRELACSExternalPaths:
         return config, tuples, project, outputDir, sampleSheetContent
 
     @patch("BRB.PushButton.createPath")
+    @patch("BRB.PushButton.copyRELACS")
     @patch("BRB.PushButton.deliverExternalRELACS")
     @patch("BRB.PushButton.subprocess.check_call")
     @patch("BRB.PushButton.glob.glob")
     def test_external_uses_baseData_not_groupData(
-        self, mock_glob, mock_check_call, mock_deliver, mock_createPath, tmp_path
+        self,
+        mock_glob,
+        mock_check_call,
+        mock_deliver,
+        mock_copyRELACS,
+        mock_createPath,
+        tmp_path,
     ):
         config, tuples, project, outputDir, sheetContent = self._base_setup(
             tmp_path, ignore=True

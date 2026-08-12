@@ -187,28 +187,24 @@ def copyCellRanger(config, d, ignore=False):
         shutil.copyfile(fname, bioinfoCoreDirPath)
 
 
-def copyRELACS(config, d, ignore=False):
+def copyRELACS(config, d):
     """
     copy RELACS demultiplexing png files to sequencing facility lane subdirectory.
     e.g. /seqFacDir/Sequence_Quality_yyyy/Illumina_yyyy/flowcell_xxxx_lane_1/xxx_RELACS_sample_fig.png
 
-    Skipped entirely when `ignore` is true (external/non-PI project), since
-    both destinations are internal-only.
+    Runs the same for internal and external (non-PI) projects: the
+    sequencing facility (seqFacDir) and bioinfo-core (bioinfoCoreDir) QC
+    diagnostics for a RELACS run are shared regardless of who owns the
+    project, unlike the raw/processed data itself.
 
           :params config: configuration parsed from .ini file
           :params d: path to subdirectory of analysis folder, .e.g.
           /data/xxx/sequencing_data/yyyy_lanes_1/Analysis_2526_zzzz/ChIP-Seq_bla/RELACS_demultiplexing
-          :params ignore: whether this is an external/non-PI project
           :type config: configparser.ConfigParser
           :type d: str
-          :type ignore: bool
           :return: None
           :rtype: None
     """
-    if ignore:
-        log.info(f"Skipping copyRELACS for external project under {d}.")
-        return
-
     files = glob.glob(
         os.path.join(d, "RELACS_demultiplexing", "Sample*/", "*_fig.png")
     ) + glob.glob(os.path.join(d, "multiQC", "*html"))
@@ -233,8 +229,13 @@ def copyRELACS(config, d, ignore=False):
             Path(config.get("Paths", "seqFacDir")) / year_postfix / lane_dir
         )
         os.makedirs(seqfac_lane_dir, exist_ok=True)
-        nname = seqfac_lane_dir / nname
+        # bname must be computed from the plain (relative) nname, before it's
+        # turned into an absolute seqFacDir path below -- Path(a) / b drops
+        # `a` entirely when `b` is already absolute, which previously made
+        # this silently re-copy to the seqFacDir path a second time instead
+        # of ever reaching bioinfoCoreDir.
         bname = Path(config.get("Paths", "bioinfoCoreDir")) / nname
+        nname = seqfac_lane_dir / nname
         shutil.copyfile(fname, nname)
         shutil.copyfile(fname, bname)
 
@@ -465,7 +466,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         return outputDir, 1, False
     removeLinkFiles(outputDir)
     tidyUpABit(outputDir)
-    copyRELACS(config, outputDir, ignore)
+    copyRELACS(config, outputDir)
     # Recreate links under originalFastQ
     for fname in glob.glob(
         os.path.join(outputDir, "RELACS_demultiplexing", "*", "*.gz")
