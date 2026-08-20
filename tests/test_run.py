@@ -5,6 +5,7 @@ import pytest
 import BRB.email
 import BRB.findFinishedFlowCells
 import BRB.getConfig
+import BRB.misc
 import BRB.PushButton
 import BRB.run
 
@@ -29,6 +30,7 @@ def wireRunBrb(monkeypatch, tmp_path, runFlowcellImpl):
         "1_A_Foo": {"L1": ["s1", "ChIP-Seq", "proto", ("human", "hg38", "y"), "i7", 30]}
     }
     monkeypatch.setattr(BRB.getConfig, "getConfig", lambda configfile: config)
+    monkeypatch.setattr(BRB.misc, "resolveDeliverTo", lambda cfg: {})
     monkeypatch.setattr(
         BRB.findFinishedFlowCells,
         "newFlowCell",
@@ -125,6 +127,7 @@ class TestRunBrbWiring:
     def test_no_new_flowcell_sleeps_and_retries(self, tmp_path, monkeypatch):
         config = runConfig(tmp_path)
         monkeypatch.setattr(BRB.getConfig, "getConfig", lambda configfile: config)
+        monkeypatch.setattr(BRB.misc, "resolveDeliverTo", lambda cfg: {})
         monkeypatch.setattr(
             BRB.findFinishedFlowCells,
             "newFlowCell",
