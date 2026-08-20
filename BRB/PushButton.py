@@ -927,8 +927,7 @@ def GetResults(config, project, libraries):
     """
     ignore = False
     try:
-        group = project.split("_")[-1].split("-")[0].lower()
-        group = BRB.misc.pacifier(group)
+        group = BRB.misc.resolveGroup(config, project)
         dataPath = Path(
             config.get("Paths", "groupData"),
             group,
