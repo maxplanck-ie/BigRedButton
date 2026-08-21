@@ -101,8 +101,16 @@ def newFlowCell(config, sequencer=None):
             base_path = str(Path(d).parents[0])
             seq_type = detect_sequencer_type(base_path)
             config.set("Options", "sequencerType", seq_type)
-            config.set("Paths", "baseData", baseData)
-            config.set("Paths", "logPath", logPath)
+
+            if platform == "aviti":
+                # Output and logs mirror the serial-ID (e.g. AV251009)
+                # subdir that baseData_aviti holds this flowcell under.
+                serialID = Path(d).parents[1].name
+                config.set("Paths", "baseData", str(Path(baseData, serialID)))
+                config.set("Paths", "logPath", str(Path(logPath, serialID)))
+            else:
+                config.set("Paths", "baseData", baseData)
+                config.set("Paths", "logPath", logPath)
 
             if not flowCellProcessed(config):
                 found = True

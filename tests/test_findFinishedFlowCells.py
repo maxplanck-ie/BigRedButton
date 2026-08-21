@@ -203,8 +203,8 @@ class TestNewFlowCellSequencerGating:
         config, _ = newFlowCell(config, sequencer="aviti")
 
         assert config.get("Options", "runID") == "20250101_AV999999_runYYY"
-        assert config.get("Paths", "baseData") == str(aviti_base)
-        assert config.get("Paths", "logPath") == str(aviti_base / "LOG")
+        assert config.get("Paths", "baseData") == str(aviti_base / "AV999999")
+        assert config.get("Paths", "logPath") == str(aviti_base / "LOG" / "AV999999")
         assert not Path(illu_base, "20250101_illumina_runXXX", "analysis.done").exists()
 
     @patch("BRB.findFinishedFlowCells.queryParkour")
@@ -225,3 +225,34 @@ class TestNewFlowCellSequencerGating:
 
         assert config.get("Options", "runID") == "20260818_AV251009_runZZZ"
         assert ParkourDict == {"some": "data"}
+
+    @patch("BRB.findFinishedFlowCells.queryParkour")
+    def test_aviti_baseData_and_logPath_nest_under_serial_id(
+        self, mock_query, tmp_path
+    ):
+        """Regression test: baseData_aviti/logPath_aviti are the shared
+        parent of multiple instruments. flowCellProcessed/markFinished and
+        run.py's logfile path all build off config["Paths"]["baseData"]/
+        ["logPath"], so those must already be nested under the matching
+        serial-ID (e.g. AV251009), or analysis.done and the logfile get
+        written to a flat path whose parent doesn't exist."""
+        illu_base = tmp_path / "illumina"
+        aviti_base = tmp_path / "aviti"
+        aviti_log = tmp_path / "aviti_log"
+        illu_base.mkdir()
+        runID = "20260818_AV251009_runZZZ"
+        (aviti_base / "AV251009" / runID).mkdir(parents=True)
+        (aviti_base / "AV251009" / runID / "fastq.made").touch()
+
+        mock_query.return_value = {"some": "data"}
+        config = create_platform_conf(illu_base, aviti_base)
+        config.set("Paths", "logPath_aviti", str(aviti_log))
+
+        config, _ = newFlowCell(config, sequencer="aviti")
+
+        assert config.get("Paths", "baseData") == str(aviti_base / "AV251009")
+        assert config.get("Paths", "logPath") == str(aviti_log / "AV251009")
+        # flowCellProcessed must resolve to the real, nested run directory.
+        assert Path(config.get("Paths", "baseData"), runID) == (
+            aviti_base / "AV251009" / runID
+        )
