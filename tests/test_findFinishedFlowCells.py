@@ -153,8 +153,10 @@ def platform_dirs(tmp_path_factory):
     aviti_base = fp / "aviti"
     (illu_base / "20250101_illumina_runXXX").mkdir(parents=True)
     (illu_base / "20250101_illumina_runXXX" / "fastq.made").touch()
-    (aviti_base / "20250101_AV999999_runYYY").mkdir(parents=True)
-    (aviti_base / "20250101_AV999999_runYYY" / "fastq.made").touch()
+    # aviti_base is the shared parent of multiple instruments, so run
+    # directories sit one level deeper than under illumina's baseData.
+    (aviti_base / "AV999999" / "20250101_AV999999_runYYY").mkdir(parents=True)
+    (aviti_base / "AV999999" / "20250101_AV999999_runYYY" / "fastq.made").touch()
     return illu_base, aviti_base
 
 
@@ -189,7 +191,7 @@ class TestNewFlowCellSequencerGating:
         assert config.get("Paths", "baseData") == str(illu_base)
         assert config.get("Paths", "logPath") == str(illu_base / "LOG")
         assert not Path(
-            aviti_base, "20250101_AV999999_runYYY", "analysis.done"
+            aviti_base, "AV999999", "20250101_AV999999_runYYY", "analysis.done"
         ).exists()
 
     @patch("BRB.findFinishedFlowCells.queryParkour")
@@ -204,3 +206,22 @@ class TestNewFlowCellSequencerGating:
         assert config.get("Paths", "baseData") == str(aviti_base)
         assert config.get("Paths", "logPath") == str(aviti_base / "LOG")
         assert not Path(illu_base, "20250101_illumina_runXXX", "analysis.done").exists()
+
+    @patch("BRB.findFinishedFlowCells.queryParkour")
+    def test_aviti_finds_runs_across_multiple_instruments(self, mock_query, tmp_path):
+        """Regression test: baseData_aviti is the shared parent of several
+        instrument directories (e.g. AV251009, AV261103), so a run's
+        fastq.made sits two levels below baseData_aviti, not one."""
+        illu_base = tmp_path / "illumina"
+        aviti_base = tmp_path / "aviti"
+        illu_base.mkdir()
+        (aviti_base / "AV251009" / "20260818_AV251009_runZZZ").mkdir(parents=True)
+        (aviti_base / "AV251009" / "20260818_AV251009_runZZZ" / "fastq.made").touch()
+
+        mock_query.return_value = {"some": "data"}
+        config = create_platform_conf(illu_base, aviti_base)
+
+        config, ParkourDict = newFlowCell(config, sequencer="aviti")
+
+        assert config.get("Options", "runID") == "20260818_AV251009_runZZZ"
+        assert ParkourDict == {"some": "data"}

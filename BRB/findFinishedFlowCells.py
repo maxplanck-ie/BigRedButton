@@ -79,7 +79,15 @@ def newFlowCell(config, sequencer=None):
 
     print("Checking for new flowcells...")
     for platform, baseData, logPath in platforms:
-        dirs = glob.glob(f"{baseData}/*/fastq.made")
+        # aviti's baseData is the shared parent of multiple instrument
+        # directories (e.g. AV251009, AV261103), so run directories sit one
+        # level deeper than under illumina's single-instrument baseData.
+        pattern = (
+            f"{baseData}/*/*/fastq.made"
+            if platform == "aviti"
+            else f"{baseData}/*/fastq.made"
+        )
+        dirs = glob.glob(pattern)
         found = False
         for d in dirs:
             # Get the flow cell ID (e.g., 150416_SN7001180_0196_BC605HACXX)
