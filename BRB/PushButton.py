@@ -3,6 +3,7 @@ import os
 import shutil
 import stat
 import subprocess
+import time
 from collections import namedtuple
 from pathlib import Path
 
@@ -19,6 +20,9 @@ from BRB.logger import log
 WorkItem = namedtuple(
     "WorkItem", ["project", "group", "pipeline", "organism", "libraryType", "tuples"]
 )
+
+# Name of the per-group ownership marker written into the group's outputDir.
+MARKER_NAME = "running.pid"
 
 
 def parseExternalAllowlist(configValue):
@@ -928,7 +932,32 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     return outputDir, 0, True
 
 
-def runOneGroup(config, item):
+def _markerIsOwnedByLiveProcess(markerPath):
+    """
+    True if markerPath names a PID that still exists. An unreadable or
+    malformed marker is treated as abandoned, not as an owner.
+    """
+    try:
+        with open(markerPath) as fh:
+            pid = int(fh.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Exists, owned by another user.
+        return True
+    return True
+
+
+def _writeOwnershipMarker(markerPath):
+    with open(markerPath, "w") as fh:
+        fh.write(f"{os.getpid()} {time.time()}\n")
+
+
+def _dispatchOneGroup(config, item):
     """
     Dispatch a single WorkItem: run its pipeline function, allow exactly one
     re-run on a non-zero return, and build the message entry.
@@ -986,6 +1015,49 @@ def runOneGroup(config, item):
             reruncount,
         ]
     ]
+
+
+def runOneGroup(config, item):
+    """
+    Ownership-guarded dispatch of a single WorkItem.
+
+    Deliberately not a real lock (no flock, no atomicity guarantee). It exists
+    only to stop a restarted run_brb from launching a second snakePipes run
+    into an outputDir that a still-alive orphan from a crashed run owns.
+
+    Returns a list of message entries: [] when the group is skipped because
+    someone else owns it, otherwise the single entry from _dispatchOneGroup.
+    """
+    outputDir = createPath(
+        config,
+        item.group,
+        item.project,
+        item.organism[1],
+        item.libraryType,
+        item.tuples,
+    )
+    markerPath = os.path.join(outputDir, MARKER_NAME)
+    if os.path.exists(markerPath):
+        if _markerIsOwnedByLiveProcess(markerPath):
+            log.warning(
+                f"Skipping {item.project} / {item.pipeline} / {item.libraryType}: "
+                f"{markerPath} is held by a live process. Not dispatching, and "
+                "not counting this as a failure."
+            )
+            return []
+        log.warning(
+            f"Abandoned ownership marker {markerPath} (owning process is gone); "
+            "removing it and dispatching normally."
+        )
+        os.remove(markerPath)
+    _writeOwnershipMarker(markerPath)
+    try:
+        return _dispatchOneGroup(config, item)
+    finally:
+        try:
+            os.remove(markerPath)
+        except FileNotFoundError:
+            pass
 
 
 def GetResults(config, project, libraries):

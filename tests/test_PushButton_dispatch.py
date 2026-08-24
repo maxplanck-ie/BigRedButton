@@ -1,4 +1,7 @@
 import configparser
+import os
+
+import pytest
 
 import BRB.ET
 from BRB import PushButton
@@ -200,3 +203,121 @@ class TestRunOneGroup:
                 1,
             ]
         ]
+
+
+def findDeadPid():
+    """A PID that is guaranteed not to name a live process right now."""
+    pid = 4000000
+    while pid > 2:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return pid
+        except (PermissionError, OverflowError, ValueError):
+            pass
+        pid -= 1
+    raise RuntimeError("could not find a dead PID")
+
+
+class TestOwnershipMarker:
+    def _outputDir(self, config, item):
+        return PushButton.createPath(
+            config,
+            item.group,
+            item.project,
+            item.organism[1],
+            item.libraryType,
+            item.tuples,
+        )
+
+    def test_no_marker_dispatches_and_cleans_up(self, tmp_path, monkeypatch):
+        config = dispatchConfig(tmp_path)
+        item = makeWorkItem()
+        calls = []
+
+        def stub(config, group, project, organism, libraryType, tuples):
+            calls.append(1)
+            return "/out", 0, False
+
+        monkeypatch.setattr(PushButton, "RNA", stub)
+        monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
+
+        result = PushButton.runOneGroup(config, item)
+
+        assert len(calls) == 1
+        assert len(result) == 1
+        marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
+        assert not os.path.exists(marker)
+
+    def test_marker_written_while_dispatching(self, tmp_path, monkeypatch):
+        config = dispatchConfig(tmp_path)
+        item = makeWorkItem()
+        seen = {}
+
+        def stub(config, group, project, organism, libraryType, tuples):
+            marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
+            with open(marker) as fh:
+                seen["content"] = fh.read()
+            return "/out", 0, False
+
+        monkeypatch.setattr(PushButton, "RNA", stub)
+        monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
+
+        PushButton.runOneGroup(config, item)
+
+        assert seen["content"].split()[0] == str(os.getpid())
+
+    def test_live_pid_marker_skips_group(self, tmp_path, monkeypatch):
+        config = dispatchConfig(tmp_path)
+        item = makeWorkItem()
+        marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
+        with open(marker, "w") as fh:
+            fh.write(f"{os.getpid()} 1234.5\n")
+
+        def mustNotBeCalled(*args, **kwargs):
+            raise AssertionError("a live-PID-owned group must not be dispatched")
+
+        monkeypatch.setattr(PushButton, "RNA", mustNotBeCalled)
+
+        result = PushButton.runOneGroup(config, item)
+
+        assert result == []
+        assert os.path.exists(marker), "another owner's marker must not be removed"
+
+    def test_dead_pid_marker_is_abandoned_and_dispatch_proceeds(
+        self, tmp_path, monkeypatch
+    ):
+        config = dispatchConfig(tmp_path)
+        item = makeWorkItem()
+        marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
+        with open(marker, "w") as fh:
+            fh.write(f"{findDeadPid()} 1234.5\n")
+        calls = []
+
+        def stub(config, group, project, organism, libraryType, tuples):
+            calls.append(1)
+            return "/out", 0, False
+
+        monkeypatch.setattr(PushButton, "RNA", stub)
+        monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
+
+        result = PushButton.runOneGroup(config, item)
+
+        assert len(calls) == 1
+        assert len(result) == 1
+        assert not os.path.exists(marker)
+
+    def test_marker_removed_when_pipeline_raises(self, tmp_path, monkeypatch):
+        config = dispatchConfig(tmp_path)
+        item = makeWorkItem()
+
+        def stub(config, group, project, organism, libraryType, tuples):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(PushButton, "RNA", stub)
+
+        with pytest.raises(RuntimeError):
+            PushButton.runOneGroup(config, item)
+
+        marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
+        assert not os.path.exists(marker)
