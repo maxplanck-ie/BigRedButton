@@ -1,5 +1,6 @@
 import configparser
 import os
+import time
 
 import pytest
 
@@ -321,3 +322,167 @@ class TestOwnershipMarker:
 
         marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
         assert not os.path.exists(marker)
+
+
+class TestRunFlowcell:
+    def _parkourDict(self):
+        return {
+            "1_A_Foo": {
+                "L1": ["s1", "ChIP-Seq", "proto", HUMAN, "i7", 30],
+                "L2": ["s2", "stranded mRNA-Seq", "proto", HUMAN, "i7", 30],
+            },
+            "2_B_Bar": {"L3": ["s3", "ChIP-Seq", "proto", MOUSE, "i7", 30]},
+        }
+
+    def _makeProjectDirs(self, tmp_path, names):
+        for name in names:
+            (tmp_path / "base" / "run1" / f"Project_{name}").mkdir(parents=True)
+
+    def test_collects_messages_from_every_group(self, tmp_path, monkeypatch):
+        config = dispatchConfig(tmp_path)
+        self._makeProjectDirs(tmp_path, ["1_A_Foo", "2_B_Bar"])
+        monkeypatch.setattr(PushButton, "POOL_SIZE", 2)
+        monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
+
+        def stub(config, group, project, organism, libraryType, tuples):
+            return "/out", 0, False
+
+        monkeypatch.setattr(PushButton, "DNA", stub)
+        monkeypatch.setattr(PushButton, "RNA", stub)
+
+        msg = PushButton.runFlowcell(config, self._parkourDict())
+
+        assert sorted((m[0], m[2], m[3]) for m in msg) == [
+            ("1_A_Foo", "ChIP-Seq", "DNA"),
+            ("1_A_Foo", "stranded mRNA-Seq", "RNA"),
+            ("2_B_Bar", "ChIP-Seq", "DNA"),
+        ]
+
+    def test_skips_project_that_lives_on_another_lane(self, tmp_path, monkeypatch):
+        config = dispatchConfig(tmp_path)
+        self._makeProjectDirs(tmp_path, ["2_B_Bar"])  # 1_A_Foo absent
+        monkeypatch.setattr(PushButton, "POOL_SIZE", 2)
+        monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
+
+        def stub(config, group, project, organism, libraryType, tuples):
+            return "/out", 0, False
+
+        monkeypatch.setattr(PushButton, "DNA", stub)
+        monkeypatch.setattr(PushButton, "RNA", stub)
+
+        msg = PushButton.runFlowcell(config, self._parkourDict())
+
+        assert [m[0] for m in msg] == ["2_B_Bar"]
+
+    def test_no_work_items_returns_empty(self, tmp_path, monkeypatch):
+        config = dispatchConfig(tmp_path)
+        monkeypatch.setattr(PushButton, "POOL_SIZE", 2)
+        assert PushButton.runFlowcell(config, {}) == []
+
+    def test_crash_path_does_not_block_on_surviving_workers(
+        self, tmp_path, monkeypatch
+    ):
+        config = dispatchConfig(tmp_path)
+        self._makeProjectDirs(tmp_path, ["1_A_Foo", "2_B_Bar"])
+        monkeypatch.setattr(PushButton, "POOL_SIZE", 2)
+        monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
+
+        def slowStub(config, group, project, organism, libraryType, tuples):
+            time.sleep(3)
+            return "/out", 0, False
+
+        def crashStub(config, group, project, organism, libraryType, tuples):
+            raise RuntimeError("kaboom")
+
+        # DNA groups sleep, the RNA group crashes immediately.
+        monkeypatch.setattr(PushButton, "DNA", slowStub)
+        monkeypatch.setattr(PushButton, "RNA", crashStub)
+
+        started = time.monotonic()
+        with pytest.raises(PushButton.GroupDispatchError) as excinfo:
+            PushButton.runFlowcell(config, self._parkourDict())
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 1.5, "crash path must not wait for surviving workers"
+        assert isinstance(excinfo.value.__cause__, RuntimeError)
+        failedItems = [item for item, _exc in excinfo.value.failures]
+        assert any(
+            i.pipeline == "RNA" and i.libraryType == "stranded mRNA-Seq"
+            for i in failedItems
+        )
+        assert "1_A_Foo" in str(excinfo.value)
+        assert "RNA" in str(excinfo.value)
+        assert "stranded mRNA-Seq" in str(excinfo.value)
+
+    def test_shutdown_called_with_wait_false_and_cancel_futures(
+        self, tmp_path, monkeypatch
+    ):
+        config = dispatchConfig(tmp_path)
+        self._makeProjectDirs(tmp_path, ["1_A_Foo", "2_B_Bar"])
+        monkeypatch.setattr(PushButton, "POOL_SIZE", 2)
+        recorded = {}
+
+        realExecutor = PushButton.concurrent.futures.ThreadPoolExecutor
+
+        class RecordingExecutor(realExecutor):
+            def shutdown(self, wait=True, *, cancel_futures=False):
+                recorded.setdefault("calls", []).append((wait, cancel_futures))
+                return super().shutdown(wait=False, cancel_futures=cancel_futures)
+
+        monkeypatch.setattr(
+            PushButton.concurrent.futures, "ThreadPoolExecutor", RecordingExecutor
+        )
+
+        def crashStub(config, group, project, organism, libraryType, tuples):
+            raise RuntimeError("kaboom")
+
+        monkeypatch.setattr(PushButton, "DNA", crashStub)
+        monkeypatch.setattr(PushButton, "RNA", crashStub)
+
+        with pytest.raises(PushButton.GroupDispatchError):
+            PushButton.runFlowcell(config, self._parkourDict())
+
+        assert (False, True) in recorded["calls"]
+
+    def test_every_collected_failure_is_logged_critical(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """
+        The invariant under test is that runFlowcell logs one log.critical
+        line per entry in the raised GroupDispatchError.failures, naming that
+        entry's project/pipeline/libraryType -- i.e. it never reports only the
+        first failure it saw.
+
+        Deliberately NOT asserting `len(failures) >= 2`: how many sibling
+        futures have already reached `done()` at the instant the first
+        exception surfaces is genuinely scheduler-dependent, and pinning it
+        would make this test flaky rather than stricter.
+        """
+        config = dispatchConfig(tmp_path)
+        self._makeProjectDirs(tmp_path, ["1_A_Foo", "2_B_Bar"])
+        monkeypatch.setattr(PushButton, "POOL_SIZE", 4)
+
+        def crashStub(config, group, project, organism, libraryType, tuples):
+            raise RuntimeError(f"kaboom {project} {libraryType}")
+
+        monkeypatch.setattr(PushButton, "DNA", crashStub)
+        monkeypatch.setattr(PushButton, "RNA", crashStub)
+
+        with (
+            caplog.at_level("CRITICAL"),
+            pytest.raises(PushButton.GroupDispatchError) as excinfo,
+        ):
+            PushButton.runFlowcell(config, self._parkourDict())
+
+        criticals = [
+            r.getMessage() for r in caplog.records if r.levelname == "CRITICAL"
+        ]
+        failures = excinfo.value.failures
+        assert len(failures) >= 1
+        assert len(criticals) == len(failures)
+        for item, _exc in failures:
+            assert any(
+                item.project in m and item.pipeline in m and item.libraryType in m
+                for m in criticals
+            ), f"no log.critical line for {item.project}/{item.pipeline}"
+            assert item.project in str(excinfo.value)

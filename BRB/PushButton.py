@@ -1,3 +1,4 @@
+import concurrent.futures
 import glob
 import os
 import shutil
@@ -23,6 +24,24 @@ WorkItem = namedtuple(
 
 # Name of the per-group ownership marker written into the group's outputDir.
 MARKER_NAME = "running.pid"
+
+# Fixed for now, deliberately not .ini-configurable. Kept low because not all
+# of a group's work is Slurm-offloaded: RELACS runs `demultiplex_relacs -p 10`
+# locally, each snakePipes driver is a real local process, and the --sequencer
+# flag means two run_brb processes can already share this host.
+POOL_SIZE = 2
+
+
+class GroupDispatchError(RuntimeError):
+    """
+    Raised by runFlowcell when one or more worker threads raised. `failures`
+    is a list of (WorkItem, exception) pairs; the first worker exception is
+    chained as __cause__.
+    """
+
+    def __init__(self, message, failures):
+        super().__init__(message)
+        self.failures = failures
 
 
 def parseExternalAllowlist(configValue):
@@ -1198,3 +1217,76 @@ def GetResults(config, project, libraries):
         libTypes = ",".join({i[2] for i in external_skipList})
         msg = msg + [[project, org_name, libTypes, None, None, None, False, None]]
     return workItems, msg
+
+
+def runFlowcell(config, ParkourDict):
+    """
+    Flowcell-wide coordinator: build every project's work items, dispatch them
+    through a bounded thread pool, and collect their message entries.
+
+    Results come back in completion order, not submission order.
+    email.finishedEmail only makes order-independent checks over msg, so this
+    is safe -- don't introduce positional assumptions here.
+    """
+    bdir = "{}/{}".format(
+        config.get("Paths", "baseData"), config.get("Options", "runID")
+    )
+    msg = []
+    workItems = []
+    for k, v in ParkourDict.items():
+        if not os.path.exists(f"{bdir}/Project_{BRB.misc.pacifier(k)}"):
+            log.info(
+                f"{bdir}/Project_{BRB.misc.pacifier(k)} doesn't exist, probably lives on another lane."
+            )
+            continue
+        projectItems, projectMsg = GetResults(config, k, v)
+        workItems.extend(projectItems)
+        msg.extend(projectMsg)
+
+    if not workItems:
+        log.info("runFlowcell: no work items to dispatch.")
+        return msg
+
+    log.info(f"runFlowcell: dispatching {len(workItems)} groups, POOL_SIZE={POOL_SIZE}")
+    # Deliberately not a `with` block: on the crash path we must shut down
+    # with wait=False so the error e-mail goes out now, rather than after the
+    # slowest surviving worker's Slurm jobs finish hours later.
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=POOL_SIZE)
+    futures = {executor.submit(runOneGroup, config, item): item for item in workItems}
+
+    failedFuture = None
+    for future in concurrent.futures.as_completed(futures):
+        exc = future.exception()
+        if exc is not None:
+            failedFuture = future
+            break
+        msg.extend(future.result())
+
+    if failedFuture is None:
+        executor.shutdown(wait=True)
+        return msg
+
+    executor.shutdown(wait=False, cancel_futures=True)
+    failures = [(futures[failedFuture], failedFuture.exception())]
+    # Don't hide unrelated failures that happened around the same time: report
+    # every worker exception that is already known, without waiting for the
+    # workers that are still running.
+    for future, item in futures.items():
+        if future is failedFuture or future.cancelled() or not future.done():
+            continue
+        otherExc = future.exception()
+        if otherExc is not None:
+            failures.append((item, otherExc))
+    for item, exc in failures:
+        log.critical(
+            f"runFlowcell: worker for project {item.project}, pipeline "
+            f"{item.pipeline}, libraryType {item.libraryType} raised {exc!r}"
+        )
+    summary = "; ".join(
+        f"{item.project} / {item.pipeline} / {item.libraryType}"
+        for item, _exc in failures
+    )
+    raise GroupDispatchError(
+        f"{len(failures)} library-group(s) raised during dispatch: {summary}",
+        failures,
+    ) from failures[0][1]
