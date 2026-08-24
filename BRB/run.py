@@ -50,6 +50,7 @@ def run_brb(configfile, sequencer):
         logFile = Path(
             config["Paths"]["logPath"], config.get("Options", "runID") + ".log"
         )
+        logFile.parent.mkdir(parents=True, exist_ok=True)
         print(f"Logging into: {logFile}")
         setLog(logFile)
 
