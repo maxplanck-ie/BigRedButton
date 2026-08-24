@@ -1,4 +1,5 @@
 import configparser
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -748,3 +749,219 @@ class TestRunOneGroupMarkerGate:
         assert len(attempts) == 1
         assert row[0][4] == "SKIPPED (flowcell teardown in progress)"
         assert reg.active_groups() == []
+
+
+class TestRunFlowcellRegistryAndCancellation:
+    """
+    Covers Task 10's actual scope: `runFlowcell` accepting an injectable
+    `registry`, threading it into every `runOneGroup` call, and calling
+    `BRB.jobtrack.cancelAllGroups(registry)` exactly once -- before the pool
+    is shut down -- the moment the first worker exception is observed.
+
+    `runFlowcell`'s crash path (the break-on-first-exception loop, the
+    second drain pass collecting other already-done failures, wrapping into
+    `GroupDispatchError`, `shutdown(wait=False, cancel_futures=True)`) is
+    Phase 1 / Task 7's already-reviewed behaviour and is exercised by
+    tests/test_PushButton_dispatch.py::TestRunFlowcell. These tests only
+    check the new cancellation wiring on top of it.
+    """
+
+    def _parkourDict(self, name="1_Doe_Smith"):
+        return {
+            name: {
+                "18L001": [
+                    "sampleA",
+                    "stranded mRNA-Seq",
+                    "TruSeq",
+                    ("mouse", "GRCm38", "/yaml/GRCm38.yaml"),
+                    "single",
+                    10,
+                ]
+            }
+        }
+
+    @pytest.fixture(autouse=True)
+    def _projectDirExists(self, monkeypatch):
+        # runFlowcell's own os.path.exists check (does the project directory
+        # exist on this lane) is irrelevant to this test class -- always say
+        # yes so every project reaches GetResults.
+        monkeypatch.setattr(os.path, "exists", lambda p: True)
+
+    def test_explicit_registry_is_used_not_a_fresh_one(self, tmp_path, monkeypatch):
+        reg = jobtrack.JobRegistry()
+        cancelled = []
+        monkeypatch.setattr(
+            PushButton.BRB.jobtrack,
+            "cancelAllGroups",
+            lambda registry, **kw: cancelled.append(registry),
+        )
+        item = make_item(tmp_path)
+        monkeypatch.setattr(PushButton, "GetResults", lambda *a, **k: ([item], []))
+        monkeypatch.setattr(
+            PushButton,
+            "runOneGroup",
+            lambda config, it, registry: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        with pytest.raises(PushButton.GroupDispatchError):
+            PushButton.runFlowcell(make_config(), self._parkourDict(), reg)
+        assert cancelled == [reg]
+
+    def test_registry_is_threaded_into_every_runonegroup_call(
+        self, tmp_path, monkeypatch
+    ):
+        seen = []
+        items = [make_item(tmp_path), make_item(tmp_path)]
+        monkeypatch.setattr(PushButton, "GetResults", lambda *a, **k: (items, []))
+        monkeypatch.setattr(
+            PushButton,
+            "runOneGroup",
+            lambda config, it, registry: seen.append(registry) or ["row"],
+        )
+        reg = jobtrack.JobRegistry()
+        PushButton.runFlowcell(make_config(), self._parkourDict(), reg)
+        assert seen == [reg, reg]
+
+    def test_default_registry_is_constructed_and_still_threaded(
+        self, tmp_path, monkeypatch
+    ):
+        seen = []
+        item = make_item(tmp_path)
+        monkeypatch.setattr(PushButton, "GetResults", lambda *a, **k: ([item], []))
+        monkeypatch.setattr(
+            PushButton,
+            "runOneGroup",
+            lambda config, it, registry: seen.append(registry) or ["row"],
+        )
+        PushButton.runFlowcell(make_config(), self._parkourDict())
+        assert len(seen) == 1
+        assert isinstance(seen[0], jobtrack.JobRegistry)
+
+    def test_worker_exception_cancels_once_and_raises_groupdispatcherror(
+        self, tmp_path, monkeypatch
+    ):
+        reg = jobtrack.JobRegistry()
+        cancelled = []
+        monkeypatch.setattr(
+            PushButton.BRB.jobtrack,
+            "cancelAllGroups",
+            lambda registry, **kw: cancelled.append(registry),
+        )
+        items = [make_item(tmp_path) for _ in range(4)]
+        monkeypatch.setattr(PushButton, "GetResults", lambda *a, **k: (items, []))
+        monkeypatch.setattr(PushButton, "POOL_SIZE", 4)
+
+        def boom(config, item, registry):
+            raise RuntimeError("driver died")
+
+        monkeypatch.setattr(PushButton, "runOneGroup", boom)
+        with pytest.raises(PushButton.GroupDispatchError) as excinfo:
+            PushButton.runFlowcell(make_config(), self._parkourDict(), reg)
+        assert cancelled == [reg]
+        assert isinstance(excinfo.value.__cause__, RuntimeError)
+        assert len(excinfo.value.failures) >= 1
+
+    def test_every_captured_worker_exception_is_logged_and_in_failures(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        # Not asserting a specific failure count: how many sibling futures
+        # have already reached done() at the instant the first exception
+        # surfaces is scheduler-dependent (see the equivalent caveat in
+        # test_PushButton_dispatch.py::TestRunFlowcell). What must hold
+        # regardless is that every failure the drain pass collected is both
+        # logged at CRITICAL and present in GroupDispatchError.failures.
+        monkeypatch.setattr(
+            PushButton.BRB.jobtrack, "cancelAllGroups", lambda registry, **kw: None
+        )
+        items = [make_item(tmp_path), make_item(tmp_path)]
+        monkeypatch.setattr(PushButton, "GetResults", lambda *a, **k: (items, []))
+        monkeypatch.setattr(PushButton, "POOL_SIZE", 2)
+        errors = iter([RuntimeError("first"), ValueError("second")])
+
+        def boom(config, item, registry):
+            raise next(errors)
+
+        monkeypatch.setattr(PushButton, "runOneGroup", boom)
+        with (
+            caplog.at_level("CRITICAL"),
+            pytest.raises(PushButton.GroupDispatchError) as excinfo,
+        ):
+            PushButton.runFlowcell(make_config(), self._parkourDict())
+
+        criticals = [
+            r.getMessage() for r in caplog.records if r.levelname == "CRITICAL"
+        ]
+        failures = excinfo.value.failures
+        assert len(failures) >= 1
+        assert len(criticals) == len(failures)
+        for item, exc in failures:
+            assert any(repr(exc) in m for m in criticals)
+            assert item.project in str(excinfo.value)
+
+    def test_cancel_happens_before_pool_shutdown(self, tmp_path, monkeypatch):
+        order = []
+        monkeypatch.setattr(
+            PushButton.BRB.jobtrack,
+            "cancelAllGroups",
+            lambda registry, **kw: order.append("cancel"),
+        )
+        realExecutor = PushButton.concurrent.futures.ThreadPoolExecutor
+
+        class SpyExecutor(realExecutor):
+            def shutdown(self, wait=True, cancel_futures=False):
+                order.append("shutdown")
+                return super().shutdown(wait=wait, cancel_futures=cancel_futures)
+
+        monkeypatch.setattr(
+            PushButton.concurrent.futures, "ThreadPoolExecutor", SpyExecutor
+        )
+        item = make_item(tmp_path)
+        monkeypatch.setattr(PushButton, "GetResults", lambda *a, **k: ([item], []))
+        monkeypatch.setattr(
+            PushButton,
+            "runOneGroup",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")),
+        )
+        with pytest.raises(PushButton.GroupDispatchError):
+            PushButton.runFlowcell(make_config(), self._parkourDict())
+        assert order == ["cancel", "shutdown"]
+
+    def test_pool_is_shut_down_without_waiting_on_crash(self, tmp_path, monkeypatch):
+        recorded = {}
+        realExecutor = PushButton.concurrent.futures.ThreadPoolExecutor
+
+        class SpyExecutor(realExecutor):
+            def shutdown(self, wait=True, cancel_futures=False):
+                recorded["wait"] = wait
+                recorded["cancel_futures"] = cancel_futures
+                return super().shutdown(wait=False, cancel_futures=True)
+
+        monkeypatch.setattr(
+            PushButton.concurrent.futures, "ThreadPoolExecutor", SpyExecutor
+        )
+        monkeypatch.setattr(
+            PushButton.BRB.jobtrack, "cancelAllGroups", lambda registry, **kw: None
+        )
+        item = make_item(tmp_path)
+        monkeypatch.setattr(PushButton, "GetResults", lambda *a, **k: ([item], []))
+        monkeypatch.setattr(
+            PushButton,
+            "runOneGroup",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")),
+        )
+        with pytest.raises(PushButton.GroupDispatchError):
+            PushButton.runFlowcell(make_config(), self._parkourDict())
+        assert recorded == {"wait": False, "cancel_futures": True}
+
+    def test_clean_run_does_not_cancel(self, tmp_path, monkeypatch):
+        cancelled = []
+        monkeypatch.setattr(
+            PushButton.BRB.jobtrack,
+            "cancelAllGroups",
+            lambda registry, **kw: cancelled.append(registry),
+        )
+        item = make_item(tmp_path)
+        monkeypatch.setattr(PushButton, "GetResults", lambda *a, **k: ([item], []))
+        monkeypatch.setattr(PushButton, "runOneGroup", lambda *a, **k: ["ok"])
+        msg = PushButton.runFlowcell(make_config(), self._parkourDict())
+        assert msg == ["ok"]
+        assert cancelled == []

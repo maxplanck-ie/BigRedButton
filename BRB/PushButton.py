@@ -1246,7 +1246,7 @@ def GetResults(config, project, libraries):
     return workItems, msg
 
 
-def runFlowcell(config, ParkourDict):
+def runFlowcell(config, ParkourDict, registry=None):
     """
     Flowcell-wide coordinator: build every project's work items, dispatch them
     through a bounded thread pool, and collect their message entries.
@@ -1294,8 +1294,11 @@ def runFlowcell(config, ParkourDict):
     # each in-flight group's Slurm jobs/local drivers can be found and
     # cancelled. Constructed fresh per flowcell -- never a module-level
     # global, since `run_brb -s illumina` and `run_brb -s aviti` share a host
-    # but must never see each other's groups.
-    registry = BRB.jobtrack.JobRegistry()
+    # but must never see each other's groups. Callers (namely tests) may pass
+    # an existing registry in instead, so they can assert cancelAllGroups was
+    # called on that exact object.
+    if registry is None:
+        registry = BRB.jobtrack.JobRegistry()
     # Deliberately not a `with` block: on the crash path we must shut down
     # with wait=False so the error e-mail goes out now, rather than after the
     # slowest surviving worker's Slurm jobs finish hours later.
@@ -1309,6 +1312,12 @@ def runFlowcell(config, ParkourDict):
         exc = future.exception()
         if exc is not None:
             failedFuture = future
+            # Cancel every in-flight Slurm job and driver for this flowcell
+            # right away, before the drain pass below collects any other
+            # already-done failures -- this is what keeps that drain fast,
+            # since cancelled drivers exit instead of blocking for hours of
+            # Slurm queue time. Must fire exactly once per crash.
+            BRB.jobtrack.cancelAllGroups(registry)
             break
         msg.extend(future.result())
 
