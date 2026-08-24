@@ -42,7 +42,7 @@ class TestRunBrbWiring:
     def test_calls_runFlowcell_once_and_emails_result(self, tmp_path, monkeypatch):
         seen = {}
 
-        def fakeRunFlowcell(cfg, parkourDict):
+        def fakeRunFlowcell(cfg, parkourDict, **kwargs):
             seen["parkourDict"] = parkourDict
             return [["1_A_Foo", "human", "ChIP-Seq", "DNA", "success", "OK", False, 0]]
 
@@ -78,7 +78,7 @@ class TestRunBrbWiring:
             [(item, RuntimeError("kaboom"))],
         )
 
-        def fakeRunFlowcell(cfg, parkourDict):
+        def fakeRunFlowcell(cfg, parkourDict, **kwargs):
             raise err
 
         wireRunBrb(monkeypatch, tmp_path, fakeRunFlowcell)

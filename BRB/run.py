@@ -58,7 +58,11 @@ def run_brb(configfile, sequencer):
         # thread pool. Projects that don't live on the lanes being processed
         # are skipped inside runFlowcell.
         try:
-            msg = BRB.PushButton.runFlowcell(config, ParkourDict)
+            msg = BRB.PushButton.runFlowcell(
+                config,
+                ParkourDict,
+                maxWorkers=BRB.PushButton.poolSize(config, sequencer),
+            )
         except Exception as e:
             errMsg = f"Received an error running PushButton.runFlowcell(): {e}"
             BRB.email.errorEmail(config, sys.exc_info(), errMsg)

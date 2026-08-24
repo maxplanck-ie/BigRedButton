@@ -4,6 +4,7 @@ import os
 import shutil
 import stat
 from collections import namedtuple
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import BRB.ET
@@ -30,6 +31,29 @@ MARKER_NAME = "running.pid"
 # locally, each snakePipes driver is a real local process, and the --sequencer
 # flag means two run_brb processes can already share this host.
 POOL_SIZE = 2
+
+
+def poolSize(config, sequencer=None):
+    """
+    How many library-groups to dispatch at once.
+
+    Falls back to POOL_SIZE on a missing or nonsensical `[Options] poolSize`.
+    When run_brb was started with -s/--sequencer, two such processes can share
+    this host, so each takes half the configured width (minimum 1) to keep the
+    total local load — snakemake drivers, and RELACS' ten local
+    demultiplex_relacs processes per group — where the operator set it.
+    """
+    try:
+        value = int(config.get("Options", "poolSize", fallback=POOL_SIZE))
+    except (ValueError, TypeError):
+        log.warning(f"[Options] poolSize is not an integer; using {POOL_SIZE}.")
+        return POOL_SIZE
+    if value < 1:
+        log.warning(f"[Options] poolSize must be >= 1; using {POOL_SIZE}.")
+        return POOL_SIZE
+    if sequencer is not None:
+        return max(1, value // 2)
+    return value
 
 
 class GroupDispatchError(RuntimeError):
@@ -1246,7 +1270,7 @@ def GetResults(config, project, libraries):
     return workItems, msg
 
 
-def runFlowcell(config, ParkourDict, registry=None):
+def runFlowcell(config, ParkourDict, registry=None, maxWorkers=None):
     """
     Flowcell-wide coordinator: build every project's work items, dispatch them
     through a bounded thread pool, and collect their message entries.
@@ -1302,7 +1326,7 @@ def runFlowcell(config, ParkourDict, registry=None):
     # Deliberately not a `with` block: on the crash path we must shut down
     # with wait=False so the error e-mail goes out now, rather than after the
     # slowest surviving worker's Slurm jobs finish hours later.
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=POOL_SIZE)
+    executor = ThreadPoolExecutor(max_workers=maxWorkers or POOL_SIZE)
     futures = {
         executor.submit(runOneGroup, config, item, registry): item for item in workItems
     }

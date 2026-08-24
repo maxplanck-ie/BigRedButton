@@ -904,16 +904,14 @@ class TestRunFlowcellRegistryAndCancellation:
             "cancelAllGroups",
             lambda registry, **kw: order.append("cancel"),
         )
-        realExecutor = PushButton.concurrent.futures.ThreadPoolExecutor
+        realExecutor = PushButton.ThreadPoolExecutor
 
         class SpyExecutor(realExecutor):
             def shutdown(self, wait=True, cancel_futures=False):
                 order.append("shutdown")
                 return super().shutdown(wait=wait, cancel_futures=cancel_futures)
 
-        monkeypatch.setattr(
-            PushButton.concurrent.futures, "ThreadPoolExecutor", SpyExecutor
-        )
+        monkeypatch.setattr(PushButton, "ThreadPoolExecutor", SpyExecutor)
         item = make_item(tmp_path)
         monkeypatch.setattr(PushButton, "GetResults", lambda *a, **k: ([item], []))
         monkeypatch.setattr(
@@ -927,7 +925,7 @@ class TestRunFlowcellRegistryAndCancellation:
 
     def test_pool_is_shut_down_without_waiting_on_crash(self, tmp_path, monkeypatch):
         recorded = {}
-        realExecutor = PushButton.concurrent.futures.ThreadPoolExecutor
+        realExecutor = PushButton.ThreadPoolExecutor
 
         class SpyExecutor(realExecutor):
             def shutdown(self, wait=True, cancel_futures=False):
@@ -935,9 +933,7 @@ class TestRunFlowcellRegistryAndCancellation:
                 recorded["cancel_futures"] = cancel_futures
                 return super().shutdown(wait=False, cancel_futures=True)
 
-        monkeypatch.setattr(
-            PushButton.concurrent.futures, "ThreadPoolExecutor", SpyExecutor
-        )
+        monkeypatch.setattr(PushButton, "ThreadPoolExecutor", SpyExecutor)
         monkeypatch.setattr(
             PushButton.BRB.jobtrack, "cancelAllGroups", lambda registry, **kw: None
         )
@@ -965,3 +961,53 @@ class TestRunFlowcellRegistryAndCancellation:
         msg = PushButton.runFlowcell(make_config(), self._parkourDict())
         assert msg == ["ok"]
         assert cancelled == []
+
+
+class TestPoolSize:
+    def test_default_is_the_module_constant(self):
+        assert PushButton.poolSize(make_config()) == PushButton.POOL_SIZE
+        assert PushButton.POOL_SIZE == 2
+
+    def test_ini_value_wins(self):
+        config = make_config({"Options": {"poolSize": "4"}})
+        assert PushButton.poolSize(config) == 4
+
+    def test_per_sequencer_run_halves_the_configured_value(self):
+        config = make_config({"Options": {"poolSize": "4"}})
+        assert PushButton.poolSize(config, sequencer="illumina") == 2
+
+    def test_per_sequencer_never_drops_below_one(self):
+        config = make_config({"Options": {"poolSize": "1"}})
+        assert PushButton.poolSize(config, sequencer="aviti") == 1
+
+    def test_garbage_falls_back_to_the_constant(self):
+        config = make_config({"Options": {"poolSize": "lots"}})
+        assert PushButton.poolSize(config) == PushButton.POOL_SIZE
+
+    def test_zero_or_negative_falls_back_to_the_constant(self):
+        assert (
+            PushButton.poolSize(make_config({"Options": {"poolSize": "0"}}))
+            == PushButton.POOL_SIZE
+        )
+        assert (
+            PushButton.poolSize(make_config({"Options": {"poolSize": "-3"}}))
+            == PushButton.POOL_SIZE
+        )
+
+    def test_runflowcell_honours_maxworkers(self, tmp_path, monkeypatch):
+        widths = []
+        realExecutor = PushButton.ThreadPoolExecutor
+        monkeypatch.setattr(
+            PushButton,
+            "ThreadPoolExecutor",
+            lambda max_workers: (
+                widths.append(max_workers) or realExecutor(max_workers=max_workers)
+            ),
+        )
+        monkeypatch.setattr(
+            PushButton, "GetResults", lambda *a, **k: ([make_item(tmp_path)], [])
+        )
+        monkeypatch.setattr(os.path, "exists", lambda p: True)
+        monkeypatch.setattr(PushButton, "runOneGroup", lambda *a, **k: ["ok"])
+        PushButton.runFlowcell(make_config(), {"1_Doe_Smith": {}}, None, maxWorkers=3)
+        assert widths == [3]

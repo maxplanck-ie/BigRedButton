@@ -511,16 +511,14 @@ class TestRunFlowcell:
         monkeypatch.setattr(PushButton, "POOL_SIZE", 2)
         recorded = {}
 
-        realExecutor = PushButton.concurrent.futures.ThreadPoolExecutor
+        realExecutor = PushButton.ThreadPoolExecutor
 
         class RecordingExecutor(realExecutor):
             def shutdown(self, wait=True, *, cancel_futures=False):
                 recorded.setdefault("calls", []).append((wait, cancel_futures))
                 return super().shutdown(wait=False, cancel_futures=cancel_futures)
 
-        monkeypatch.setattr(
-            PushButton.concurrent.futures, "ThreadPoolExecutor", RecordingExecutor
-        )
+        monkeypatch.setattr(PushButton, "ThreadPoolExecutor", RecordingExecutor)
 
         def crashStub(config, group, project, organism, libraryType, tuples):
             raise RuntimeError("kaboom")
