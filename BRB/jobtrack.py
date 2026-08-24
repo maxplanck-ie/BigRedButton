@@ -9,6 +9,7 @@ the other's jobs.
 import json
 import os
 import re
+import subprocess
 import threading
 import time
 from contextlib import contextmanager
@@ -239,3 +240,53 @@ def parseJobIds(line):
         if match:
             found.append(match.group(0))
     return found
+
+
+def runManagedSubprocess(cmd, cwd=None, handle=None):
+    """
+    Drop-in replacement for `subprocess.check_call(cmd, shell=True, cwd=cwd)`
+    that keeps the child killable and its Slurm job IDs visible.
+
+    - `start_new_session=True` puts the child in its own process group, so a
+      later SIGTERM reaches the whole snakePipes driver tree. Deliberately not
+      `preexec_fn=os.setsid`: these calls run from ThreadPoolExecutor workers,
+      and preexec_fn is documented as unsafe in a multi-threaded process.
+    - stdout+stderr are streamed (not buffered to the end), so job IDs are
+      registered as they are submitted and are available to cancel mid-run.
+    - Raises CalledProcessError on non-zero exit, like check_call did, because
+      every call site catches that to return rv=1.
+    """
+    if handle is None:
+        handle = currentHandle()
+    proc = subprocess.Popen(
+        cmd,
+        shell=True,
+        cwd=cwd,
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    if handle is not None:
+        handle.add_process(proc)
+    try:
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            log.info(line)
+            if handle is None:
+                continue
+            found = parseJobIds(line)
+            if found and handle.add_job_ids(found):
+                updateMarkerJobIds(handle.outputDir, handle.snapshot()[0])
+        returncode = proc.wait()
+    finally:
+        try:
+            proc.stdout.close()
+        except OSError:
+            pass
+        if handle is not None:
+            handle.remove_process(proc)
+    if returncode != 0:
+        raise subprocess.CalledProcessError(returncode, cmd)
+    return returncode

@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import time
 
 import pytest
 
@@ -263,3 +264,94 @@ class TestParseJobIds:
         assert jobtrack.parseJobIds(
             "Submitted job 1 with external jobid '10874970'."
         ) == ["10874970"]
+
+
+import subprocess
+
+
+class TestRunManagedSubprocess:
+    def test_returns_zero_on_success(self):
+        assert jobtrack.runManagedSubprocess("true") == 0
+
+    def test_raises_calledprocesserror_on_failure(self):
+        with pytest.raises(subprocess.CalledProcessError) as exc:
+            jobtrack.runManagedSubprocess("exit 3")
+        assert exc.value.returncode == 3
+
+    def test_runs_in_cwd_when_given(self, tmp_path):
+        jobtrack.runManagedSubprocess("pwd > where.txt", cwd=tmp_path)
+        assert (tmp_path / "where.txt").read_text().strip() == str(tmp_path)
+
+    def test_child_gets_its_own_session(self):
+        jobtrack.runManagedSubprocess('test "$(ps -o sid= -p $$ | tr -d \' \')" = "$$"')
+
+    def test_output_is_logged(self, caplog):
+        with caplog.at_level("INFO"):
+            jobtrack.runManagedSubprocess("echo hello-from-driver")
+        assert "hello-from-driver" in caplog.text
+
+    def test_stderr_is_captured_too(self, caplog):
+        with caplog.at_level("INFO"):
+            jobtrack.runManagedSubprocess("echo oops >&2")
+        assert "oops" in caplog.text
+
+    def test_job_ids_land_in_the_bound_handle(self, tmp_path):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        with jobtrack.bindGroup(handle):
+            jobtrack.runManagedSubprocess(
+                'echo "Submitted job 1 with external jobid '
+                "'Submitted batch job 555'.\""
+            )
+        assert handle.snapshot()[0] == ["555"]
+
+    def test_job_ids_land_in_the_marker_file(self, tmp_path):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        jobtrack.writeMarker(tmp_path)
+        with jobtrack.bindGroup(handle):
+            jobtrack.runManagedSubprocess("echo \"external jobid '777'\"")
+        assert jobtrack.readMarker(tmp_path)["job_ids"] == ["777"]
+
+    def test_explicit_handle_beats_the_bound_one(self, tmp_path):
+        reg = jobtrack.JobRegistry()
+        bound = reg.register_group(tmp_path / "bound")
+        explicit = reg.register_group(tmp_path / "explicit")
+        (tmp_path / "explicit").mkdir()
+        with jobtrack.bindGroup(bound):
+            jobtrack.runManagedSubprocess(
+                "echo \"external jobid '888'\"", handle=explicit
+            )
+        assert explicit.snapshot()[0] == ["888"]
+        assert bound.snapshot()[0] == []
+
+    def test_no_handle_bound_is_fine(self):
+        assert jobtrack.runManagedSubprocess("echo \"external jobid '999'\"") == 0
+
+    def test_process_is_deregistered_after_success(self, tmp_path):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        with jobtrack.bindGroup(handle):
+            jobtrack.runManagedSubprocess("true")
+        assert handle.snapshot()[1] == []
+
+    def test_process_is_deregistered_after_failure(self, tmp_path):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        with jobtrack.bindGroup(handle), pytest.raises(subprocess.CalledProcessError):
+            jobtrack.runManagedSubprocess("exit 1")
+        assert handle.snapshot()[1] == []
+
+    def test_process_is_visible_while_running(self, tmp_path):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        seen = []
+
+        def watcher():
+            for _ in range(200):
+                if handle.snapshot()[1]:
+                    seen.append(True)
+                    return
+                time.sleep(0.01)
+
+        t = threading.Thread(target=watcher)
+        t.start()
+        with jobtrack.bindGroup(handle):
+            jobtrack.runManagedSubprocess("sleep 0.5")
+        t.join()
+        assert seen == [True]
