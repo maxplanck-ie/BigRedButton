@@ -1,6 +1,8 @@
 import configparser
 import os
+import threading
 import time
+from typing import ClassVar
 
 import pytest
 
@@ -486,3 +488,148 @@ class TestRunFlowcell:
                 for m in criticals
             ), f"no log.critical line for {item.project}/{item.pipeline}"
             assert item.project in str(excinfo.value)
+
+
+class ConcurrencyTracker:
+    """Shared across the stub pipelines so the cap is measured pool-wide."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.active = 0
+        self.maxActive = 0
+        self.calls = []
+
+    def enter(self, project, libraryType):
+        with self.lock:
+            self.active += 1
+            self.maxActive = max(self.maxActive, self.active)
+            self.calls.append((project, libraryType))
+
+    def leave(self):
+        with self.lock:
+            self.active -= 1
+
+
+def makeStub(tracker, rv, delay=0.2, sambaUpdate=False):
+    def stub(config, group, project, organism, libraryType, tuples):
+        tracker.enter(project, libraryType)
+        try:
+            time.sleep(delay)
+        finally:
+            tracker.leave()
+        return f"/out/{project}/{libraryType}", rv, sambaUpdate
+
+    return stub
+
+
+class TestRunFlowcellIntegration:
+    PARKOUR: ClassVar = {
+        "1_A_Foo": {
+            "L1": ["s1", "ChIP-Seq", "proto", HUMAN, "i7", 30],
+            "L2": ["s2", "stranded mRNA-Seq", "proto", HUMAN, "i7", 30],
+        },
+        "2_B_Bar": {"L3": ["s3", "ChIP-Seq", "proto", MOUSE, "i7", 30]},
+        "3_C_Baz": {"L4": ["s4", "stranded mRNA-Seq", "proto", MOUSE, "i7", 30]},
+    }
+
+    def _setup(self, tmp_path, monkeypatch, poolSize=2):
+        config = dispatchConfig(tmp_path)
+        for name in self.PARKOUR:
+            (tmp_path / "base" / "run1" / f"Project_{name}").mkdir(parents=True)
+        monkeypatch.setattr(PushButton, "POOL_SIZE", poolSize)
+        monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
+        return config
+
+    def test_pool_size_is_respected_and_all_groups_dispatched(
+        self, tmp_path, monkeypatch
+    ):
+        config = self._setup(tmp_path, monkeypatch, poolSize=2)
+        tracker = ConcurrencyTracker()
+        monkeypatch.setattr(PushButton, "DNA", makeStub(tracker, rv=0))
+        monkeypatch.setattr(PushButton, "RNA", makeStub(tracker, rv=0))
+
+        msg = PushButton.runFlowcell(config, self.PARKOUR)
+
+        assert tracker.maxActive <= 2, "more than POOL_SIZE groups ran at once"
+        assert tracker.maxActive == 2, "the pool never actually overlapped groups"
+        assert sorted(tracker.calls) == sorted(
+            [
+                ("1_A_Foo", "ChIP-Seq"),
+                ("1_A_Foo", "stranded mRNA-Seq"),
+                ("2_B_Bar", "ChIP-Seq"),
+                ("3_C_Baz", "stranded mRNA-Seq"),
+            ]
+        )
+        assert len(msg) == 4
+
+    def test_results_collect_order_independently_and_failures_stay_local(
+        self, tmp_path, monkeypatch
+    ):
+        config = self._setup(tmp_path, monkeypatch, poolSize=2)
+        tracker = ConcurrencyTracker()
+        # DNA groups succeed quickly; RNA groups always fail, so each is
+        # retried once and yields a FAILED entry -- without blocking or
+        # failing the DNA groups.
+        monkeypatch.setattr(PushButton, "DNA", makeStub(tracker, rv=0, delay=0.3))
+        monkeypatch.setattr(PushButton, "RNA", makeStub(tracker, rv=1, delay=0.05))
+
+        msg = PushButton.runFlowcell(config, self.PARKOUR)
+
+        assert sorted(tuple(m) for m in msg) == sorted(
+            [
+                (
+                    "1_A_Foo",
+                    "human",
+                    "ChIP-Seq",
+                    "DNA",
+                    "success",
+                    "PARKOUR_OK",
+                    False,
+                    0,
+                ),
+                (
+                    "2_B_Bar",
+                    "mouse",
+                    "ChIP-Seq",
+                    "DNA",
+                    "success",
+                    "PARKOUR_OK",
+                    False,
+                    0,
+                ),
+                (
+                    "1_A_Foo",
+                    "human",
+                    "stranded mRNA-Seq",
+                    "RNA",
+                    "FAILED",
+                    "not updated",
+                    False,
+                    1,
+                ),
+                (
+                    "3_C_Baz",
+                    "mouse",
+                    "stranded mRNA-Seq",
+                    "RNA",
+                    "FAILED",
+                    "not updated",
+                    False,
+                    1,
+                ),
+            ]
+        )
+        # Each RNA group was attempted twice (initial + one retry).
+        rnaCalls = [c for c in tracker.calls if c[1] == "stranded mRNA-Seq"]
+        assert len(rnaCalls) == 4
+
+    def test_no_ownership_markers_left_behind(self, tmp_path, monkeypatch):
+        config = self._setup(tmp_path, monkeypatch, poolSize=2)
+        tracker = ConcurrencyTracker()
+        monkeypatch.setattr(PushButton, "DNA", makeStub(tracker, rv=0, delay=0.05))
+        monkeypatch.setattr(PushButton, "RNA", makeStub(tracker, rv=0, delay=0.05))
+
+        PushButton.runFlowcell(config, self.PARKOUR)
+
+        leftovers = list((tmp_path / "base").rglob(PushButton.MARKER_NAME))
+        assert leftovers == []
