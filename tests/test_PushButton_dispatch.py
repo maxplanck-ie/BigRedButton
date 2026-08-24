@@ -284,8 +284,40 @@ class TestOwnershipMarker:
 
         result = PushButton.runOneGroup(config, item)
 
-        assert result == []
+        assert result == [
+            [
+                "1_A_Foo",
+                "human",
+                "stranded mRNA-Seq",
+                "RNA",
+                "SKIPPED (owned by live PID)",
+                "not updated",
+                False,
+                0,
+            ]
+        ]
         assert os.path.exists(marker), "another owner's marker must not be removed"
+
+    def test_non_positive_pid_marker_is_not_live(self, tmp_path, monkeypatch):
+        config = dispatchConfig(tmp_path)
+        item = makeWorkItem()
+        marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
+        with open(marker, "w") as fh:
+            fh.write("0 1234.5\n")
+        calls = []
+
+        def stub(config, group, project, organism, libraryType, tuples):
+            calls.append(1)
+            return "/out", 0, False
+
+        monkeypatch.setattr(PushButton, "RNA", stub)
+        monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
+
+        result = PushButton.runOneGroup(config, item)
+
+        assert len(calls) == 1
+        assert len(result) == 1
+        assert not os.path.exists(marker)
 
     def test_dead_pid_marker_is_abandoned_and_dispatch_proceeds(
         self, tmp_path, monkeypatch
@@ -380,6 +412,55 @@ class TestRunFlowcell:
         config = dispatchConfig(tmp_path)
         monkeypatch.setattr(PushButton, "POOL_SIZE", 2)
         assert PushButton.runFlowcell(config, {}) == []
+
+    def test_marker_owned_group_appears_as_skipped_not_silently_absent(
+        self, tmp_path, monkeypatch
+    ):
+        """
+        runFlowcell-level (not just runOneGroup-level) proof that a
+        marker-owned group shows up as a visible SKIPPED entry in the
+        returned msg, alongside the other groups' normal results -- it must
+        not be silently absent, which would otherwise let run.py's
+        subsequent markFinished() call mark the flowcell fully done even
+        though this group was never analysed this pass.
+        """
+        config = dispatchConfig(tmp_path)
+        self._makeProjectDirs(tmp_path, ["1_A_Foo", "2_B_Bar"])
+        monkeypatch.setattr(PushButton, "POOL_SIZE", 2)
+        monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
+
+        # Pre-seed a live-PID ownership marker for 1_A_Foo's ChIP-Seq (DNA)
+        # group, so runOneGroup skips it instead of dispatching.
+        outputDir = PushButton.createPath(
+            config, "foo", "1_A_Foo", "hg38", "ChIP-Seq", [[None, None, None, True]]
+        )
+        marker = os.path.join(outputDir, PushButton.MARKER_NAME)
+        with open(marker, "w") as fh:
+            fh.write(f"{os.getpid()} 1234.5\n")
+
+        def dnaStub(config, group, project, organism, libraryType, tuples):
+            assert not (project == "1_A_Foo" and libraryType == "ChIP-Seq"), (
+                "the marker-owned group must not be dispatched"
+            )
+            return "/out", 0, False
+
+        def rnaStub(config, group, project, organism, libraryType, tuples):
+            return "/out", 0, False
+
+        monkeypatch.setattr(PushButton, "DNA", dnaStub)
+        monkeypatch.setattr(PushButton, "RNA", rnaStub)
+
+        msg = PushButton.runFlowcell(config, self._parkourDict())
+
+        skipped = [m for m in msg if m[0] == "1_A_Foo" and m[2] == "ChIP-Seq"]
+        assert len(skipped) == 1, f"marker-owned group missing from msg: {msg}"
+        assert skipped[0][4] == "SKIPPED (owned by live PID)"
+        others = [m for m in msg if not (m[0] == "1_A_Foo" and m[2] == "ChIP-Seq")]
+        assert sorted((m[0], m[2]) for m in others) == [
+            ("1_A_Foo", "stranded mRNA-Seq"),
+            ("2_B_Bar", "ChIP-Seq"),
+        ]
+        assert os.path.exists(marker), "another owner's marker must not be removed"
 
     def test_crash_path_does_not_block_on_surviving_workers(
         self, tmp_path, monkeypatch

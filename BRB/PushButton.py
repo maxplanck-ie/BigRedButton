@@ -968,6 +968,11 @@ def _markerIsOwnedByLiveProcess(markerPath):
             pid = int(fh.read().split()[0])
     except (OSError, ValueError, IndexError):
         return False
+    if pid <= 0:
+        # os.kill(0, 0) and os.kill(-N, 0) target process GROUPS, not a
+        # single process, and typically succeed -- a marker containing a
+        # non-positive PID must not be treated as permanently live-owned.
+        return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -1051,8 +1056,9 @@ def runOneGroup(config, item):
     only to stop a restarted run_brb from launching a second snakePipes run
     into an outputDir that a still-alive orphan from a crashed run owns.
 
-    Returns a list of message entries: [] when the group is skipped because
-    someone else owns it, otherwise the single entry from _dispatchOneGroup.
+    Returns a list of message entries: a single SKIPPED entry when the group
+    is skipped because someone else owns it (so it still shows up in the
+    report -- see below), otherwise the single entry from _dispatchOneGroup.
     """
     outputDir = createPath(
         config,
@@ -1070,7 +1076,24 @@ def runOneGroup(config, item):
                 f"{markerPath} is held by a live process. Not dispatching, and "
                 "not counting this as a failure."
             )
-            return []
+            org_name, _org_label, _org_yaml = item.organism
+            # A distinct "SKIPPED" status (not "FAILED"): this group was
+            # never actually analysed this pass, so it must not be silently
+            # absent from the report, but it also must not be double-counted
+            # as a pipeline failure by anything that specifically checks for
+            # "FAILED" (retry logic, email.finishedEmail's FAILED count).
+            return [
+                [
+                    item.project,
+                    org_name,
+                    item.libraryType,
+                    item.pipeline,
+                    "SKIPPED (owned by live PID)",
+                    "not updated",
+                    False,
+                    0,
+                ]
+            ]
         log.warning(
             f"Abandoned ownership marker {markerPath} (owning process is gone); "
             "removing it and dispatching normally."
@@ -1234,6 +1257,20 @@ def runFlowcell(config, ParkourDict):
     Results come back in completion order, not submission order.
     email.finishedEmail only makes order-independent checks over msg, so this
     is safe -- don't introduce positional assumptions here.
+
+    On a crash (a worker future raising), the executor is shut down with
+    `shutdown(wait=False, cancel_futures=True)` specifically so the error
+    email goes out immediately, rather than waiting for surviving workers
+    whose subprocess calls (Slurm queue time) can block for hours. This
+    guarantees the alert is sent promptly. It does NOT, however, mean the
+    `run_brb` process itself exits promptly: `concurrent.futures.thread`
+    registers an interpreter-exit hook that joins every worker thread, and
+    those threads are non-daemon, so after `run.py` re-raises the exception
+    from this function, the process will still hang at interpreter shutdown
+    until any surviving in-flight worker threads finish -- potentially
+    hours later. This is an accepted tradeoff (the alert already went out
+    by then); it is not a bug to "fix" by switching to `os._exit` or daemon
+    threads.
     """
     bdir = "{}/{}".format(
         config.get("Paths", "baseData"), config.get("Options", "runID")

@@ -37,8 +37,14 @@ def finishedEmail(config, msg):
     # Inform deepseq too if we have a sambaUpdate:
     if any(i[6] for i in msg):
         log.info("At least one sambaUpdate true in msg")
-        # Only inform deepseq if no workflow failed
-        if [i[4] for i in msg].count("FAILED") == 0:
+        # Only inform deepseq if no workflow failed, and no group was
+        # skipped (a flowcell with a skipped group -- e.g. owned by a live
+        # PID from another process -- was not actually fully processed this
+        # pass, so deepSeq should not be told it's ready).
+        statuses = [i[4] for i in msg]
+        if statuses.count("FAILED") == 0 and not any(
+            s.startswith("SKIPPED") for s in statuses
+        ):
             recipient = config.get("Email", "deepSeq")
             _html.add(
                 div(
