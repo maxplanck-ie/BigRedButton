@@ -349,7 +349,7 @@ class TestOwnershipMarker:
         assert result[0][4] == "SKIPPED (unreadable marker)"
         assert os.path.exists(marker), "an unreadable marker must not be removed"
 
-    def test_marker_removed_when_pipeline_raises(self, tmp_path, monkeypatch):
+    def test_marker_survives_when_pipeline_raises(self, tmp_path, monkeypatch):
         config = dispatchConfig(tmp_path)
         item = makeWorkItem()
 
@@ -361,8 +361,12 @@ class TestOwnershipMarker:
         with pytest.raises(RuntimeError):
             PushButton.runOneGroup(config, item, jobtrack.JobRegistry())
 
+        # A genuine crash leaves the marker in place: cleanup for the group
+        # that actually crashed belongs to runFlowcell's cancelAllGroups, not
+        # runOneGroup's own finally block (see Finding 3 of the Phase 2
+        # final review).
         marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
-        assert not os.path.exists(marker)
+        assert os.path.exists(marker)
 
 
 class TestRunFlowcell:

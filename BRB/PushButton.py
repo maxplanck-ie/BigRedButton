@@ -1062,7 +1062,11 @@ def runOneGroup(config, item, registry):
         BRB.jobtrack.clearMarker(outputDir)
 
     handle = registry.register_group(outputDir)
+    if registry.aborted:
+        registry.unregister_group(outputDir)
+        return skipRow("SKIPPED (flowcell teardown in progress)")
     BRB.jobtrack.writeMarker(outputDir)
+    crashed = True
     try:
         with BRB.jobtrack.bindGroup(handle):
             reruncount = 0
@@ -1076,6 +1080,7 @@ def runOneGroup(config, item, registry):
             )
             if rv != 0:
                 if registry.aborted:
+                    crashed = False
                     log.warning(
                         f"{outputDir} failed while the flowcell was being torn "
                         "down; not retrying."
@@ -1098,6 +1103,7 @@ def runOneGroup(config, item, registry):
                 log.info(
                     f"Processed project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.libraryType}, {org_name}. Rerun = {reruncount}"
                 )
+                crashed = False
                 return [
                     BRB.ET.phoneHome(
                         config,
@@ -1113,6 +1119,7 @@ def runOneGroup(config, item, registry):
             log.warning(
                 f"FAILED project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.libraryType}, {org_name}. Rerun = {reruncount}"
             )
+            crashed = False
             return [
                 [
                     item.project,
@@ -1126,8 +1133,9 @@ def runOneGroup(config, item, registry):
                 ]
             ]
     finally:
-        BRB.jobtrack.clearMarker(outputDir)
-        registry.unregister_group(outputDir)
+        if not crashed:
+            BRB.jobtrack.clearMarker(outputDir)
+            registry.unregister_group(outputDir)
 
 
 def GetResults(config, project, libraries):

@@ -181,6 +181,47 @@ class TestMarker:
         jobtrack.updateMarkerJobIds(tmp_path, ["1", "2"])
         assert [p.name for p in tmp_path.iterdir()] == ["running.pid"]
 
+    def test_concurrent_job_id_updates_and_cancellation_do_not_race(self, tmp_path):
+        """
+        Regression test for a Critical finding in the Phase 2 review:
+        updateMarkerJobIds (the group's own worker thread, streaming new Slurm
+        job IDs) and markMarkerCancelled (the crash handler, from the main
+        thread) both write the same marker file concurrently. Before the fix,
+        both writers used the same fixed ".tmp" name, so one thread's
+        os.replace could rename the file out from under the other's, raising
+        FileNotFoundError. Neither writer should ever raise, and the marker
+        must be left parseable at the end.
+        """
+        jobtrack.writeMarker(tmp_path, job_ids=[])
+        errors = []
+        iterations = 300
+
+        def updater():
+            for i in range(iterations):
+                try:
+                    jobtrack.updateMarkerJobIds(tmp_path, [str(i)])
+                except Exception as err:  # noqa: BLE001
+                    errors.append(err)
+
+        def canceller():
+            for _ in range(iterations):
+                try:
+                    jobtrack.markMarkerCancelled(tmp_path)
+                except Exception as err:  # noqa: BLE001
+                    errors.append(err)
+
+        threads = [threading.Thread(target=updater), threading.Thread(target=canceller)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == []
+        marker = jobtrack.readMarker(tmp_path)
+        assert marker is not None
+        assert isinstance(marker["job_ids"], list)
+        assert isinstance(marker["cancelled"], bool)
+
 
 class TestMarkerState:
     def test_absent(self, tmp_path):

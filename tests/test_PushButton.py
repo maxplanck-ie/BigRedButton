@@ -709,7 +709,9 @@ class TestRunOneGroupMarkerGate:
         assert row[0][4] == "SKIPPED (flowcell teardown in progress)"
         assert self.dispatched == []
 
-    def test_marker_is_cleared_when_the_pipeline_raises(self, monkeypatch):
+    def test_marker_survives_a_genuine_crash_for_cancelAllGroups_to_own(
+        self, monkeypatch
+    ):
         def boom(*a, **k):
             raise RuntimeError("driver died")
 
@@ -717,8 +719,11 @@ class TestRunOneGroupMarkerGate:
         reg = jobtrack.JobRegistry()
         with pytest.raises(RuntimeError):
             PushButton.runOneGroup(make_config(), make_item(self.tmp_path), reg)
-        assert jobtrack.markerState(self.tmp_path)[0] == jobtrack.MARKER_ABSENT
-        assert reg.active_groups() == []
+        # A genuine crash must leave the marker and registry entry in place:
+        # runFlowcell's crash handler (cancelAllGroups), not runOneGroup's own
+        # finally block, owns cleanup for the group that actually crashed.
+        assert jobtrack.markerState(self.tmp_path)[0] == jobtrack.MARKER_LIVE
+        assert len(reg.active_groups()) == 1
 
     def test_failure_retries_once_then_reports_failed(self, monkeypatch):
         attempts = []

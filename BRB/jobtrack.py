@@ -131,7 +131,7 @@ def _atomicWrite(outputDir, payload):
     never leave a half-written marker behind (see markerState's CORRUPT case).
     """
     target = markerPath(outputDir)
-    tmp = target.parent / (MARKER_NAME + ".tmp")
+    tmp = target.parent / f"{MARKER_NAME}.{os.getpid()}.{threading.get_ident()}.tmp"
     tmp.write_text(json.dumps(payload))
     os.replace(tmp, target)
     return payload
@@ -318,7 +318,10 @@ def cancelGroup(handle, scancelBin="scancel", grace=KILL_GRACE_SECONDS):
     handler that itself dies partway still leaves a readable record of what
     happened.
     """
-    markMarkerCancelled(handle.outputDir)
+    try:
+        markMarkerCancelled(handle.outputDir)
+    except OSError as err:
+        log.error(f"Could not flag {handle.outputDir} cancelled: {err}")
     job_ids, procs = handle.snapshot()
     if job_ids:
         log.critical(

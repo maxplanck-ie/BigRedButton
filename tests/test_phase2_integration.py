@@ -242,6 +242,19 @@ class TestCrashAndRestart:
             "run",
             lambda argv, **kw: scancelled.extend(argv[1:]),
         )
+        # Track exactly which job id(s) each group's handle picks up, keyed
+        # by outputDir, so we can assert precisely on beta's own job id below
+        # instead of merely "something got scancelled".
+        jobIdsByGroup = {}
+        origAddJobIds = jobtrack.GroupHandle.add_job_ids
+
+        def trackingAddJobIds(self, ids):
+            new = origAddJobIds(self, ids)
+            if new:
+                jobIdsByGroup.setdefault(self.outputDir, []).extend(new)
+            return new
+
+        monkeypatch.setattr(jobtrack.GroupHandle, "add_job_ids", trackingAddJobIds)
         monkeypatch.setattr(PushButton, "POOL_SIZE", 3)
         registry = jobtrack.JobRegistry()
         started = {"alpha": threading.Event(), "gamma": threading.Event()}
@@ -264,7 +277,13 @@ class TestCrashAndRestart:
         assert registry.active_groups() == []
         for d in dirs.values():
             assert jobtrack.markerState(d)[0] == jobtrack.MARKER_ABSENT
-        assert scancelled  # at least beta's job id was cancelled
+        # beta is the group that actually crashed: after the Finding 3 fix it
+        # stays registered through the crash, so cancelAllGroups must scancel
+        # its own tracked job id specifically, not just some sibling's.
+        betaJobIds = jobIdsByGroup[str(dirs["beta"])]
+        assert betaJobIds
+        for jobId in betaJobIds:
+            assert jobId in scancelled
 
     def test_restart_redoes_only_unfinished_groups(self, flowcell, monkeypatch):
         config, parkour, dirs, _items = flowcell
