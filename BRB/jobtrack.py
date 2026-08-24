@@ -9,6 +9,7 @@ the other's jobs.
 import json
 import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -290,3 +291,70 @@ def runManagedSubprocess(cmd, cwd=None, handle=None):
     if returncode != 0:
         raise subprocess.CalledProcessError(returncode, cmd)
     return returncode
+
+
+KILL_GRACE_SECONDS = 10
+
+
+def _signalProcessGroup(proc, sig):
+    """
+    Signal the whole process group of a driver started with
+    start_new_session=True, so snakemake's own children go down with it.
+    """
+    try:
+        os.killpg(os.getpgid(proc.pid), sig)
+    except (ProcessLookupError, PermissionError, OSError) as err:
+        log.warning(f"Could not signal process group of pid {proc.pid}: {err}")
+        return False
+    return True
+
+
+def cancelGroup(handle, scancelBin="scancel", grace=KILL_GRACE_SECONDS):
+    """
+    Stop everything one library-group has in flight: its submitted Slurm jobs
+    first, then its local snakePipes driver.
+
+    The marker is flagged cancelled before anything is killed, so a crash
+    handler that itself dies partway still leaves a readable record of what
+    happened.
+    """
+    markMarkerCancelled(handle.outputDir)
+    job_ids, procs = handle.snapshot()
+    if job_ids:
+        log.critical(
+            f"Cancelling Slurm job(s) {','.join(job_ids)} for {handle.outputDir}"
+        )
+        try:
+            subprocess.run([scancelBin, *job_ids], check=False, timeout=60)
+        except (OSError, subprocess.SubprocessError) as err:
+            log.error(f"scancel failed for {handle.outputDir}: {err}")
+    for proc in procs:
+        log.critical(f"SIGTERM to driver pid {proc.pid} for {handle.outputDir}")
+        if _signalProcessGroup(proc, signal.SIGTERM):
+            try:
+                proc.wait(timeout=grace)
+            except subprocess.TimeoutExpired:
+                log.warning(
+                    f"Driver pid {proc.pid} still running {grace}s after SIGTERM."
+                )
+
+
+def cancelAllGroups(registry, scancelBin="scancel", grace=KILL_GRACE_SECONDS):
+    """
+    Tear down every in-flight group in this run_brb process.
+
+    Flowcell-wide on purpose: another project's orphaned Slurm jobs would keep
+    running with no live process to phoneHome their results to Parkour, which
+    is worse than cancelling them and redoing them on the next pass.
+    """
+    registry.abort()
+    for handle in registry.active_groups():
+        try:
+            cancelGroup(handle, scancelBin=scancelBin, grace=grace)
+        except Exception as err:  # noqa: BLE001
+            log.error(f"Cancelling {handle.outputDir} failed: {err}")
+        try:
+            clearMarker(handle.outputDir)
+        except OSError as err:
+            log.error(f"Could not clear {MARKER_NAME} in {handle.outputDir}: {err}")
+        registry.unregister_group(handle.outputDir)

@@ -355,3 +355,142 @@ class TestRunManagedSubprocess:
             jobtrack.runManagedSubprocess("sleep 0.5")
         t.join()
         assert seen == [True]
+
+
+import signal
+
+
+class FakeProc:
+    def __init__(self, pid=4242):
+        self.pid = pid
+        self._exited = False
+
+    def poll(self):
+        return 0 if self._exited else None
+
+    def wait(self, timeout=None):
+        self._exited = True
+        return 0
+
+
+class TestCancelGroup:
+    def test_scancels_tracked_job_ids(self, tmp_path, monkeypatch):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        handle.add_job_ids(["101", "102"])
+        runs = []
+        monkeypatch.setattr(
+            jobtrack.subprocess, "run", lambda *a, **k: runs.append((a, k))
+        )
+        jobtrack.cancelGroup(handle)
+        assert runs[0][0][0] == ["scancel", "101", "102"]
+
+    def test_no_jobs_means_no_scancel(self, tmp_path, monkeypatch):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        runs = []
+        monkeypatch.setattr(jobtrack.subprocess, "run", lambda *a, **k: runs.append(a))
+        jobtrack.cancelGroup(handle)
+        assert runs == []
+
+    def test_sigterms_each_driver_process_group(self, tmp_path, monkeypatch):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        proc = FakeProc(pid=777)
+        handle.add_process(proc)
+        signals = []
+        monkeypatch.setattr(jobtrack.os, "getpgid", lambda pid: pid)
+        monkeypatch.setattr(
+            jobtrack.os, "killpg", lambda pgid, sig: signals.append((pgid, sig))
+        )
+        jobtrack.cancelGroup(handle)
+        assert signals == [(777, signal.SIGTERM)]
+
+    def test_marker_is_flagged_cancelled_before_the_kill(self, tmp_path, monkeypatch):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        handle.add_job_ids(["55"])
+        jobtrack.writeMarker(tmp_path, job_ids=["55"])
+        order = []
+        monkeypatch.setattr(
+            jobtrack.subprocess,
+            "run",
+            lambda *a, **k: order.append(jobtrack.readMarker(tmp_path)["cancelled"]),
+        )
+        jobtrack.cancelGroup(handle)
+        assert order == [True]
+
+    def test_scancel_failure_does_not_stop_the_sigterm(self, tmp_path, monkeypatch):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        handle.add_job_ids(["1"])
+        proc = FakeProc(pid=888)
+        handle.add_process(proc)
+        signals = []
+
+        def blowUp(*a, **k):
+            raise OSError("scancel: command not found")
+
+        monkeypatch.setattr(jobtrack.subprocess, "run", blowUp)
+        monkeypatch.setattr(jobtrack.os, "getpgid", lambda pid: pid)
+        monkeypatch.setattr(
+            jobtrack.os, "killpg", lambda pgid, sig: signals.append((pgid, sig))
+        )
+        jobtrack.cancelGroup(handle)
+        assert signals == [(888, signal.SIGTERM)]
+
+    def test_already_dead_process_is_tolerated(self, tmp_path, monkeypatch):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        handle.add_process(FakeProc(pid=999))
+
+        def gone(pid):
+            raise ProcessLookupError
+
+        monkeypatch.setattr(jobtrack.os, "getpgid", gone)
+        jobtrack.cancelGroup(handle)
+
+
+class TestCancelAllGroups:
+    def test_cancels_every_registered_group(self, tmp_path, monkeypatch):
+        reg = jobtrack.JobRegistry()
+        for name in ("a", "b", "c"):
+            (tmp_path / name).mkdir()
+            handle = reg.register_group(tmp_path / name)
+            handle.add_job_ids([f"{name}1"])
+            jobtrack.writeMarker(tmp_path / name)
+        runs = []
+        monkeypatch.setattr(
+            jobtrack.subprocess, "run", lambda *a, **k: runs.append(a[0])
+        )
+        jobtrack.cancelAllGroups(reg)
+        assert sorted(r[1] for r in runs) == ["a1", "b1", "c1"]
+
+    def test_clears_markers_and_empties_the_registry(self, tmp_path, monkeypatch):
+        reg = jobtrack.JobRegistry()
+        (tmp_path / "a").mkdir()
+        reg.register_group(tmp_path / "a")
+        jobtrack.writeMarker(tmp_path / "a")
+        monkeypatch.setattr(jobtrack.subprocess, "run", lambda *a, **k: None)
+        jobtrack.cancelAllGroups(reg)
+        assert not (tmp_path / "a" / "running.pid").exists()
+        assert reg.active_groups() == []
+
+    def test_sets_the_abort_flag(self, tmp_path, monkeypatch):
+        reg = jobtrack.JobRegistry()
+        monkeypatch.setattr(jobtrack.subprocess, "run", lambda *a, **k: None)
+        jobtrack.cancelAllGroups(reg)
+        assert reg.aborted is True
+
+    def test_one_group_failing_does_not_stop_the_others(self, tmp_path, monkeypatch):
+        reg = jobtrack.JobRegistry()
+        for name in ("a", "b"):
+            (tmp_path / name).mkdir()
+            reg.register_group(tmp_path / name)
+            jobtrack.writeMarker(tmp_path / name)
+        calls = []
+
+        def flaky(handle, **kw):
+            calls.append(handle.outputDir)
+            if handle.outputDir.endswith("a"):
+                raise RuntimeError("kill failed")
+
+        monkeypatch.setattr(jobtrack, "cancelGroup", flaky)
+        jobtrack.cancelAllGroups(reg)
+        assert len(calls) == 2
+        assert reg.active_groups() == []
+        assert not (tmp_path / "a" / "running.pid").exists()
