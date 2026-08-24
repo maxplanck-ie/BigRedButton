@@ -229,3 +229,37 @@ class TestMarkerState:
 
 def _raise_no_such_process(pid, sig):
     raise ProcessLookupError
+
+
+class TestParseJobIds:
+    def test_cluster_generic_submission_line(self):
+        line = "Submitted job 12 with external jobid 'Submitted batch job 1234567'."
+        assert jobtrack.parseJobIds(line) == ["1234567"]
+
+    def test_parsable_sbatch_bare_id(self):
+        assert jobtrack.parseJobIds("external jobid '7654321'") == ["7654321"]
+
+    def test_job_id_with_cluster_suffix(self):
+        line = "Submitted job 3 with external jobid 'Submitted batch job 42 on cluster deep'."
+        assert jobtrack.parseJobIds(line) == ["42"]
+
+    def test_unrelated_lines_yield_nothing(self):
+        assert jobtrack.parseJobIds("rule bowtie2: output=foo.bam") == []
+        assert jobtrack.parseJobIds("") == []
+        assert jobtrack.parseJobIds("Job 12 has been submitted") == []
+
+    def test_numbers_elsewhere_are_not_job_ids(self):
+        assert jobtrack.parseJobIds("Provided cores: 16") == []
+
+    def test_two_ids_on_one_line(self):
+        line = "external jobid '111' and external jobid '222'"
+        assert jobtrack.parseJobIds(line) == ["111", "222"]
+
+    def test_empty_jobid_payload_is_ignored(self):
+        assert jobtrack.parseJobIds("external jobid ''") == []
+
+    def test_production_cluster_parsable_format(self):
+        """MPI-IE cluster uses sbatch --parsable, producing bare integer IDs."""
+        assert jobtrack.parseJobIds(
+            "Submitted job 1 with external jobid '10874970'."
+        ) == ["10874970"]

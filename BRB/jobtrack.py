@@ -8,6 +8,7 @@ the other's jobs.
 
 import json
 import os
+import re
 import threading
 import time
 from contextlib import contextmanager
@@ -219,3 +220,22 @@ def markerState(outputDir):
     if _pidAlive(marker["pid"]):
         return (MARKER_LIVE, marker)
     return (MARKER_ABANDONED, marker)
+
+
+# snakemake's cluster executors log one of:
+#   Submitted job 12 with external jobid 'Submitted batch job 1234567'.
+#   Submitted job 12 with external jobid '1234567'.        (sbatch --parsable)
+# The quoted payload is whatever the submit command printed, so take the
+# first run of digits in it as the Slurm job ID.
+_EXTERNAL_JOBID_RE = re.compile(r"external jobid[:\s]*'([^']*)'")
+_FIRST_INT_RE = re.compile(r"\d+")
+
+
+def parseJobIds(line):
+    """Slurm job IDs announced on one line of snakemake driver output."""
+    found = []
+    for payload in _EXTERNAL_JOBID_RE.findall(line):
+        match = _FIRST_INT_RE.search(payload)
+        if match:
+            found.append(match.group(0))
+    return found
