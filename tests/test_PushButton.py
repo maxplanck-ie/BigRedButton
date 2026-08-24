@@ -591,3 +591,160 @@ class TestManagedSubprocessCallSites:
             [["18L001", "sampleA", "TruSeq", False]],
         )
         assert rv == 1
+
+
+from BRB import jobtrack
+
+
+def make_item(tmp_path, pipeline="RNA"):
+    return PushButton.WorkItem(
+        project="1_Doe_Smith",
+        group="smith",
+        pipeline=pipeline,
+        organism=("mouse", "GRCm38", "/yaml/GRCm38.yaml"),
+        libraryType="stranded mRNA-Seq",
+        tuples=[["18L001", "sampleA", "TruSeq", False]],
+    )
+
+
+def _dead_pid_kill(dead):
+    def _kill(pid, sig):
+        if pid == dead:
+            raise ProcessLookupError
+
+    return _kill
+
+
+class TestRunOneGroupMarkerGate:
+    @pytest.fixture(autouse=True)
+    def _stub(self, tmp_path, monkeypatch):
+        self.dispatched = []
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(tmp_path))
+
+        def fakeRNA(config, group, project, organism, libraryType, tuples):
+            self.dispatched.append(project)
+            return str(tmp_path), 0, False
+
+        monkeypatch.setattr(PushButton, "RNA", fakeRNA)
+        monkeypatch.setattr(
+            PushButton.BRB.ET,
+            "phoneHome",
+            lambda *a, **k: [
+                "1_Doe_Smith",
+                "mouse",
+                "stranded mRNA-Seq",
+                "RNA",
+                "OK",
+                "updated",
+            ],
+        )
+        self.tmp_path = tmp_path
+
+    def test_absent_marker_dispatches_and_cleans_up(self):
+        reg = jobtrack.JobRegistry()
+        row = PushButton.runOneGroup(make_config(), make_item(self.tmp_path), reg)
+        assert self.dispatched == ["1_Doe_Smith"]
+        assert row[0][4] == "OK"
+        assert jobtrack.markerState(self.tmp_path)[0] == jobtrack.MARKER_ABSENT
+        assert reg.active_groups() == []
+
+    def test_marker_exists_and_handle_bound_while_the_pipeline_runs(self, monkeypatch):
+        seen = {}
+
+        def peek(config, group, project, organism, libraryType, tuples):
+            seen["state"] = jobtrack.markerState(self.tmp_path)[0]
+            seen["bound"] = jobtrack.currentHandle().outputDir
+            return str(self.tmp_path), 0, False
+
+        monkeypatch.setattr(PushButton, "RNA", peek)
+        PushButton.runOneGroup(
+            make_config(), make_item(self.tmp_path), jobtrack.JobRegistry()
+        )
+        assert seen["state"] == jobtrack.MARKER_LIVE
+        assert seen["bound"] == str(self.tmp_path)
+
+    def test_live_marker_skips_without_dispatching(self):
+        jobtrack.writeMarker(self.tmp_path)
+        row = PushButton.runOneGroup(
+            make_config(), make_item(self.tmp_path), jobtrack.JobRegistry()
+        )
+        assert row == [
+            [
+                "1_Doe_Smith",
+                "mouse",
+                "stranded mRNA-Seq",
+                "RNA",
+                "SKIPPED (owned by live PID)",
+                "not updated",
+                False,
+                0,
+            ]
+        ]
+        assert self.dispatched == []
+        assert jobtrack.markerState(self.tmp_path)[0] == jobtrack.MARKER_LIVE
+
+    def test_abandoned_marker_is_removed_and_group_dispatched(self, monkeypatch):
+        jobtrack.writeMarker(self.tmp_path, pid=999999, job_ids=["5"])
+        monkeypatch.setattr(jobtrack.os, "kill", _dead_pid_kill(999999))
+        row = PushButton.runOneGroup(
+            make_config(), make_item(self.tmp_path), jobtrack.JobRegistry()
+        )
+        assert self.dispatched == ["1_Doe_Smith"]
+        assert row[0][4] == "OK"
+
+    def test_corrupt_marker_skips_without_dispatching(self):
+        (self.tmp_path / "running.pid").write_text('{"pid": 12')
+        row = PushButton.runOneGroup(
+            make_config(), make_item(self.tmp_path), jobtrack.JobRegistry()
+        )
+        assert row[0][4] == "SKIPPED (unreadable marker)"
+        assert self.dispatched == []
+        assert (self.tmp_path / "running.pid").exists()
+
+    def test_aborted_registry_skips_without_dispatching(self):
+        reg = jobtrack.JobRegistry()
+        reg.abort()
+        row = PushButton.runOneGroup(make_config(), make_item(self.tmp_path), reg)
+        assert row[0][4] == "SKIPPED (flowcell teardown in progress)"
+        assert self.dispatched == []
+
+    def test_marker_is_cleared_when_the_pipeline_raises(self, monkeypatch):
+        def boom(*a, **k):
+            raise RuntimeError("driver died")
+
+        monkeypatch.setattr(PushButton, "RNA", boom)
+        reg = jobtrack.JobRegistry()
+        with pytest.raises(RuntimeError):
+            PushButton.runOneGroup(make_config(), make_item(self.tmp_path), reg)
+        assert jobtrack.markerState(self.tmp_path)[0] == jobtrack.MARKER_ABSENT
+        assert reg.active_groups() == []
+
+    def test_failure_retries_once_then_reports_failed(self, monkeypatch):
+        attempts = []
+
+        def failing(config, group, project, organism, libraryType, tuples):
+            attempts.append(1)
+            return str(self.tmp_path), 1, False
+
+        monkeypatch.setattr(PushButton, "RNA", failing)
+        row = PushButton.runOneGroup(
+            make_config(), make_item(self.tmp_path), jobtrack.JobRegistry()
+        )
+        assert len(attempts) == 2
+        assert row[0][4] == "FAILED"
+        assert row[0][7] == 1
+
+    def test_abort_between_attempts_suppresses_the_retry(self, monkeypatch):
+        reg = jobtrack.JobRegistry()
+        attempts = []
+
+        def failThenAbort(config, group, project, organism, libraryType, tuples):
+            attempts.append(1)
+            reg.abort()
+            return str(self.tmp_path), 1, False
+
+        monkeypatch.setattr(PushButton, "RNA", failThenAbort)
+        row = PushButton.runOneGroup(make_config(), make_item(self.tmp_path), reg)
+        assert len(attempts) == 1
+        assert row[0][4] == "SKIPPED (flowcell teardown in progress)"
+        assert reg.active_groups() == []

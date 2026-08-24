@@ -3,11 +3,11 @@ import glob
 import os
 import shutil
 import stat
-import time
 from collections import namedtuple
 from pathlib import Path
 
 import BRB.ET
+import BRB.jobtrack
 import BRB.misc
 from BRB.jobtrack import runManagedSubprocess
 from BRB.logger import log
@@ -958,155 +958,152 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     return outputDir, 0, True
 
 
-def _markerIsOwnedByLiveProcess(markerPath):
+def runOneGroup(config, item, registry):
     """
-    True if markerPath names a PID that still exists. An unreadable or
-    malformed marker is treated as abandoned, not as an owner.
-    """
-    try:
-        with open(markerPath) as fh:
-            pid = int(fh.read().split()[0])
-    except (OSError, ValueError, IndexError):
-        return False
-    if pid <= 0:
-        # os.kill(0, 0) and os.kill(-N, 0) target process GROUPS, not a
-        # single process, and typically succeed -- a marker containing a
-        # non-positive PID must not be treated as permanently live-owned.
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        # Exists, owned by another user.
-        return True
-    return True
+    Ownership-guarded dispatch of a single WorkItem, coordinated through
+    `registry` (a BRB.jobtrack.JobRegistry shared by every worker for this
+    flowcell) and the on-disk marker jobtrack.py maintains in the group's
+    outputDir.
 
+    The marker is deliberately not a real lock (no flock, no atomicity
+    guarantee). It exists only to stop a restarted run_brb from launching a
+    second snakePipes run into an outputDir that a still-alive orphan from a
+    crashed run owns. `registry.aborted` guards the in-process case: once the
+    flowcell's crash handler has latched teardown, no further worker should
+    start a fresh pipeline run.
 
-def _writeOwnershipMarker(markerPath):
-    with open(markerPath, "w") as fh:
-        fh.write(f"{os.getpid()} {time.time()}\n")
-
-
-def _dispatchOneGroup(config, item):
-    """
-    Dispatch a single WorkItem: run its pipeline function, allow exactly one
-    re-run on a non-zero return, and build the message entry.
-
-    Returns a list of message entries (one entry on success or failure).
+    Always returns a list containing exactly one message row -- a SKIPPED row
+    when the group was not dispatched (owned by a live PID, an unreadable
+    marker, or the flowcell already being torn down), otherwise the OK/FAILED
+    row that dispatching produces. Never returns bare None and never an
+    unwrapped bare row, because runFlowcell does
+    `msg.extend(future.result())` on this return value.
     """
     org_name, org_label, _org_yaml = item.organism
     pipelineFn = globals()[item.pipeline]
-    reruncount = 0
-    outputDir, rv, sambaUpdate = pipelineFn(
-        config, item.group, item.project, item.organism, item.libraryType, item.tuples
-    )
-    if rv != 0:
-        # Allow for one re-run
-        reruncount += 1
-        outputDir, rv, sambaUpdate = pipelineFn(
-            config,
-            item.group,
-            item.project,
-            item.organism,
-            item.libraryType,
-            item.tuples,
-        )
-    if rv == 0:
-        log.debug(
-            f"BRB run for {item.pipeline} {org_label} {item.libraryType} {item.tuples} complete."
-        )
-        log.info(
-            f"Processed project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.libraryType}, {org_name}. Rerun = {reruncount}"
-        )
-        return [
-            BRB.ET.phoneHome(
-                config,
-                outputDir,
-                item.pipeline,
-                item.tuples,
-                org_name,
-                item.project,
-                item.libraryType,
-            )
-            + [sambaUpdate, reruncount]
-        ]
-    log.warning(
-        f"FAILED project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.libraryType}, {org_name}. Rerun = {reruncount}"
-    )
-    return [
-        [
-            item.project,
-            org_name,
-            item.libraryType,
-            item.pipeline,
-            "FAILED",
-            "not updated",
-            sambaUpdate,
-            reruncount,
-        ]
-    ]
-
-
-def runOneGroup(config, item):
-    """
-    Ownership-guarded dispatch of a single WorkItem.
-
-    Deliberately not a real lock (no flock, no atomicity guarantee). It exists
-    only to stop a restarted run_brb from launching a second snakePipes run
-    into an outputDir that a still-alive orphan from a crashed run owns.
-
-    Returns a list of message entries: a single SKIPPED entry when the group
-    is skipped because someone else owns it (so it still shows up in the
-    report -- see below), otherwise the single entry from _dispatchOneGroup.
-    """
     outputDir = createPath(
         config,
         item.group,
         item.project,
-        item.organism[1],
+        org_label,
         item.libraryType,
         item.tuples,
     )
-    markerPath = os.path.join(outputDir, MARKER_NAME)
-    if os.path.exists(markerPath):
-        if _markerIsOwnedByLiveProcess(markerPath):
-            log.warning(
-                f"Skipping {item.project} / {item.pipeline} / {item.libraryType}: "
-                f"{markerPath} is held by a live process. Not dispatching, and "
-                "not counting this as a failure."
+
+    def skipRow(status):
+        return [
+            [
+                item.project,
+                org_name,
+                item.libraryType,
+                item.pipeline,
+                status,
+                "not updated",
+                False,
+                0,
+            ]
+        ]
+
+    if registry.aborted:
+        log.warning(f"Flowcell teardown in progress; not dispatching {outputDir}.")
+        return skipRow("SKIPPED (flowcell teardown in progress)")
+
+    state, marker = BRB.jobtrack.markerState(outputDir)
+    if state == BRB.jobtrack.MARKER_LIVE:
+        log.warning(
+            f"Skipping {item.project} / {item.pipeline} / {item.libraryType}: "
+            f"{outputDir} is owned by live pid {marker['pid']} "
+            f"(job_ids={marker.get('job_ids', [])}). Not dispatching, and not "
+            "counting this as a failure."
+        )
+        # A distinct "SKIPPED" status (not "FAILED"): this group was never
+        # actually analysed this pass, so it must not be silently absent from
+        # the report, but it also must not be double-counted as a pipeline
+        # failure by anything that specifically checks for "FAILED" (retry
+        # logic, email.finishedEmail's FAILED count).
+        return skipRow("SKIPPED (owned by live PID)")
+    if state == BRB.jobtrack.MARKER_CORRUPT:
+        log.warning(
+            f"{outputDir} has an unreadable {BRB.jobtrack.MARKER_NAME}; "
+            "skipping this group this pass. Remove the file by hand once its "
+            "owner is known to be dead."
+        )
+        return skipRow("SKIPPED (unreadable marker)")
+    if state == BRB.jobtrack.MARKER_ABANDONED:
+        log.warning(
+            f"Removing abandoned {BRB.jobtrack.MARKER_NAME} in {outputDir} "
+            f"(pid {marker['pid']}, cancelled={marker.get('cancelled', False)}, "
+            f"job_ids={marker.get('job_ids', [])})."
+        )
+        BRB.jobtrack.clearMarker(outputDir)
+
+    handle = registry.register_group(outputDir)
+    BRB.jobtrack.writeMarker(outputDir)
+    try:
+        with BRB.jobtrack.bindGroup(handle):
+            reruncount = 0
+            outputDir, rv, sambaUpdate = pipelineFn(
+                config,
+                item.group,
+                item.project,
+                item.organism,
+                item.libraryType,
+                item.tuples,
             )
-            org_name, _org_label, _org_yaml = item.organism
-            # A distinct "SKIPPED" status (not "FAILED"): this group was
-            # never actually analysed this pass, so it must not be silently
-            # absent from the report, but it also must not be double-counted
-            # as a pipeline failure by anything that specifically checks for
-            # "FAILED" (retry logic, email.finishedEmail's FAILED count).
+            if rv != 0:
+                if registry.aborted:
+                    log.warning(
+                        f"{outputDir} failed while the flowcell was being torn "
+                        "down; not retrying."
+                    )
+                    return skipRow("SKIPPED (flowcell teardown in progress)")
+                # Allow for one re-run
+                reruncount = 1
+                outputDir, rv, sambaUpdate = pipelineFn(
+                    config,
+                    item.group,
+                    item.project,
+                    item.organism,
+                    item.libraryType,
+                    item.tuples,
+                )
+            if rv == 0:
+                log.debug(
+                    f"BRB run for {item.pipeline} {org_label} {item.libraryType} {item.tuples} complete."
+                )
+                log.info(
+                    f"Processed project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.libraryType}, {org_name}. Rerun = {reruncount}"
+                )
+                return [
+                    BRB.ET.phoneHome(
+                        config,
+                        outputDir,
+                        item.pipeline,
+                        item.tuples,
+                        org_name,
+                        item.project,
+                        item.libraryType,
+                    )
+                    + [sambaUpdate, reruncount]
+                ]
+            log.warning(
+                f"FAILED project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.libraryType}, {org_name}. Rerun = {reruncount}"
+            )
             return [
                 [
                     item.project,
                     org_name,
                     item.libraryType,
                     item.pipeline,
-                    "SKIPPED (owned by live PID)",
+                    "FAILED",
                     "not updated",
-                    False,
-                    0,
+                    sambaUpdate,
+                    reruncount,
                 ]
             ]
-        log.warning(
-            f"Abandoned ownership marker {markerPath} (owning process is gone); "
-            "removing it and dispatching normally."
-        )
-        os.remove(markerPath)
-    _writeOwnershipMarker(markerPath)
-    try:
-        return _dispatchOneGroup(config, item)
     finally:
-        try:
-            os.remove(markerPath)
-        except FileNotFoundError:
-            pass
+        BRB.jobtrack.clearMarker(outputDir)
+        registry.unregister_group(outputDir)
 
 
 def GetResults(config, project, libraries):
@@ -1292,11 +1289,20 @@ def runFlowcell(config, ParkourDict):
         return msg
 
     log.info(f"runFlowcell: dispatching {len(workItems)} groups, POOL_SIZE={POOL_SIZE}")
+    # Shared by every worker dispatched below so a fatal crash (see the
+    # exception-handling pass further down) can be latched process-wide and
+    # each in-flight group's Slurm jobs/local drivers can be found and
+    # cancelled. Constructed fresh per flowcell -- never a module-level
+    # global, since `run_brb -s illumina` and `run_brb -s aviti` share a host
+    # but must never see each other's groups.
+    registry = BRB.jobtrack.JobRegistry()
     # Deliberately not a `with` block: on the crash path we must shut down
     # with wait=False so the error e-mail goes out now, rather than after the
     # slowest surviving worker's Slurm jobs finish hours later.
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=POOL_SIZE)
-    futures = {executor.submit(runOneGroup, config, item): item for item in workItems}
+    futures = {
+        executor.submit(runOneGroup, config, item, registry): item for item in workItems
+    }
 
     failedFuture = None
     for future in concurrent.futures.as_completed(futures):

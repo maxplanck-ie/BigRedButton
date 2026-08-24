@@ -7,7 +7,7 @@ from typing import ClassVar
 import pytest
 
 import BRB.ET
-from BRB import PushButton
+from BRB import PushButton, jobtrack
 from BRB.PushButton import WorkItem
 
 HUMAN = ("human", "hg38", "/yaml/hg38.yaml")
@@ -142,7 +142,7 @@ class TestRunOneGroup:
         monkeypatch.setattr(PushButton, "RNA", stub)
         monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
 
-        result = PushButton.runOneGroup(config, makeWorkItem())
+        result = PushButton.runOneGroup(config, makeWorkItem(), jobtrack.JobRegistry())
 
         assert len(calls) == 1
         assert calls[0] == ("foo", "1_A_Foo", "stranded mRNA-Seq")
@@ -170,7 +170,7 @@ class TestRunOneGroup:
         monkeypatch.setattr(PushButton, "RNA", stub)
         monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
 
-        result = PushButton.runOneGroup(config, makeWorkItem())
+        result = PushButton.runOneGroup(config, makeWorkItem(), jobtrack.JobRegistry())
 
         assert len(calls) == 2
         assert result[0][-2:] == [True, 1]
@@ -191,7 +191,7 @@ class TestRunOneGroup:
 
         monkeypatch.setattr(BRB.ET, "phoneHome", mustNotBeCalled)
 
-        result = PushButton.runOneGroup(config, makeWorkItem())
+        result = PushButton.runOneGroup(config, makeWorkItem(), jobtrack.JobRegistry())
 
         assert len(calls) == 2
         assert result == [
@@ -237,52 +237,54 @@ class TestOwnershipMarker:
         config = dispatchConfig(tmp_path)
         item = makeWorkItem()
         calls = []
+        outputDir = self._outputDir(config, item)
 
         def stub(config, group, project, organism, libraryType, tuples):
             calls.append(1)
-            return "/out", 0, False
+            return outputDir, 0, False
 
         monkeypatch.setattr(PushButton, "RNA", stub)
         monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
 
-        result = PushButton.runOneGroup(config, item)
+        result = PushButton.runOneGroup(config, item, jobtrack.JobRegistry())
 
         assert len(calls) == 1
         assert len(result) == 1
-        marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
+        marker = os.path.join(outputDir, PushButton.MARKER_NAME)
         assert not os.path.exists(marker)
 
     def test_marker_written_while_dispatching(self, tmp_path, monkeypatch):
         config = dispatchConfig(tmp_path)
         item = makeWorkItem()
+        outputDir = self._outputDir(config, item)
         seen = {}
 
         def stub(config, group, project, organism, libraryType, tuples):
-            marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
-            with open(marker) as fh:
-                seen["content"] = fh.read()
-            return "/out", 0, False
+            seen["state"], marker = jobtrack.markerState(outputDir)
+            seen["pid"] = marker["pid"]
+            return outputDir, 0, False
 
         monkeypatch.setattr(PushButton, "RNA", stub)
         monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
 
-        PushButton.runOneGroup(config, item)
+        PushButton.runOneGroup(config, item, jobtrack.JobRegistry())
 
-        assert seen["content"].split()[0] == str(os.getpid())
+        assert seen["state"] == jobtrack.MARKER_LIVE
+        assert seen["pid"] == os.getpid()
 
     def test_live_pid_marker_skips_group(self, tmp_path, monkeypatch):
         config = dispatchConfig(tmp_path)
         item = makeWorkItem()
-        marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
-        with open(marker, "w") as fh:
-            fh.write(f"{os.getpid()} 1234.5\n")
+        outputDir = self._outputDir(config, item)
+        marker = os.path.join(outputDir, PushButton.MARKER_NAME)
+        jobtrack.writeMarker(outputDir)
 
         def mustNotBeCalled(*args, **kwargs):
             raise AssertionError("a live-PID-owned group must not be dispatched")
 
         monkeypatch.setattr(PushButton, "RNA", mustNotBeCalled)
 
-        result = PushButton.runOneGroup(config, item)
+        result = PushButton.runOneGroup(config, item, jobtrack.JobRegistry())
 
         assert result == [
             [
@@ -298,49 +300,54 @@ class TestOwnershipMarker:
         ]
         assert os.path.exists(marker), "another owner's marker must not be removed"
 
-    def test_non_positive_pid_marker_is_not_live(self, tmp_path, monkeypatch):
-        config = dispatchConfig(tmp_path)
-        item = makeWorkItem()
-        marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
-        with open(marker, "w") as fh:
-            fh.write("0 1234.5\n")
-        calls = []
-
-        def stub(config, group, project, organism, libraryType, tuples):
-            calls.append(1)
-            return "/out", 0, False
-
-        monkeypatch.setattr(PushButton, "RNA", stub)
-        monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
-
-        result = PushButton.runOneGroup(config, item)
-
-        assert len(calls) == 1
-        assert len(result) == 1
-        assert not os.path.exists(marker)
-
     def test_dead_pid_marker_is_abandoned_and_dispatch_proceeds(
         self, tmp_path, monkeypatch
     ):
         config = dispatchConfig(tmp_path)
         item = makeWorkItem()
-        marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
-        with open(marker, "w") as fh:
-            fh.write(f"{findDeadPid()} 1234.5\n")
+        outputDir = self._outputDir(config, item)
+        marker = os.path.join(outputDir, PushButton.MARKER_NAME)
+        jobtrack.writeMarker(outputDir, pid=findDeadPid())
         calls = []
 
         def stub(config, group, project, organism, libraryType, tuples):
             calls.append(1)
-            return "/out", 0, False
+            return outputDir, 0, False
 
         monkeypatch.setattr(PushButton, "RNA", stub)
         monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
 
-        result = PushButton.runOneGroup(config, item)
+        result = PushButton.runOneGroup(config, item, jobtrack.JobRegistry())
 
         assert len(calls) == 1
         assert len(result) == 1
         assert not os.path.exists(marker)
+
+    def test_corrupt_marker_skips_group_and_leaves_marker_in_place(
+        self, tmp_path, monkeypatch
+    ):
+        """
+        Superseded/replaces the old non-positive-pid case: jobtrack's marker
+        is a JSON dict, so a marker written with a non-integer/missing "pid"
+        field is CORRUPT (unreadable), not a special-cased "not live" PID --
+        it is skipped, not dispatched, exactly like a truly unreadable file.
+        """
+        config = dispatchConfig(tmp_path)
+        item = makeWorkItem()
+        outputDir = self._outputDir(config, item)
+        marker = os.path.join(outputDir, PushButton.MARKER_NAME)
+        with open(marker, "w") as fh:
+            fh.write('{"pid": "not-a-pid"}')
+
+        def mustNotBeCalled(*args, **kwargs):
+            raise AssertionError("a corrupt-marker-owned group must not be dispatched")
+
+        monkeypatch.setattr(PushButton, "RNA", mustNotBeCalled)
+
+        result = PushButton.runOneGroup(config, item, jobtrack.JobRegistry())
+
+        assert result[0][4] == "SKIPPED (unreadable marker)"
+        assert os.path.exists(marker), "an unreadable marker must not be removed"
 
     def test_marker_removed_when_pipeline_raises(self, tmp_path, monkeypatch):
         config = dispatchConfig(tmp_path)
@@ -352,7 +359,7 @@ class TestOwnershipMarker:
         monkeypatch.setattr(PushButton, "RNA", stub)
 
         with pytest.raises(RuntimeError):
-            PushButton.runOneGroup(config, item)
+            PushButton.runOneGroup(config, item, jobtrack.JobRegistry())
 
         marker = os.path.join(self._outputDir(config, item), PushButton.MARKER_NAME)
         assert not os.path.exists(marker)
@@ -435,8 +442,7 @@ class TestRunFlowcell:
             config, "foo", "1_A_Foo", "hg38", "ChIP-Seq", [[None, None, None, True]]
         )
         marker = os.path.join(outputDir, PushButton.MARKER_NAME)
-        with open(marker, "w") as fh:
-            fh.write(f"{os.getpid()} 1234.5\n")
+        jobtrack.writeMarker(outputDir)
 
         def dnaStub(config, group, project, organism, libraryType, tuples):
             assert not (project == "1_A_Foo" and libraryType == "ChIP-Seq"), (
@@ -598,7 +604,15 @@ def makeStub(tracker, rv, delay=0.2, sambaUpdate=False):
             time.sleep(delay)
         finally:
             tracker.leave()
-        return f"/out/{project}/{libraryType}", rv, sambaUpdate
+        # Return the *real* outputDir (matching what every actual pipeline
+        # function does: it calls createPath with the same arguments it was
+        # given, which is deterministic). runOneGroup's marker cleanup and
+        # registry.unregister_group() key off the value returned here, so a
+        # fake/mismatched path would leave the real marker file behind.
+        outputDir = PushButton.createPath(
+            config, group, project, organism[1], libraryType, tuples
+        )
+        return outputDir, rv, sambaUpdate
 
     return stub
 
