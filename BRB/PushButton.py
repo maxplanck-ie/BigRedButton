@@ -127,7 +127,13 @@ def relinkFiles(config, group, project, org_label, libraryType, tuples):
     mqcf = os.path.join(outputDir, "multiQC", "multiqc_report.html")
     if os.path.exists(mqcf):
         log.info(f"Multiqc report found for {group} project {project}.")
-        oname = "Analysis" + project + "_multiqc.html"
+        # Keyed on libraryType + org_label as well as project: two groups of
+        # the same project run concurrently under the Phase 1 thread pool and
+        # would otherwise interleave writes into one destination file.
+        oname = (
+            f"Analysis{project}_{BRB.misc.pacifier(libraryType)}"
+            f"_{org_label}_multiqc.html"
+        )
         of = Path(config.get("Paths", "bioinfoCoreDir")) / oname
         log.info(f"Trying to copy mqc report to {of}.")
         shutil.copyfile(mqcf, of)

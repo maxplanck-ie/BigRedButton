@@ -416,3 +416,49 @@ class TestRELACSExternalPaths:
         samplesheetPatterns = [p for p in seenPatterns if "RELACS_Project_" in p]
         assert len(samplesheetPatterns) == 1
         assert "AV*/AV*/" in samplesheetPatterns[0]
+
+
+class TestRelinkFilesUniqueMultiqcName:
+    """
+    Two library-groups of the same project must not copy their multiQC
+    report to the same bioinfoCoreDir filename -- under the Phase 1 thread
+    pool they would be writing there concurrently.
+    """
+
+    def test_two_groups_same_project_get_distinct_filenames(
+        self, tmp_path, monkeypatch
+    ):
+        bioinfocore = tmp_path / "bioinfocore"
+        bioinfocore.mkdir()
+        config = make_config(
+            {
+                "Paths": {
+                    "baseData": str(tmp_path),
+                    "groupData": str(tmp_path),
+                    "bioinfoCoreDir": str(bioinfocore),
+                }
+            }
+        )
+        tuples = [["lib1", "sample1", "protocol", False]]
+
+        for libraryType, org_label in (
+            ("ChIP-Seq", "hg38"),
+            ("stranded mRNA-Seq", "mm10"),
+        ):
+            outputDir = tmp_path / "out" / f"{libraryType}_{org_label}"
+            (outputDir / "multiQC").mkdir(parents=True)
+            (outputDir / "multiQC" / "multiqc_report.html").write_text(
+                libraryType + org_label
+            )
+            monkeypatch.setattr(
+                PushButton, "createPath", lambda *a, _o=outputDir, **k: str(_o)
+            )
+            monkeypatch.setattr(PushButton, "linkFiles", lambda *a, **k: False)
+            PushButton.relinkFiles(
+                config, "group", "proj", org_label, libraryType, tuples
+            )
+
+        assert sorted(p.name for p in bioinfocore.iterdir()) == [
+            "Analysisproj_ChIP-Seq_hg38_multiqc.html",
+            "Analysisproj_strandedmRNA-Seq_mm10_multiqc.html",
+        ]
