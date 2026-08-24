@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/maxplanck-ie/BigRedButton/compare/v0.7.0...v0.7.1) (2026-08-24)
+
+
+### Bug Fixes
+
+* nest aviti scanning, output, and logs under the matching serial-ID subdir ([#143](https://github.com/maxplanck-ie/BigRedButton/issues/143)) ([827bb51](https://github.com/maxplanck-ie/BigRedButton/commit/827bb51db3759f0bdefda7804f20d952968f1f65))
+
 ## [0.7.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.6.0...v0.7.0) (2026-08-12)
 
 
