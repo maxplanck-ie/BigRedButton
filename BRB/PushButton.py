@@ -3,11 +3,22 @@ import os
 import shutil
 import stat
 import subprocess
+from collections import namedtuple
 from pathlib import Path
 
 import BRB.ET
 import BRB.misc
 from BRB.logger import log
+
+# One entry per (pipeline, organism, libraryType) group within a project.
+# `project` is the raw, unpacified Parkour project name -- the pipeline
+# functions pacify it themselves (RELACS needs the unpacified name to find
+# its original sample sheet). `organism` is the (org_name, org_label,
+# org_yaml) 3-tuple; org_label is deliberately not duplicated as its own
+# field, so the two can't drift apart.
+WorkItem = namedtuple(
+    "WorkItem", ["project", "group", "pipeline", "organism", "libraryType", "tuples"]
+)
 
 
 def parseExternalAllowlist(configValue):
@@ -923,7 +934,10 @@ def GetResults(config, project, libraries):
                        'scRNA-Seq 10xGenomics',
                        'mouse'],
         }
-    This doesn't return anything. It's assumed that everything within a single library type can be analysed together.
+    Returns (workItems, msg): a list of WorkItem entries to be dispatched by
+    runFlowcell, and the message entries GetResults produces itself (the
+    telegraphHome entry for skipped libraries, and the external-skip entry).
+    It's assumed that everything within a single library type can be analysed together.
     """
     ignore = False
     try:
@@ -1017,67 +1031,32 @@ def GetResults(config, project, libraries):
             )
         ]
     log.debug(config)
+    workItems = []
     for pipeline, v in analysisTypes.items():
-        log.debug("Running pipeline " + pipeline)
+        log.debug("Queueing pipeline " + pipeline)
         for org_label, v2 in v.items():
-            log.debug("Running organism label " + org_label)
+            log.debug("Queueing organism label " + org_label)
             organism = org_dict[org_label]
             org_name, org_label, org_yaml = organism
             log.debug(organism)
             for libraryType, tuples in v2.items():
-                log.debug("Running libraryType " + libraryType)
+                log.debug("Queueing libraryType " + libraryType)
                 log.debug(tuples)
-                reruncount = 0
                 # RELACS needs the unpacified project name to copy the original sample sheet to the dest dir
                 # hence the pacifier is applied on the project in each pipeline separately
-
-                outputDir, rv, sambaUpdate = globals()[pipeline](
-                    config, group, project, organism, libraryType, tuples
+                workItems.append(
+                    WorkItem(
+                        project=project,
+                        group=group,
+                        pipeline=pipeline,
+                        organism=organism,
+                        libraryType=libraryType,
+                        tuples=tuples,
+                    )
                 )
-                if reruncount == 0 and rv != 0:
-                    # Allow for one re-run
-                    reruncount += 1
-                    outputDir, rv, sambaUpdate = globals()[pipeline](
-                        config, group, project, organism, libraryType, tuples
-                    )
-                if rv == 0:
-                    log.debug(
-                        f"BRB run for {pipeline} {org_label} {libraryType} {tuples} complete."
-                    )
-                    msg = msg + [
-                        BRB.ET.phoneHome(
-                            config,
-                            outputDir,
-                            pipeline,
-                            tuples,
-                            org_name,
-                            project,
-                            libraryType,
-                        )
-                        + [sambaUpdate, reruncount]
-                    ]
-                    log.info(
-                        f"Processed project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {org_name}. Rerun = {reruncount}"
-                    )
-                else:
-                    msg = msg + [
-                        [
-                            project,
-                            org_name,
-                            libraryType,
-                            pipeline,
-                            "FAILED",
-                            "not updated",
-                            sambaUpdate,
-                            reruncount,
-                        ]
-                    ]
-                    log.warning(
-                        f"FAILED project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {org_name}. Rerun = {reruncount}"
-                    )
     # In case there is an external_skipList, there shouldn't be a skipList !
     if external_skipList:
         assert not skipList
         libTypes = ",".join({i[2] for i in external_skipList})
         msg = msg + [[project, org_name, libTypes, None, None, None, False, None]]
-    return msg
+    return workItems, msg
