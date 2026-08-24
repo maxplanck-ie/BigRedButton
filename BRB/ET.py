@@ -2,6 +2,7 @@ import glob
 import json
 import os
 import subprocess
+import threading
 from pathlib import Path
 
 import pandas as pd
@@ -9,6 +10,13 @@ import requests
 
 import BRB.misc
 from BRB.logger import log
+
+# Up to POOL_SIZE PushButton workers can finish at once and POST results for
+# the same flowcell_id. Serialise those POSTs defensively: if Parkour's
+# results view does a read-modify-write over the flowcell's library list,
+# concurrent POSTs would lose updates. The lock costs no throughput -- the
+# POST is fast, and it's the Slurm queue wait that the thread pool overlaps.
+_parkourPostLock = threading.Lock()
 
 
 def getNReads(d):
@@ -274,12 +282,13 @@ def sendToParkour(config, msg):
         d = {"flowcell_id": FCID}
         d["sequences"] = json.dumps(msg)
     log.info(f"sendToParkour: Sending {d} to Parkour")
-    res = requests.post(
-        config.get("Parkour", "ResultsURL"),
-        auth=(config.get("Parkour", "user"), config.get("Parkour", "password")),
-        data=d,
-        verify=config.get("Parkour", "cert"),
-    )
+    with _parkourPostLock:
+        res = requests.post(
+            config.get("Parkour", "ResultsURL"),
+            auth=(config.get("Parkour", "user"), config.get("Parkour", "password")),
+            data=d,
+            verify=config.get("Parkour", "cert"),
+        )
     log.info(f"sendToParkour return {res}")
     return res
 
