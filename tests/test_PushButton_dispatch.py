@@ -105,3 +105,98 @@ class TestGetResultsReturnsWorkItems:
         assert msg == [
             ["1_A_Foo", "human", "stranded mRNA-Seq", None, None, None, False, None]
         ]
+
+
+def makeWorkItem(**kwargs):
+    base = {
+        "project": "1_A_Foo",
+        "group": "foo",
+        "pipeline": "RNA",
+        "organism": HUMAN,
+        "libraryType": "stranded mRNA-Seq",
+        "tuples": [["L1", "s1", "proto", True]],
+    }
+    base.update(kwargs)
+    return WorkItem(**base)
+
+
+def fakePhoneHome(config, outputDir, pipeline, tuples, organism, project, libType):
+    return [project, organism, libType, pipeline, "success", "PARKOUR_OK"]
+
+
+class TestRunOneGroup:
+    def test_success_first_try(self, tmp_path, monkeypatch):
+        config = dispatchConfig(tmp_path)
+        calls = []
+
+        def stub(config, group, project, organism, libraryType, tuples):
+            calls.append((group, project, libraryType))
+            return "/out", 0, False
+
+        monkeypatch.setattr(PushButton, "RNA", stub)
+        monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
+
+        result = PushButton.runOneGroup(config, makeWorkItem())
+
+        assert len(calls) == 1
+        assert calls[0] == ("foo", "1_A_Foo", "stranded mRNA-Seq")
+        assert result == [
+            [
+                "1_A_Foo",
+                "human",
+                "stranded mRNA-Seq",
+                "RNA",
+                "success",
+                "PARKOUR_OK",
+                False,
+                0,
+            ]
+        ]
+
+    def test_retries_once_then_succeeds(self, tmp_path, monkeypatch):
+        config = dispatchConfig(tmp_path)
+        calls = []
+
+        def stub(config, group, project, organism, libraryType, tuples):
+            calls.append(1)
+            return ("/out", 1, False) if len(calls) == 1 else ("/out", 0, True)
+
+        monkeypatch.setattr(PushButton, "RNA", stub)
+        monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
+
+        result = PushButton.runOneGroup(config, makeWorkItem())
+
+        assert len(calls) == 2
+        assert result[0][-2:] == [True, 1]
+        assert result[0][4] == "success"
+
+    def test_fails_twice_gives_FAILED_entry(self, tmp_path, monkeypatch):
+        config = dispatchConfig(tmp_path)
+        calls = []
+
+        def stub(config, group, project, organism, libraryType, tuples):
+            calls.append(1)
+            return "/out", 1, False
+
+        monkeypatch.setattr(PushButton, "RNA", stub)
+
+        def mustNotBeCalled(*args, **kwargs):
+            raise AssertionError("phoneHome must not run for a failed group")
+
+        monkeypatch.setattr(BRB.ET, "phoneHome", mustNotBeCalled)
+
+        result = PushButton.runOneGroup(config, makeWorkItem())
+
+        assert len(calls) == 2
+        assert result == [
+            [
+                "1_A_Foo",
+                "human",
+                "stranded mRNA-Seq",
+                "RNA",
+                "FAILED",
+                "not updated",
+                False,
+                1,
+            ]
+        ]

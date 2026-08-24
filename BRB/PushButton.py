@@ -928,6 +928,66 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     return outputDir, 0, True
 
 
+def runOneGroup(config, item):
+    """
+    Dispatch a single WorkItem: run its pipeline function, allow exactly one
+    re-run on a non-zero return, and build the message entry.
+
+    Returns a list of message entries (one entry on success or failure).
+    """
+    org_name, org_label, _org_yaml = item.organism
+    pipelineFn = globals()[item.pipeline]
+    reruncount = 0
+    outputDir, rv, sambaUpdate = pipelineFn(
+        config, item.group, item.project, item.organism, item.libraryType, item.tuples
+    )
+    if rv != 0:
+        # Allow for one re-run
+        reruncount += 1
+        outputDir, rv, sambaUpdate = pipelineFn(
+            config,
+            item.group,
+            item.project,
+            item.organism,
+            item.libraryType,
+            item.tuples,
+        )
+    if rv == 0:
+        log.debug(
+            f"BRB run for {item.pipeline} {org_label} {item.libraryType} {item.tuples} complete."
+        )
+        log.info(
+            f"Processed project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.libraryType}, {org_name}. Rerun = {reruncount}"
+        )
+        return [
+            BRB.ET.phoneHome(
+                config,
+                outputDir,
+                item.pipeline,
+                item.tuples,
+                org_name,
+                item.project,
+                item.libraryType,
+            )
+            + [sambaUpdate, reruncount]
+        ]
+    log.warning(
+        f"FAILED project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.libraryType}, {org_name}. Rerun = {reruncount}"
+    )
+    return [
+        [
+            item.project,
+            org_name,
+            item.libraryType,
+            item.pipeline,
+            "FAILED",
+            "not updated",
+            sambaUpdate,
+            reruncount,
+        ]
+    ]
+
+
 def GetResults(config, project, libraries):
     """
     Project is something like '352_Grzes_PearceEd' and libraries is a dictionary with libraries as keys:
