@@ -328,15 +328,37 @@ def cancelGroup(handle, scancelBin="scancel", grace=KILL_GRACE_SECONDS):
             subprocess.run([scancelBin, *job_ids], check=False, timeout=60)
         except (OSError, subprocess.SubprocessError) as err:
             log.error(f"scancel failed for {handle.outputDir}: {err}")
+    if procs:
+        _terminateDrivers(procs, handle.outputDir, grace)
+
+
+def _terminateDrivers(procs, outputDir, grace):
+    """
+    SIGTERM every driver, then give them all together `grace` seconds to exit
+    before SIGKILLing whatever is left. The deadline is shared, not per-driver,
+    so tearing down a flowcell with several stuck drivers still takes about
+    `grace` seconds, not `grace * len(procs)`.
+    """
+    signalled = []
     for proc in procs:
-        log.critical(f"SIGTERM to driver pid {proc.pid} for {handle.outputDir}")
+        log.critical(f"SIGTERM to driver pid {proc.pid} for {outputDir}")
         if _signalProcessGroup(proc, signal.SIGTERM):
+            signalled.append(proc)
+    deadline = time.monotonic() + grace
+    for proc in signalled:
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
             try:
-                proc.wait(timeout=grace)
+                proc.wait(timeout=remaining)
+                continue
             except subprocess.TimeoutExpired:
-                log.warning(
-                    f"Driver pid {proc.pid} still running {grace}s after SIGTERM."
-                )
+                pass
+        if proc.poll() is None:
+            log.warning(
+                f"Driver pid {proc.pid} for {outputDir} survived {grace}s of "
+                "SIGTERM; escalating to SIGKILL."
+            )
+            _signalProcessGroup(proc, signal.SIGKILL)
 
 
 def cancelAllGroups(registry, scancelBin="scancel", grace=KILL_GRACE_SECONDS):

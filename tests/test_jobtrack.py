@@ -494,3 +494,56 @@ class TestCancelAllGroups:
         assert len(calls) == 2
         assert reg.active_groups() == []
         assert not (tmp_path / "a" / "running.pid").exists()
+
+
+class StubbornProc:
+    """Ignores SIGTERM: wait() always times out, poll() always says running."""
+
+    def __init__(self, pid=5555):
+        self.pid = pid
+
+    def poll(self):
+        return None
+
+    def wait(self, timeout=None):
+        raise subprocess.TimeoutExpired(cmd="driver", timeout=timeout)
+
+
+class TestKillEscalation:
+    def test_stuck_driver_gets_sigkill_after_the_grace(self, tmp_path, monkeypatch):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        handle.add_process(StubbornProc(pid=5555))
+        signals = []
+        monkeypatch.setattr(jobtrack.os, "getpgid", lambda pid: pid)
+        monkeypatch.setattr(
+            jobtrack.os, "killpg", lambda pgid, sig: signals.append((pgid, sig))
+        )
+        jobtrack.cancelGroup(handle, grace=0.01)
+        assert signals == [
+            (5555, signal.SIGTERM),
+            (5555, signal.SIGKILL),
+        ]
+
+    def test_cooperative_driver_is_not_sigkilled(self, tmp_path, monkeypatch):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        handle.add_process(FakeProc(pid=6666))
+        signals = []
+        monkeypatch.setattr(jobtrack.os, "getpgid", lambda pid: pid)
+        monkeypatch.setattr(
+            jobtrack.os, "killpg", lambda pgid, sig: signals.append((pgid, sig))
+        )
+        jobtrack.cancelGroup(handle, grace=5)
+        assert signals == [(6666, signal.SIGTERM)]
+
+    def test_default_grace_is_ten_seconds(self):
+        assert jobtrack.KILL_GRACE_SECONDS == 10
+
+    def test_grace_is_shared_across_drivers_not_per_driver(self, tmp_path, monkeypatch):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        handle.add_process(StubbornProc(pid=1))
+        handle.add_process(StubbornProc(pid=2))
+        monkeypatch.setattr(jobtrack.os, "getpgid", lambda pid: pid)
+        monkeypatch.setattr(jobtrack.os, "killpg", lambda pgid, sig: None)
+        started = time.monotonic()
+        jobtrack.cancelGroup(handle, grace=0.05)
+        assert time.monotonic() - started < 0.5
