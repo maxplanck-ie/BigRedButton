@@ -3,13 +3,13 @@ import glob
 import os
 import shutil
 import stat
-import subprocess
 import time
 from collections import namedtuple
 from pathlib import Path
 
 import BRB.ET
 import BRB.misc
+from BRB.jobtrack import runManagedSubprocess
 from BRB.logger import log
 
 # One entry per (pipeline, organism, libraryType) group within a project.
@@ -361,7 +361,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
         )
     log.info(f"RNA wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
@@ -469,7 +469,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         ]
         log.info(f"RELACS demux wf CMD: {CMD}")
         try:
-            subprocess.check_call(" ".join(CMD), shell=True, cwd=outputDir)
+            runManagedSubprocess(" ".join(CMD), cwd=outputDir)
         except:
             return outputDir, 1, False
 
@@ -508,7 +508,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     ]
     log.info(f"RELACS DNA wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
@@ -585,7 +585,7 @@ def deliverExternalRELACS(config, outputDir, project):
             fexRecipient,
         )
         log.info(f"External delivery CMD: {CMD}")
-        subprocess.check_call(CMD, shell=True, cwd=outputDir)
+        runManagedSubprocess(CMD, cwd=outputDir)
         open(doneMarker, "w").close()
     except:
         log.error(
@@ -668,7 +668,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
         ]
     log.info(f"DNA wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
@@ -699,7 +699,7 @@ def WGBS(config, group, project, organism, libraryType, tuples):
     CMD = [CMD, "WGBS", "--DAG", "--trim", "-i", outputDir, "-o", outputDir, org_yaml]
     log.info(f"WGBS wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
@@ -736,7 +736,7 @@ def ATAC(config, group, project, organism, libraryType, tuples):
     CMD = [CMD, "ATACseq", "--DAG", "-d", outputDir, org_yaml]
     log.info(f"ATAC wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     tidyUpABit(outputDir)
@@ -782,7 +782,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         ]
         log.info(f"scRNA wf CMD: {' '.join(CMD)}")
         try:
-            subprocess.check_call(" ".join(CMD), shell=True)
+            runManagedSubprocess(" ".join(CMD))
         except:
             return outputDir, 1, False
         removeLinkFiles(outputDir)
@@ -809,7 +809,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         ]
         log.info(f"scRNA wf CMD: {CMD}")
         try:
-            subprocess.check_call(" ".join(CMD), shell=True)
+            runManagedSubprocess(" ".join(CMD))
         except:
             return outputDir, 1, False
         removeLinkFiles(outputDir)
@@ -860,7 +860,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
     ]
     log.info(f"HiC wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
@@ -887,7 +887,7 @@ def makePairs(config, group, project, organism, libraryType, tuples):
     CMD = [CMD, "makePairs", "--DAG", "-i", outputDir, "-o", outputDir, org_yaml]
     log.info(f"makePairs wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
@@ -942,7 +942,7 @@ def scATAC(config, group, project, organism, libraryType, tuples):
 
         log.info(f"scATAC wf CMD: {CMD}")
         try:
-            subprocess.check_call(CMD, shell=True)
+            runManagedSubprocess(CMD)
         except:
             return outputDir, 1, False
         # removeLinkFiles(outputDir)

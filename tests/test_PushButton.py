@@ -1,4 +1,5 @@
 import configparser
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -285,7 +286,7 @@ class TestDeliverExternalRELACS:
     def test_truncates_intermediate_gz_files(self, tmp_path):
         outputDir = self._make_output_dir(tmp_path)
         config = make_config()
-        with patch("BRB.PushButton.subprocess.check_call") as mock_call:
+        with patch("BRB.PushButton.runManagedSubprocess") as mock_call:
             deliverExternalRELACS(config, str(outputDir), "99_Foo_Bar")
         assert mock_call.called
         gz1 = outputDir / "RELACS_demultiplexing" / "Sample_1" / "a_R1.fastq.gz"
@@ -298,7 +299,7 @@ class TestDeliverExternalRELACS:
     ):
         outputDir = self._make_output_dir(tmp_path)
         config = make_config()
-        with patch("BRB.PushButton.subprocess.check_call") as mock_call:
+        with patch("BRB.PushButton.runManagedSubprocess") as mock_call:
             deliverExternalRELACS(config, str(outputDir), "99_Foo_Bar")
         cmd = mock_call.call_args[0][0]
         assert "Bowtie2" in cmd
@@ -316,7 +317,7 @@ class TestDeliverExternalRELACS:
     def test_creates_done_marker_on_success(self, tmp_path):
         outputDir = self._make_output_dir(tmp_path)
         config = make_config()
-        with patch("BRB.PushButton.subprocess.check_call"):
+        with patch("BRB.PushButton.runManagedSubprocess"):
             deliverExternalRELACS(config, str(outputDir), "99_Foo_Bar")
         assert (outputDir / "external_delivery.done").exists()
 
@@ -324,14 +325,14 @@ class TestDeliverExternalRELACS:
         outputDir = self._make_output_dir(tmp_path)
         (outputDir / "external_delivery.done").touch()
         config = make_config()
-        with patch("BRB.PushButton.subprocess.check_call") as mock_call:
+        with patch("BRB.PushButton.runManagedSubprocess") as mock_call:
             deliverExternalRELACS(config, str(outputDir), "99_Foo_Bar")
         mock_call.assert_not_called()
 
     def test_failure_is_logged_not_raised(self, tmp_path):
         outputDir = self._make_output_dir(tmp_path)
         config = make_config()
-        with patch("BRB.PushButton.subprocess.check_call", side_effect=OSError("boom")):
+        with patch("BRB.PushButton.runManagedSubprocess", side_effect=OSError("boom")):
             deliverExternalRELACS(config, str(outputDir), "99_Foo_Bar")
         assert not (outputDir / "external_delivery.done").exists()
 
@@ -376,7 +377,7 @@ class TestRELACSExternalPaths:
     @patch("BRB.PushButton.createPath")
     @patch("BRB.PushButton.copyRELACS")
     @patch("BRB.PushButton.deliverExternalRELACS")
-    @patch("BRB.PushButton.subprocess.check_call")
+    @patch("BRB.PushButton.runManagedSubprocess")
     @patch("BRB.PushButton.glob.glob")
     def test_external_uses_baseData_not_groupData(
         self,
@@ -425,7 +426,7 @@ class TestRELACSExternalPaths:
 
     @patch("BRB.PushButton.createPath")
     @patch("BRB.PushButton.deliverExternalRELACS")
-    @patch("BRB.PushButton.subprocess.check_call")
+    @patch("BRB.PushButton.runManagedSubprocess")
     @patch("BRB.PushButton.glob.glob")
     def test_internal_uses_groupData_and_skips_delivery(
         self, mock_glob, mock_check_call, mock_deliver, mock_createPath, tmp_path
@@ -530,3 +531,63 @@ class TestRelinkFilesUniqueMultiqcName:
             "Analysisproj_ChIP-Seq_hg38_multiqc.html",
             "Analysisproj_strandedmRNA-Seq_mm10_multiqc.html",
         ]
+
+
+class TestManagedSubprocessCallSites:
+    def test_no_check_call_remains(self):
+        source = Path(PushButton.__file__).read_text()
+        assert "subprocess.check_call" not in source
+
+    def test_all_twelve_sites_converted(self):
+        source = Path(PushButton.__file__).read_text()
+        assert source.count("runManagedSubprocess(") == 12
+
+    def test_the_two_cwd_sites_keep_their_cwd(self):
+        source = Path(PushButton.__file__).read_text()
+        assert source.count("runManagedSubprocess(CMD, cwd=outputDir)") == 1
+        assert source.count('runManagedSubprocess(" ".join(CMD), cwd=outputDir)') == 1
+
+    def test_rna_uses_the_managed_runner(self, tmp_path, monkeypatch):
+        config = make_config()
+        calls = []
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(tmp_path))
+        monkeypatch.setattr(PushButton, "linkFiles", lambda *a, **k: True)
+        monkeypatch.setattr(PushButton, "removeLinkFiles", lambda *a, **k: None)
+        monkeypatch.setattr(PushButton, "relinkFiles", lambda *a, **k: None)
+        monkeypatch.setattr(PushButton, "tidyUpABit", lambda *a, **k: None)
+        monkeypatch.setattr(
+            PushButton,
+            "runManagedSubprocess",
+            lambda cmd, **kw: calls.append((cmd, kw)) or 0,
+        )
+        _outputDir, rv, _samba = PushButton.RNA(
+            config,
+            "grp",
+            "1_Doe_Smith",
+            ("mouse", "GRCm38", "/yaml/GRCm38.yaml"),
+            "stranded mRNA-Seq",
+            [["18L001", "sampleA", "TruSeq", False]],
+        )
+        assert rv == 0
+        assert len(calls) == 1
+        assert "mRNAseq" in calls[0][0]
+        assert calls[0][1] == {}
+
+    def test_rna_still_returns_rv_1_when_the_command_fails(self, tmp_path, monkeypatch):
+        config = make_config()
+
+        def boom(cmd, **kw):
+            raise subprocess.CalledProcessError(1, cmd)
+
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(tmp_path))
+        monkeypatch.setattr(PushButton, "linkFiles", lambda *a, **k: True)
+        monkeypatch.setattr(PushButton, "runManagedSubprocess", boom)
+        _outputDir, rv, _samba = PushButton.RNA(
+            config,
+            "grp",
+            "1_Doe_Smith",
+            ("mouse", "GRCm38", "/yaml/GRCm38.yaml"),
+            "stranded mRNA-Seq",
+            [["18L001", "sampleA", "TruSeq", False]],
+        )
+        assert rv == 1
