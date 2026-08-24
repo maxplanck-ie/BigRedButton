@@ -1016,3 +1016,32 @@ class TestPoolSize:
         monkeypatch.setattr(PushButton, "runOneGroup", lambda *a, **k: ["ok"])
         PushButton.runFlowcell(make_config(), {"1_Doe_Smith": {}}, None, maxWorkers=3)
         assert widths == [3]
+
+
+class TestScancelBin:
+    def test_default_is_the_bare_binary_name(self):
+        assert PushButton.scancelBin(make_config()) == "scancel"
+
+    def test_ini_value_wins(self):
+        config = make_config({"Options": {"scancelBin": "/opt/slurm/bin/scancel"}})
+        assert PushButton.scancelBin(config) == "/opt/slurm/bin/scancel"
+
+    def test_runflowcell_threads_it_into_cancelallgroups(self, tmp_path, monkeypatch):
+        config = make_config({"Options": {"scancelBin": "/opt/slurm/bin/scancel"}})
+        seen = []
+        monkeypatch.setattr(
+            PushButton.BRB.jobtrack,
+            "cancelAllGroups",
+            lambda registry, **kw: seen.append(kw.get("scancelBin")),
+        )
+        items = [make_item(tmp_path)]
+        monkeypatch.setattr(PushButton, "GetResults", lambda *a, **k: (items, []))
+        monkeypatch.setattr(os.path, "exists", lambda p: True)
+        monkeypatch.setattr(
+            PushButton,
+            "runOneGroup",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        with pytest.raises(PushButton.GroupDispatchError):
+            PushButton.runFlowcell(config, {"1_Doe_Smith": {}})
+        assert seen == ["/opt/slurm/bin/scancel"]

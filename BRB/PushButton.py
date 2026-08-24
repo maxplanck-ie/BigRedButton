@@ -56,6 +56,18 @@ def poolSize(config, sequencer=None):
     return value
 
 
+def scancelBin(config):
+    """
+    Path to the `scancel` binary, or bare "scancel" to resolve it off PATH.
+
+    On hosts where Slurm's client binaries only appear on PATH after
+    `module load slurm` (rapidus, at least), a plain "scancel" is not on
+    run_brb's PATH, so `[Options] scancelBin` lets an operator point at the
+    resolved absolute path instead.
+    """
+    return config.get("Options", "scancelBin", fallback="scancel")
+
+
 class GroupDispatchError(RuntimeError):
     """
     Raised by runFlowcell when one or more worker threads raised. `failures`
@@ -1349,7 +1361,7 @@ def runFlowcell(config, ParkourDict, registry=None, maxWorkers=None):
             # already-done failures -- this is what keeps that drain fast,
             # since cancelled drivers exit instead of blocking for hours of
             # Slurm queue time. Must fire exactly once per crash.
-            BRB.jobtrack.cancelAllGroups(registry)
+            BRB.jobtrack.cancelAllGroups(registry, scancelBin=scancelBin(config))
             break
         msg.extend(future.result())
 

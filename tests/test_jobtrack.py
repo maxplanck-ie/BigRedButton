@@ -331,6 +331,20 @@ class TestRunManagedSubprocess:
             jobtrack.runManagedSubprocess("echo hello-from-driver")
         assert "hello-from-driver" in caplog.text
 
+    def test_output_is_attributed_to_its_group_when_a_handle_is_bound(
+        self, tmp_path, caplog
+    ):
+        handle = jobtrack.JobRegistry().register_group(tmp_path / "smith")
+        with caplog.at_level("INFO"):
+            jobtrack.runManagedSubprocess("echo hello-from-driver", handle=handle)
+        assert "[smith] hello-from-driver" in caplog.text
+
+    def test_output_has_no_group_prefix_without_a_bound_handle(self, caplog):
+        with caplog.at_level("INFO"):
+            jobtrack.runManagedSubprocess("echo hello-from-driver")
+        [record] = [r for r in caplog.records if "hello-from-driver" in r.message]
+        assert record.message == "hello-from-driver"
+
     def test_stderr_is_captured_too(self, caplog):
         with caplog.at_level("INFO"):
             jobtrack.runManagedSubprocess("echo oops >&2")
@@ -588,3 +602,44 @@ class TestKillEscalation:
         started = time.monotonic()
         jobtrack.cancelGroup(handle, grace=0.05)
         assert time.monotonic() - started < 0.5
+
+
+class TestRealProcessGroupSignalling:
+    """
+    Every other cancellation test uses FakeProc/StubbornProc stand-ins. The
+    thing the whole design leans on -- that SIGTERM to a driver's process
+    group also reaps its own children, not just the driver itself -- was
+    never exercised against a real OS process tree. This spawns one.
+    """
+
+    def test_sigterm_reaches_the_driver_and_its_grandchild(self, tmp_path):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        grandchildPidFile = tmp_path / "grandchild.pid"
+        # The driver (the shell runManagedSubprocess starts) backgrounds a
+        # sleep, records its pid, then waits on it -- standing in for a
+        # snakemake driver whose own children are what must die with it.
+        cmd = f"sleep 30 & echo $! > {grandchildPidFile}; wait"
+
+        result = {}
+
+        def drive():
+            try:
+                result["returncode"] = jobtrack.runManagedSubprocess(cmd, handle=handle)
+            except subprocess.CalledProcessError as err:
+                result["returncode"] = err.returncode
+
+        driverThread = threading.Thread(target=drive)
+        driverThread.start()
+
+        deadline = time.monotonic() + 5
+        while not grandchildPidFile.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert grandchildPidFile.exists(), "grandchild never started"
+        grandchildPid = int(grandchildPidFile.read_text().strip())
+        assert jobtrack._pidAlive(grandchildPid)
+
+        jobtrack.cancelGroup(handle, grace=5)
+        driverThread.join(timeout=5)
+
+        assert not driverThread.is_alive()
+        assert not jobtrack._pidAlive(grandchildPid)

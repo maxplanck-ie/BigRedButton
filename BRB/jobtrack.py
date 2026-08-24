@@ -271,10 +271,11 @@ def runManagedSubprocess(cmd, cwd=None, handle=None):
     )
     if handle is not None:
         handle.add_process(proc)
+    prefix = f"[{os.path.basename(handle.outputDir)}] " if handle is not None else ""
     try:
         for line in proc.stdout:
             line = line.rstrip("\n")
-            log.info(line)
+            log.info(f"{prefix}{line}")
             if handle is None:
                 continue
             found = parseJobIds(line)
