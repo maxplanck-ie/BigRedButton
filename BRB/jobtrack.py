@@ -6,9 +6,13 @@ work. Deliberately in-memory and per-process: `run_brb -s illumina` and
 the other's jobs.
 """
 
+import json
+import os
 import threading
+import time
 from contextlib import contextmanager
 from contextvars import ContextVar
+from pathlib import Path
 
 from BRB.logger import log
 
@@ -104,3 +108,114 @@ def bindGroup(handle):
         yield handle
     finally:
         _currentHandle.reset(token)
+
+
+MARKER_NAME = "running.pid"
+
+MARKER_ABSENT = "absent"
+MARKER_LIVE = "live"
+MARKER_ABANDONED = "abandoned"
+MARKER_CORRUPT = "corrupt"
+
+
+def markerPath(outputDir):
+    return Path(outputDir) / MARKER_NAME
+
+
+def _atomicWrite(outputDir, payload):
+    """
+    Write the marker via a temp file + os.replace, so a crash mid-write can
+    never leave a half-written marker behind (see markerState's CORRUPT case).
+    """
+    target = markerPath(outputDir)
+    tmp = target.parent / (MARKER_NAME + ".tmp")
+    tmp.write_text(json.dumps(payload))
+    os.replace(tmp, target)
+    return payload
+
+
+def writeMarker(outputDir, pid=None, job_ids=None, cancelled=False):
+    """Claim ownership of `outputDir` for this process."""
+    return _atomicWrite(
+        outputDir,
+        {
+            "pid": os.getpid() if pid is None else pid,
+            "started": time.time(),
+            "job_ids": list(job_ids or []),
+            "cancelled": bool(cancelled),
+        },
+    )
+
+
+def readMarker(outputDir):
+    """The parsed marker dict, or None if it is absent or not a JSON object."""
+    try:
+        data = json.loads(markerPath(outputDir).read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def updateMarkerJobIds(outputDir, job_ids):
+    """Rewrite the marker's job_ids, keeping pid/started/cancelled as they were."""
+    existing = readMarker(outputDir) or {}
+    return _atomicWrite(
+        outputDir,
+        {
+            "pid": existing.get("pid", os.getpid()),
+            "started": existing.get("started", time.time()),
+            "job_ids": list(job_ids),
+            "cancelled": bool(existing.get("cancelled", False)),
+        },
+    )
+
+
+def markMarkerCancelled(outputDir):
+    """
+    Flag the marker as cancelled *before* the scancel/SIGTERM goes out, so a
+    crash handler that dies partway still leaves a readable marker that says
+    what happened.
+    """
+    existing = readMarker(outputDir)
+    if existing is None:
+        return None
+    existing["cancelled"] = True
+    return _atomicWrite(outputDir, existing)
+
+
+def clearMarker(outputDir):
+    markerPath(outputDir).unlink(missing_ok=True)
+
+
+def _pidAlive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Someone else's process: alive, just not ours to signal.
+        return True
+    except OSError:
+        return True
+    return True
+
+
+def markerState(outputDir):
+    """
+    Classify `outputDir`'s ownership marker as (state, marker).
+
+    ABSENT     -> nobody owns it, dispatch normally.
+    LIVE       -> another live process owns it, skip this group this pass.
+    ABANDONED  -> the owner is gone, remove the marker and dispatch.
+    CORRUPT    -> unreadable; it cannot prove the owner is dead, so skip the
+                  group and let an operator clear it by hand.
+    """
+    path = markerPath(outputDir)
+    if not path.exists():
+        return (MARKER_ABSENT, None)
+    marker = readMarker(outputDir)
+    if marker is None or not isinstance(marker.get("pid"), int):
+        return (MARKER_CORRUPT, None)
+    if _pidAlive(marker["pid"]):
+        return (MARKER_LIVE, marker)
+    return (MARKER_ABANDONED, marker)

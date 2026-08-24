@@ -1,3 +1,5 @@
+import json
+import os
 import threading
 
 import pytest
@@ -121,3 +123,109 @@ class TestBindGroup:
             t.start()
             t.join()
         assert seen == [None]
+
+
+class TestMarker:
+    def test_write_then_read_round_trips(self, tmp_path):
+        written = jobtrack.writeMarker(tmp_path, job_ids=["7", "8"])
+        read = jobtrack.readMarker(tmp_path)
+        assert read == written
+        assert read["pid"] == os.getpid()
+        assert read["job_ids"] == ["7", "8"]
+        assert read["cancelled"] is False
+        assert isinstance(read["started"], float)
+
+    def test_marker_lands_at_running_pid(self, tmp_path):
+        jobtrack.writeMarker(tmp_path)
+        assert (tmp_path / "running.pid").exists()
+        assert jobtrack.MARKER_NAME == "running.pid"
+
+    def test_write_defaults_to_empty_job_ids(self, tmp_path):
+        assert jobtrack.writeMarker(tmp_path)["job_ids"] == []
+
+    def test_read_absent_marker_is_none(self, tmp_path):
+        assert jobtrack.readMarker(tmp_path) is None
+
+    def test_update_job_ids_preserves_pid_and_started(self, tmp_path):
+        first = jobtrack.writeMarker(tmp_path, pid=4242)
+        updated = jobtrack.updateMarkerJobIds(tmp_path, ["101"])
+        assert updated["pid"] == 4242
+        assert updated["started"] == first["started"]
+        assert updated["job_ids"] == ["101"]
+
+    def test_update_job_ids_on_absent_marker_creates_one(self, tmp_path):
+        updated = jobtrack.updateMarkerJobIds(tmp_path, ["55"])
+        assert jobtrack.readMarker(tmp_path)["job_ids"] == ["55"]
+        assert updated["pid"] == os.getpid()
+
+    def test_mark_cancelled_sets_the_flag(self, tmp_path):
+        jobtrack.writeMarker(tmp_path, job_ids=["9"])
+        assert jobtrack.markMarkerCancelled(tmp_path)["cancelled"] is True
+        assert jobtrack.readMarker(tmp_path)["job_ids"] == ["9"]
+
+    def test_mark_cancelled_on_absent_marker_is_none(self, tmp_path):
+        assert jobtrack.markMarkerCancelled(tmp_path) is None
+
+    def test_clear_marker_removes_it(self, tmp_path):
+        jobtrack.writeMarker(tmp_path)
+        jobtrack.clearMarker(tmp_path)
+        assert not (tmp_path / "running.pid").exists()
+
+    def test_clear_marker_is_idempotent(self, tmp_path):
+        jobtrack.clearMarker(tmp_path)
+        jobtrack.clearMarker(tmp_path)
+
+    def test_no_tempfile_left_behind(self, tmp_path):
+        jobtrack.writeMarker(tmp_path, job_ids=["1"])
+        jobtrack.updateMarkerJobIds(tmp_path, ["1", "2"])
+        assert [p.name for p in tmp_path.iterdir()] == ["running.pid"]
+
+
+class TestMarkerState:
+    def test_absent(self, tmp_path):
+        assert jobtrack.markerState(tmp_path) == (jobtrack.MARKER_ABSENT, None)
+
+    def test_live_pid_is_live(self, tmp_path):
+        jobtrack.writeMarker(tmp_path)
+        state, marker = jobtrack.markerState(tmp_path)
+        assert state == jobtrack.MARKER_LIVE
+        assert marker["pid"] == os.getpid()
+
+    def test_dead_pid_is_abandoned(self, tmp_path, monkeypatch):
+        jobtrack.writeMarker(tmp_path, pid=999999)
+        monkeypatch.setattr(jobtrack.os, "kill", _raise_no_such_process, raising=True)
+        state, marker = jobtrack.markerState(tmp_path)
+        assert state == jobtrack.MARKER_ABANDONED
+        assert marker["pid"] == 999999
+
+    def test_cancelled_dead_marker_is_still_abandoned(self, tmp_path, monkeypatch):
+        jobtrack.writeMarker(tmp_path, pid=999999, job_ids=["3"], cancelled=True)
+        monkeypatch.setattr(jobtrack.os, "kill", _raise_no_such_process)
+        state, marker = jobtrack.markerState(tmp_path)
+        assert state == jobtrack.MARKER_ABANDONED
+        assert marker["cancelled"] is True
+
+    def test_truncated_marker_is_corrupt(self, tmp_path):
+        (tmp_path / "running.pid").write_text('{"pid": 12')
+        assert jobtrack.markerState(tmp_path) == (jobtrack.MARKER_CORRUPT, None)
+
+    def test_marker_without_pid_is_corrupt(self, tmp_path):
+        (tmp_path / "running.pid").write_text(json.dumps({"job_ids": []}))
+        assert jobtrack.markerState(tmp_path) == (jobtrack.MARKER_CORRUPT, None)
+
+    def test_non_object_marker_is_corrupt(self, tmp_path):
+        (tmp_path / "running.pid").write_text("[1, 2, 3]")
+        assert jobtrack.markerState(tmp_path) == (jobtrack.MARKER_CORRUPT, None)
+
+    def test_permission_error_counts_as_live(self, tmp_path, monkeypatch):
+        jobtrack.writeMarker(tmp_path, pid=1)
+
+        def _perm(pid, sig):
+            raise PermissionError
+
+        monkeypatch.setattr(jobtrack.os, "kill", _perm)
+        assert jobtrack.markerState(tmp_path)[0] == jobtrack.MARKER_LIVE
+
+
+def _raise_no_such_process(pid, sig):
+    raise ProcessLookupError
