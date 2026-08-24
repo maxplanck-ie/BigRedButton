@@ -255,15 +255,22 @@ def copyRELACS(config, d):
     lane_dir = Path(d).parents[1].stem
     _current_year, year_postfix = getsambaPath(lane_dir, sequencing_type)
     log.info(f"copyRELACS - copying over RELACS files to samba path {year_postfix}")
+    # `d` is .../Analysis_<proj>/<libraryType>_<orgLabel> -- its stem is
+    # already the filesystem-safe (pacified) <libraryType>_<orgLabel>
+    # component. Two library-groups of the same project run concurrently
+    # under the Phase 1 thread pool and would otherwise collide on the same
+    # destination filename in both seqFacDir and bioinfoCoreDir (the same
+    # class of bug relinkFiles's multiqc naming was already fixed for).
+    groupStem = Path(d).stem
     for fname in files:
         # to seqfac dir.
         nname = fname.split("/")
         if ".html" in fname:
             # ['', 'data', PI, seqdat, fid, analysis, libtype, multiqc, mqc.html]
-            nname = "_".join([nname[-4], "RELACS_analysis.html"])
+            nname = "_".join([nname[-4], groupStem, "RELACS_analysis.html"])
         else:
             # ['', data, PI, seqdat, fid, analysis, libtype, RELACS_demultiplexing, Sample_1, mark_fig.png]
-            nname = "_".join([nname[-5], nname[-3], nname[-1]])
+            nname = "_".join([nname[-5], groupStem, nname[-3], nname[-1]])
         # make lane directory in seqFacDir and copy it over
         seqfac_lane_dir = (
             Path(config.get("Paths", "seqFacDir")) / year_postfix / lane_dir

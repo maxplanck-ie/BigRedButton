@@ -195,6 +195,74 @@ class TestCopyRELACSAlwaysRuns:
         assert "ignore" not in inspect.signature(copyRELACS).parameters
 
 
+class TestCopyRELACSUniqueGroupName:
+    """
+    Two library-groups of the same project (different libraryType or
+    organism) must not copy their png/html QC files to the same destination
+    filename in seqFacDir or bioinfoCoreDir -- under the Phase 1 thread pool
+    they would be writing there concurrently. Mirrors
+    TestRelinkFilesUniqueMultiqcName's coverage of the same class of bug in
+    relinkFiles's multiqc destination naming.
+    """
+
+    def _make_output_dir(self, tmp_path, libraryType, org_label):
+        outputDir = (
+            tmp_path
+            / "20260101_AV999999_1234567_lanes_1_2"
+            / "Analysis_99_Foo_Bar"
+            / f"{libraryType}_{org_label}"
+        )
+        (outputDir / "RELACS_demultiplexing" / "Sample_1").mkdir(parents=True)
+        (outputDir / "RELACS_demultiplexing" / "Sample_1" / "mark_fig.png").write_text(
+            libraryType + org_label
+        )
+        (outputDir / "multiQC").mkdir(parents=True)
+        (outputDir / "multiQC" / "multiqc_report.html").write_text(
+            libraryType + org_label
+        )
+        return outputDir
+
+    def test_two_groups_get_distinct_html_and_png_filenames(self, tmp_path):
+        seqfac = tmp_path / "seqfac"
+        bioinfocore = tmp_path / "bioinfocore"
+        bioinfocore.mkdir()
+        config = make_config(
+            overrides={
+                "Paths": {"seqFacDir": str(seqfac), "bioinfoCoreDir": str(bioinfocore)}
+            }
+        )
+
+        for libraryType, org_label in (
+            ("ChIP-Seq", "hg38"),
+            ("CUTandTag-seq", "mm10"),
+        ):
+            outputDir = self._make_output_dir(tmp_path, libraryType, org_label)
+            copyRELACS(config, str(outputDir))
+
+        bioinfocore_pngs = {
+            f.name for f in bioinfocore.iterdir() if f.name.endswith(".png")
+        }
+        bioinfocore_htmls = {
+            f.name for f in bioinfocore.iterdir() if f.name.endswith(".html")
+        }
+        assert len(bioinfocore_pngs) == 2, (
+            f"expected two distinct png filenames, got {bioinfocore_pngs}"
+        )
+        assert len(bioinfocore_htmls) == 2, (
+            f"expected two distinct html filenames, got {bioinfocore_htmls}"
+        )
+
+        seqfac_files = list(seqfac.rglob("*"))
+        seqfac_pngs = {f.name for f in seqfac_files if f.name.endswith(".png")}
+        seqfac_htmls = {f.name for f in seqfac_files if f.name.endswith(".html")}
+        assert len(seqfac_pngs) == 2, (
+            f"expected two distinct png filenames, got {seqfac_pngs}"
+        )
+        assert len(seqfac_htmls) == 2, (
+            f"expected two distinct html filenames, got {seqfac_htmls}"
+        )
+
+
 class TestDeliverExternalRELACS:
     def _make_output_dir(self, tmp_path):
         outputDir = tmp_path / "Analysis_99_Foo_Bar" / "ChIP-Seq_h38"
