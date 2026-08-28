@@ -51,9 +51,7 @@ def run_brb(configfile, sequencer):
             config["Paths"]["logPath"], config.get("Options", "runID") + ".log"
         )
         logFile.parent.mkdir(parents=True, exist_ok=True)
-        print(
-            f"Logging into: {logFile}. Follow job progress in another tmux pane: tail -f {logFile}"
-        )
+        print(f"Logging into: {logFile}")
         setLog(logFile)
 
         # Dispatch every project's library-groups through the flowcell-wide
