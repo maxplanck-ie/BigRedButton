@@ -200,11 +200,35 @@ def relinkFiles(config, group, project, org_label, libraryType, tuples):
         log.info(f"no multiqc report under {mqcf}.")
 
 
+# Aviti serial IDs (2nd '_'-field of lane_dir, e.g. "AV251009") map to the
+# fixed facility-share folder name for that physical machine. Not derived
+# from year/date -- a machine keeps the same folder name across every year
+# it runs in (e.g. AVITI24_2025 and AVITI24_2026 are the same machine).
+# Multiple Aviti machines can be in service at once (confirmed 2026-08:
+# AV251009 -> AVITI24, AV261103 -> AVITI), so a single hardcoded "AVITI24"
+# prefix silently misroutes every machine but the first. Keep this in sync
+# with dissectBCL's AVITI_MACHINE_NAMES (src/dissectBCL/misc.py).
+AVITI_MACHINE_NAMES = {
+    "AV251009": "AVITI24",
+    "AV261103": "AVITI",
+}
+
+
 def getsambaPath(lane_dir, Sequencer):
     if Sequencer == "Aviti":
         current_year = str(lane_dir)[0:4]
+        parts = str(lane_dir).split("_")
+        serial = parts[1] if len(parts) > 1 else str(lane_dir)
+        aviti_name = AVITI_MACHINE_NAMES.get(serial)
+        if aviti_name is None:
+            log.warning(
+                f"getsambaPath - unrecognized Aviti serial {serial!r}, "
+                "add it to AVITI_MACHINE_NAMES. Falling back to using the "
+                "serial itself as the folder name."
+            )
+            aviti_name = serial
         year_postfix = Path("Sequence_Quality_" + current_year) / Path(
-            "AVITI24_" + current_year
+            aviti_name + "_" + current_year
         )
     else:
         current_year = "20" + str(lane_dir)[0:2]
