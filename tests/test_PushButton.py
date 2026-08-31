@@ -12,6 +12,7 @@ from BRB.PushButton import (
     copyCellRanger,
     copyRELACS,
     deliverExternalRELACS,
+    getsambaPath,
     isExternallyAllowed,
     parseExternalAllowlist,
 )
@@ -146,6 +147,26 @@ class TestInternalShareSkip:
         # missing bioinfoCoreDir key.
         tuples = [["lib1", "sample1", "protocol", True]]
         PushButton.relinkFiles(config, "group", "proj", "org", "ChIP-Seq", tuples)
+
+
+class TestGetSambaPathAvitiMachineFolder:
+    def test_avitI24_serial_routes_to_avitI24_folder(self):
+        _, year_postfix = getsambaPath(
+            "20260113_AV251009_2515519044_lanes_1_2", "Aviti"
+        )
+        assert year_postfix == Path("Sequence_Quality_2026") / "AVITI24_2026"
+
+    def test_aviti_serial_routes_to_aviti_folder(self):
+        _, year_postfix = getsambaPath(
+            "20260821_AV261103_2543602358_lanes_1_2", "Aviti"
+        )
+        assert year_postfix == Path("Sequence_Quality_2026") / "AVITI_2026"
+
+    def test_unrecognized_aviti_serial_falls_back_to_serial_name(self):
+        _, year_postfix = getsambaPath(
+            "20270101_AV271234_1234567890_lanes_1_2", "Aviti"
+        )
+        assert year_postfix == Path("Sequence_Quality_2027") / "AV271234_2027"
 
 
 class TestCopyRELACSAlwaysRuns:
