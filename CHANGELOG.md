@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.7.1...v0.8.0) (2026-08-31)
+
+
+### Features
+
+* Dispatch a flowcell's library-groups concurrently through a bounded thread pool ([#145](https://github.com/maxplanck-ie/BigRedButton/issues/145)) ([061c90a](https://github.com/maxplanck-ie/BigRedButton/commit/061c90a7bb8169caba8161f5653dfd24bdbf431b))
+
 ## [0.7.1](https://github.com/maxplanck-ie/BigRedButton/compare/v0.7.0...v0.7.1) (2026-08-24)
 
 
