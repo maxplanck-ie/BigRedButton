@@ -1,13 +1,83 @@
+import concurrent.futures
 import glob
 import os
 import shutil
 import stat
-import subprocess
+from collections import namedtuple
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import BRB.ET
+import BRB.jobtrack
 import BRB.misc
+from BRB.jobtrack import runManagedSubprocess
 from BRB.logger import log
+
+# One entry per (pipeline, organism, libraryType) group within a project.
+# `project` is the raw, unpacified Parkour project name -- the pipeline
+# functions pacify it themselves (RELACS needs the unpacified name to find
+# its original sample sheet). `organism` is the (org_name, org_label,
+# org_yaml) 3-tuple; org_label is deliberately not duplicated as its own
+# field, so the two can't drift apart.
+WorkItem = namedtuple(
+    "WorkItem", ["project", "group", "pipeline", "organism", "libraryType", "tuples"]
+)
+
+# Name of the per-group ownership marker written into the group's outputDir.
+MARKER_NAME = "running.pid"
+
+# Fixed for now, deliberately not .ini-configurable. Kept low because not all
+# of a group's work is Slurm-offloaded: RELACS runs `demultiplex_relacs -p 10`
+# locally, each snakePipes driver is a real local process, and the --sequencer
+# flag means two run_brb processes can already share this host.
+POOL_SIZE = 2
+
+
+def poolSize(config, sequencer=None):
+    """
+    How many library-groups to dispatch at once.
+
+    Falls back to POOL_SIZE on a missing or nonsensical `[Options] poolSize`.
+    When run_brb was started with -s/--sequencer, two such processes can share
+    this host, so each takes half the configured width (minimum 1) to keep the
+    total local load — snakemake drivers, and RELACS' ten local
+    demultiplex_relacs processes per group — where the operator set it.
+    """
+    try:
+        value = int(config.get("Options", "poolSize", fallback=POOL_SIZE))
+    except (ValueError, TypeError):
+        log.warning(f"[Options] poolSize is not an integer; using {POOL_SIZE}.")
+        return POOL_SIZE
+    if value < 1:
+        log.warning(f"[Options] poolSize must be >= 1; using {POOL_SIZE}.")
+        return POOL_SIZE
+    if sequencer is not None:
+        return max(1, value // 2)
+    return value
+
+
+def scancelBin(config):
+    """
+    Path to the `scancel` binary, or bare "scancel" to resolve it off PATH.
+
+    On hosts where Slurm's client binaries only appear on PATH after
+    `module load slurm` (rapidus, at least), a plain "scancel" is not on
+    run_brb's PATH, so `[Options] scancelBin` lets an operator point at the
+    resolved absolute path instead.
+    """
+    return config.get("Options", "scancelBin", fallback="scancel")
+
+
+class GroupDispatchError(RuntimeError):
+    """
+    Raised by runFlowcell when one or more worker threads raised. `failures`
+    is a list of (WorkItem, exception) pairs; the first worker exception is
+    chained as __cause__.
+    """
+
+    def __init__(self, message, failures):
+        super().__init__(message)
+        self.failures = failures
 
 
 def parseExternalAllowlist(configValue):
@@ -116,7 +186,13 @@ def relinkFiles(config, group, project, org_label, libraryType, tuples):
     mqcf = os.path.join(outputDir, "multiQC", "multiqc_report.html")
     if os.path.exists(mqcf):
         log.info(f"Multiqc report found for {group} project {project}.")
-        oname = "Analysis" + project + "_multiqc.html"
+        # Keyed on libraryType + org_label as well as project: two groups of
+        # the same project run concurrently under the Phase 1 thread pool and
+        # would otherwise interleave writes into one destination file.
+        oname = (
+            f"Analysis{project}_{BRB.misc.pacifier(libraryType)}"
+            f"_{org_label}_multiqc.html"
+        )
         of = Path(config.get("Paths", "bioinfoCoreDir")) / oname
         log.info(f"Trying to copy mqc report to {of}.")
         shutil.copyfile(mqcf, of)
@@ -215,15 +291,22 @@ def copyRELACS(config, d):
     lane_dir = Path(d).parents[1].stem
     _current_year, year_postfix = getsambaPath(lane_dir, sequencing_type)
     log.info(f"copyRELACS - copying over RELACS files to samba path {year_postfix}")
+    # `d` is .../Analysis_<proj>/<libraryType>_<orgLabel> -- its stem is
+    # already the filesystem-safe (pacified) <libraryType>_<orgLabel>
+    # component. Two library-groups of the same project run concurrently
+    # under the Phase 1 thread pool and would otherwise collide on the same
+    # destination filename in both seqFacDir and bioinfoCoreDir (the same
+    # class of bug relinkFiles's multiqc naming was already fixed for).
+    groupStem = Path(d).stem
     for fname in files:
         # to seqfac dir.
         nname = fname.split("/")
         if ".html" in fname:
             # ['', 'data', PI, seqdat, fid, analysis, libtype, multiqc, mqc.html]
-            nname = "_".join([nname[-4], "RELACS_analysis.html"])
+            nname = "_".join([nname[-4], groupStem, "RELACS_analysis.html"])
         else:
             # ['', data, PI, seqdat, fid, analysis, libtype, RELACS_demultiplexing, Sample_1, mark_fig.png]
-            nname = "_".join([nname[-5], nname[-3], nname[-1]])
+            nname = "_".join([nname[-5], groupStem, nname[-3], nname[-1]])
         # make lane directory in seqFacDir and copy it over
         seqfac_lane_dir = (
             Path(config.get("Paths", "seqFacDir")) / year_postfix / lane_dir
@@ -314,7 +397,7 @@ def RNA(config, group, project, organism, libraryType, tuples):
         )
     log.info(f"RNA wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
@@ -422,7 +505,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
         ]
         log.info(f"RELACS demux wf CMD: {CMD}")
         try:
-            subprocess.check_call(" ".join(CMD), shell=True, cwd=outputDir)
+            runManagedSubprocess(" ".join(CMD), cwd=outputDir)
         except:
             return outputDir, 1, False
 
@@ -461,7 +544,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     ]
     log.info(f"RELACS DNA wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
@@ -538,7 +621,7 @@ def deliverExternalRELACS(config, outputDir, project):
             fexRecipient,
         )
         log.info(f"External delivery CMD: {CMD}")
-        subprocess.check_call(CMD, shell=True, cwd=outputDir)
+        runManagedSubprocess(CMD, cwd=outputDir)
         open(doneMarker, "w").close()
     except:
         log.error(
@@ -621,7 +704,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
         ]
     log.info(f"DNA wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
@@ -652,7 +735,7 @@ def WGBS(config, group, project, organism, libraryType, tuples):
     CMD = [CMD, "WGBS", "--DAG", "--trim", "-i", outputDir, "-o", outputDir, org_yaml]
     log.info(f"WGBS wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
@@ -689,7 +772,7 @@ def ATAC(config, group, project, organism, libraryType, tuples):
     CMD = [CMD, "ATACseq", "--DAG", "-d", outputDir, org_yaml]
     log.info(f"ATAC wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     tidyUpABit(outputDir)
@@ -735,7 +818,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         ]
         log.info(f"scRNA wf CMD: {' '.join(CMD)}")
         try:
-            subprocess.check_call(" ".join(CMD), shell=True)
+            runManagedSubprocess(" ".join(CMD))
         except:
             return outputDir, 1, False
         removeLinkFiles(outputDir)
@@ -762,7 +845,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
         ]
         log.info(f"scRNA wf CMD: {CMD}")
         try:
-            subprocess.check_call(" ".join(CMD), shell=True)
+            runManagedSubprocess(" ".join(CMD))
         except:
             return outputDir, 1, False
         removeLinkFiles(outputDir)
@@ -813,7 +896,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
     ]
     log.info(f"HiC wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
@@ -840,7 +923,7 @@ def makePairs(config, group, project, organism, libraryType, tuples):
     CMD = [CMD, "makePairs", "--DAG", "-i", outputDir, "-o", outputDir, org_yaml]
     log.info(f"makePairs wf CMD: {CMD}")
     try:
-        subprocess.check_call(" ".join(CMD), shell=True)
+        runManagedSubprocess(" ".join(CMD))
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
@@ -895,7 +978,7 @@ def scATAC(config, group, project, organism, libraryType, tuples):
 
         log.info(f"scATAC wf CMD: {CMD}")
         try:
-            subprocess.check_call(CMD, shell=True)
+            runManagedSubprocess(CMD)
         except:
             return outputDir, 1, False
         # removeLinkFiles(outputDir)
@@ -911,6 +994,162 @@ def scATAC(config, group, project, organism, libraryType, tuples):
     return outputDir, 0, True
 
 
+def runOneGroup(config, item, registry):
+    """
+    Ownership-guarded dispatch of a single WorkItem, coordinated through
+    `registry` (a BRB.jobtrack.JobRegistry shared by every worker for this
+    flowcell) and the on-disk marker jobtrack.py maintains in the group's
+    outputDir.
+
+    The marker is deliberately not a real lock (no flock, no atomicity
+    guarantee). It exists only to stop a restarted run_brb from launching a
+    second snakePipes run into an outputDir that a still-alive orphan from a
+    crashed run owns. `registry.aborted` guards the in-process case: once the
+    flowcell's crash handler has latched teardown, no further worker should
+    start a fresh pipeline run.
+
+    Always returns a list containing exactly one message row -- a SKIPPED row
+    when the group was not dispatched (owned by a live PID, an unreadable
+    marker, or the flowcell already being torn down), otherwise the OK/FAILED
+    row that dispatching produces. Never returns bare None and never an
+    unwrapped bare row, because runFlowcell does
+    `msg.extend(future.result())` on this return value.
+    """
+    org_name, org_label, _org_yaml = item.organism
+    pipelineFn = globals()[item.pipeline]
+    outputDir = createPath(
+        config,
+        item.group,
+        item.project,
+        org_label,
+        item.libraryType,
+        item.tuples,
+    )
+
+    def skipRow(status):
+        return [
+            [
+                item.project,
+                org_name,
+                item.libraryType,
+                item.pipeline,
+                status,
+                "not updated",
+                False,
+                0,
+            ]
+        ]
+
+    if registry.aborted:
+        log.warning(f"Flowcell teardown in progress; not dispatching {outputDir}.")
+        return skipRow("SKIPPED (flowcell teardown in progress)")
+
+    state, marker = BRB.jobtrack.markerState(outputDir)
+    if state == BRB.jobtrack.MARKER_LIVE:
+        log.warning(
+            f"Skipping {item.project} / {item.pipeline} / {item.libraryType}: "
+            f"{outputDir} is owned by live pid {marker['pid']} "
+            f"(job_ids={marker.get('job_ids', [])}). Not dispatching, and not "
+            "counting this as a failure."
+        )
+        # A distinct "SKIPPED" status (not "FAILED"): this group was never
+        # actually analysed this pass, so it must not be silently absent from
+        # the report, but it also must not be double-counted as a pipeline
+        # failure by anything that specifically checks for "FAILED" (retry
+        # logic, email.finishedEmail's FAILED count).
+        return skipRow("SKIPPED (owned by live PID)")
+    if state == BRB.jobtrack.MARKER_CORRUPT:
+        log.warning(
+            f"{outputDir} has an unreadable {BRB.jobtrack.MARKER_NAME}; "
+            "skipping this group this pass. Remove the file by hand once its "
+            "owner is known to be dead."
+        )
+        return skipRow("SKIPPED (unreadable marker)")
+    if state == BRB.jobtrack.MARKER_ABANDONED:
+        log.warning(
+            f"Removing abandoned {BRB.jobtrack.MARKER_NAME} in {outputDir} "
+            f"(pid {marker['pid']}, cancelled={marker.get('cancelled', False)}, "
+            f"job_ids={marker.get('job_ids', [])})."
+        )
+        BRB.jobtrack.clearMarker(outputDir)
+
+    handle = registry.register_group(outputDir)
+    if registry.aborted:
+        registry.unregister_group(outputDir)
+        return skipRow("SKIPPED (flowcell teardown in progress)")
+    BRB.jobtrack.writeMarker(outputDir)
+    crashed = True
+    try:
+        with BRB.jobtrack.bindGroup(handle):
+            reruncount = 0
+            outputDir, rv, sambaUpdate = pipelineFn(
+                config,
+                item.group,
+                item.project,
+                item.organism,
+                item.libraryType,
+                item.tuples,
+            )
+            if rv != 0:
+                if registry.aborted:
+                    crashed = False
+                    log.warning(
+                        f"{outputDir} failed while the flowcell was being torn "
+                        "down; not retrying."
+                    )
+                    return skipRow("SKIPPED (flowcell teardown in progress)")
+                # Allow for one re-run
+                reruncount = 1
+                outputDir, rv, sambaUpdate = pipelineFn(
+                    config,
+                    item.group,
+                    item.project,
+                    item.organism,
+                    item.libraryType,
+                    item.tuples,
+                )
+            if rv == 0:
+                log.debug(
+                    f"BRB run for {item.pipeline} {org_label} {item.libraryType} {item.tuples} complete."
+                )
+                log.info(
+                    f"Processed project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.libraryType}, {org_name}. Rerun = {reruncount}"
+                )
+                crashed = False
+                return [
+                    BRB.ET.phoneHome(
+                        config,
+                        outputDir,
+                        item.pipeline,
+                        item.tuples,
+                        org_name,
+                        item.project,
+                        item.libraryType,
+                    )
+                    + [sambaUpdate, reruncount]
+                ]
+            log.warning(
+                f"FAILED project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.libraryType}, {org_name}. Rerun = {reruncount}"
+            )
+            crashed = False
+            return [
+                [
+                    item.project,
+                    org_name,
+                    item.libraryType,
+                    item.pipeline,
+                    "FAILED",
+                    "not updated",
+                    sambaUpdate,
+                    reruncount,
+                ]
+            ]
+    finally:
+        if not crashed:
+            BRB.jobtrack.clearMarker(outputDir)
+            registry.unregister_group(outputDir)
+
+
 def GetResults(config, project, libraries):
     """
     Project is something like '352_Grzes_PearceEd' and libraries is a dictionary with libraries as keys:
@@ -923,7 +1162,10 @@ def GetResults(config, project, libraries):
                        'scRNA-Seq 10xGenomics',
                        'mouse'],
         }
-    This doesn't return anything. It's assumed that everything within a single library type can be analysed together.
+    Returns (workItems, msg): a list of WorkItem entries to be dispatched by
+    runFlowcell, and the message entries GetResults produces itself (the
+    telegraphHome entry for skipped libraries, and the external-skip entry).
+    It's assumed that everything within a single library type can be analysed together.
     """
     ignore = False
     try:
@@ -1017,67 +1259,137 @@ def GetResults(config, project, libraries):
             )
         ]
     log.debug(config)
+    workItems = []
     for pipeline, v in analysisTypes.items():
-        log.debug("Running pipeline " + pipeline)
+        log.debug("Queueing pipeline " + pipeline)
         for org_label, v2 in v.items():
-            log.debug("Running organism label " + org_label)
+            log.debug("Queueing organism label " + org_label)
             organism = org_dict[org_label]
             org_name, org_label, org_yaml = organism
             log.debug(organism)
             for libraryType, tuples in v2.items():
-                log.debug("Running libraryType " + libraryType)
+                log.debug("Queueing libraryType " + libraryType)
                 log.debug(tuples)
-                reruncount = 0
                 # RELACS needs the unpacified project name to copy the original sample sheet to the dest dir
                 # hence the pacifier is applied on the project in each pipeline separately
-
-                outputDir, rv, sambaUpdate = globals()[pipeline](
-                    config, group, project, organism, libraryType, tuples
+                workItems.append(
+                    WorkItem(
+                        project=project,
+                        group=group,
+                        pipeline=pipeline,
+                        organism=organism,
+                        libraryType=libraryType,
+                        tuples=tuples,
+                    )
                 )
-                if reruncount == 0 and rv != 0:
-                    # Allow for one re-run
-                    reruncount += 1
-                    outputDir, rv, sambaUpdate = globals()[pipeline](
-                        config, group, project, organism, libraryType, tuples
-                    )
-                if rv == 0:
-                    log.debug(
-                        f"BRB run for {pipeline} {org_label} {libraryType} {tuples} complete."
-                    )
-                    msg = msg + [
-                        BRB.ET.phoneHome(
-                            config,
-                            outputDir,
-                            pipeline,
-                            tuples,
-                            org_name,
-                            project,
-                            libraryType,
-                        )
-                        + [sambaUpdate, reruncount]
-                    ]
-                    log.info(
-                        f"Processed project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {org_name}. Rerun = {reruncount}"
-                    )
-                else:
-                    msg = msg + [
-                        [
-                            project,
-                            org_name,
-                            libraryType,
-                            pipeline,
-                            "FAILED",
-                            "not updated",
-                            sambaUpdate,
-                            reruncount,
-                        ]
-                    ]
-                    log.warning(
-                        f"FAILED project {BRB.misc.pacifier(project)} with the {pipeline} pipeline. {libraryType}, {org_name}. Rerun = {reruncount}"
-                    )
     # In case there is an external_skipList, there shouldn't be a skipList !
     if external_skipList:
         assert not skipList
         libTypes = ",".join({i[2] for i in external_skipList})
         msg = msg + [[project, org_name, libTypes, None, None, None, False, None]]
-    return msg
+    return workItems, msg
+
+
+def runFlowcell(config, ParkourDict, registry=None, maxWorkers=None):
+    """
+    Flowcell-wide coordinator: build every project's work items, dispatch them
+    through a bounded thread pool, and collect their message entries.
+
+    Results come back in completion order, not submission order.
+    email.finishedEmail only makes order-independent checks over msg, so this
+    is safe -- don't introduce positional assumptions here.
+
+    On a crash (a worker future raising), the executor is shut down with
+    `shutdown(wait=False, cancel_futures=True)` specifically so the error
+    email goes out immediately, rather than waiting for surviving workers
+    whose subprocess calls (Slurm queue time) can block for hours. This
+    guarantees the alert is sent promptly. It does NOT, however, mean the
+    `run_brb` process itself exits promptly: `concurrent.futures.thread`
+    registers an interpreter-exit hook that joins every worker thread, and
+    those threads are non-daemon, so after `run.py` re-raises the exception
+    from this function, the process will still hang at interpreter shutdown
+    until any surviving in-flight worker threads finish -- potentially
+    hours later. This is an accepted tradeoff (the alert already went out
+    by then); it is not a bug to "fix" by switching to `os._exit` or daemon
+    threads.
+    """
+    bdir = "{}/{}".format(
+        config.get("Paths", "baseData"), config.get("Options", "runID")
+    )
+    msg = []
+    workItems = []
+    for k, v in ParkourDict.items():
+        if not os.path.exists(f"{bdir}/Project_{BRB.misc.pacifier(k)}"):
+            log.info(
+                f"{bdir}/Project_{BRB.misc.pacifier(k)} doesn't exist, probably lives on another lane."
+            )
+            continue
+        projectItems, projectMsg = GetResults(config, k, v)
+        workItems.extend(projectItems)
+        msg.extend(projectMsg)
+
+    if not workItems:
+        log.info("runFlowcell: no work items to dispatch.")
+        return msg
+
+    log.info(f"runFlowcell: dispatching {len(workItems)} groups, POOL_SIZE={POOL_SIZE}")
+    # Shared by every worker dispatched below so a fatal crash (see the
+    # exception-handling pass further down) can be latched process-wide and
+    # each in-flight group's Slurm jobs/local drivers can be found and
+    # cancelled. Constructed fresh per flowcell -- never a module-level
+    # global, since `run_brb -s illumina` and `run_brb -s aviti` share a host
+    # but must never see each other's groups. Callers (namely tests) may pass
+    # an existing registry in instead, so they can assert cancelAllGroups was
+    # called on that exact object.
+    if registry is None:
+        registry = BRB.jobtrack.JobRegistry()
+    # Deliberately not a `with` block: on the crash path we must shut down
+    # with wait=False so the error e-mail goes out now, rather than after the
+    # slowest surviving worker's Slurm jobs finish hours later.
+    executor = ThreadPoolExecutor(max_workers=maxWorkers or POOL_SIZE)
+    futures = {
+        executor.submit(runOneGroup, config, item, registry): item for item in workItems
+    }
+
+    failedFuture = None
+    for future in concurrent.futures.as_completed(futures):
+        exc = future.exception()
+        if exc is not None:
+            failedFuture = future
+            # Cancel every in-flight Slurm job and driver for this flowcell
+            # right away, before the drain pass below collects any other
+            # already-done failures -- this is what keeps that drain fast,
+            # since cancelled drivers exit instead of blocking for hours of
+            # Slurm queue time. Must fire exactly once per crash.
+            BRB.jobtrack.cancelAllGroups(registry, scancelBin=scancelBin(config))
+            break
+        msg.extend(future.result())
+
+    if failedFuture is None:
+        executor.shutdown(wait=True)
+        return msg
+
+    executor.shutdown(wait=False, cancel_futures=True)
+    failures = [(futures[failedFuture], failedFuture.exception())]
+    # Don't hide unrelated failures that happened around the same time: report
+    # every worker exception that is already known, without waiting for the
+    # workers that are still running.
+    for future, item in futures.items():
+        if future is failedFuture or future.cancelled() or not future.done():
+            continue
+        otherExc = future.exception()
+        if otherExc is not None:
+            failures.append((item, otherExc))
+    for item, exc in failures:
+        log.critical(
+            f"runFlowcell: worker for project {item.project}, pipeline "
+            f"{item.pipeline}, libraryType {item.libraryType} raised {exc!r}"
+        )
+    summary = "; ".join(
+        f"{item.project} / {item.pipeline} / {item.libraryType}"
+        for item, _exc in failures
+    )
+    raise GroupDispatchError(
+        f"{len(failures)} library-group(s) raised during dispatch: {summary}",
+        failures,
+    ) from failures[0][1]

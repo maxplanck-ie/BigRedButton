@@ -1,0 +1,386 @@
+"""
+Process-local tracking of the Slurm jobs and local driver processes that one
+`run_brb` invocation has started, so a fatal crash can cancel exactly its own
+work. Deliberately in-memory and per-process: `run_brb -s illumina` and
+`run_brb -s aviti` can run side by side on one host, and neither may cancel
+the other's jobs.
+"""
+
+import json
+import os
+import re
+import signal
+import subprocess
+import threading
+import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from pathlib import Path
+
+from BRB.logger import log
+
+
+class GroupHandle:
+    """One library-group's in-flight state: its Slurm job IDs and drivers."""
+
+    def __init__(self, outputDir):
+        self.outputDir = str(outputDir)
+        self._lock = threading.Lock()
+        self._job_ids = []
+        self._processes = []
+
+    def add_job_ids(self, ids):
+        """Record newly-seen Slurm job IDs. Returns only the ones that were new."""
+        with self._lock:
+            new = [i for i in ids if i not in self._job_ids]
+            self._job_ids.extend(new)
+        if new:
+            log.debug(f"Tracking Slurm job(s) {','.join(new)} for {self.outputDir}")
+        return new
+
+    def add_process(self, proc):
+        with self._lock:
+            self._processes.append(proc)
+
+    def remove_process(self, proc):
+        with self._lock:
+            if proc in self._processes:
+                self._processes.remove(proc)
+
+    def snapshot(self):
+        """(job_ids, processes) copies, safe to iterate outside the lock."""
+        with self._lock:
+            return list(self._job_ids), list(self._processes)
+
+
+class JobRegistry:
+    """
+    All groups currently in flight for one flowcell, in one `run_brb` process.
+    Construct it in `runFlowcell` and pass it down; never a module-level global.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._groups = {}
+        self._aborted = False
+
+    @property
+    def aborted(self):
+        return self._aborted
+
+    def abort(self):
+        """Latch 'this flowcell is being torn down'; workers must stop dispatching."""
+        self._aborted = True
+
+    def register_group(self, outputDir):
+        key = str(outputDir)
+        with self._lock:
+            handle = self._groups.get(key)
+            if handle is None:
+                handle = GroupHandle(key)
+                self._groups[key] = handle
+            return handle
+
+    def unregister_group(self, outputDir):
+        with self._lock:
+            return self._groups.pop(str(outputDir), None)
+
+    def active_groups(self):
+        with self._lock:
+            return list(self._groups.values())
+
+
+_currentHandle = ContextVar("BRB_group_handle", default=None)
+
+
+def currentHandle():
+    """The GroupHandle bound to the calling thread, or None."""
+    return _currentHandle.get()
+
+
+@contextmanager
+def bindGroup(handle):
+    """
+    Bind `handle` for the duration of the block, so the pipeline functions'
+    `runManagedSubprocess` calls can find it without threading a parameter
+    through ten unrelated signatures. Scoped to the calling thread, so it is
+    not shared mutable state between pool workers.
+    """
+    token = _currentHandle.set(handle)
+    try:
+        yield handle
+    finally:
+        _currentHandle.reset(token)
+
+
+MARKER_NAME = "running.pid"
+
+MARKER_ABSENT = "absent"
+MARKER_LIVE = "live"
+MARKER_ABANDONED = "abandoned"
+MARKER_CORRUPT = "corrupt"
+
+
+def markerPath(outputDir):
+    return Path(outputDir) / MARKER_NAME
+
+
+def _atomicWrite(outputDir, payload):
+    """
+    Write the marker via a temp file + os.replace, so a crash mid-write can
+    never leave a half-written marker behind (see markerState's CORRUPT case).
+    """
+    target = markerPath(outputDir)
+    tmp = target.parent / f"{MARKER_NAME}.{os.getpid()}.{threading.get_ident()}.tmp"
+    tmp.write_text(json.dumps(payload))
+    os.replace(tmp, target)
+    return payload
+
+
+def writeMarker(outputDir, pid=None, job_ids=None, cancelled=False):
+    """Claim ownership of `outputDir` for this process."""
+    return _atomicWrite(
+        outputDir,
+        {
+            "pid": os.getpid() if pid is None else pid,
+            "started": time.time(),
+            "job_ids": list(job_ids or []),
+            "cancelled": bool(cancelled),
+        },
+    )
+
+
+def readMarker(outputDir):
+    """The parsed marker dict, or None if it is absent or not a JSON object."""
+    try:
+        data = json.loads(markerPath(outputDir).read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def updateMarkerJobIds(outputDir, job_ids):
+    """Rewrite the marker's job_ids, keeping pid/started/cancelled as they were."""
+    existing = readMarker(outputDir) or {}
+    return _atomicWrite(
+        outputDir,
+        {
+            "pid": existing.get("pid", os.getpid()),
+            "started": existing.get("started", time.time()),
+            "job_ids": list(job_ids),
+            "cancelled": bool(existing.get("cancelled", False)),
+        },
+    )
+
+
+def markMarkerCancelled(outputDir):
+    """
+    Flag the marker as cancelled *before* the scancel/SIGTERM goes out, so a
+    crash handler that dies partway still leaves a readable marker that says
+    what happened.
+    """
+    existing = readMarker(outputDir)
+    if existing is None:
+        return None
+    existing["cancelled"] = True
+    return _atomicWrite(outputDir, existing)
+
+
+def clearMarker(outputDir):
+    markerPath(outputDir).unlink(missing_ok=True)
+
+
+def _pidAlive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Someone else's process: alive, just not ours to signal.
+        return True
+    except OSError:
+        return True
+    return True
+
+
+def markerState(outputDir):
+    """
+    Classify `outputDir`'s ownership marker as (state, marker).
+
+    ABSENT     -> nobody owns it, dispatch normally.
+    LIVE       -> another live process owns it, skip this group this pass.
+    ABANDONED  -> the owner is gone, remove the marker and dispatch.
+    CORRUPT    -> unreadable; it cannot prove the owner is dead, so skip the
+                  group and let an operator clear it by hand.
+    """
+    path = markerPath(outputDir)
+    if not path.exists():
+        return (MARKER_ABSENT, None)
+    marker = readMarker(outputDir)
+    if marker is None or not isinstance(marker.get("pid"), int):
+        return (MARKER_CORRUPT, None)
+    if _pidAlive(marker["pid"]):
+        return (MARKER_LIVE, marker)
+    return (MARKER_ABANDONED, marker)
+
+
+# snakemake's cluster executors log one of:
+#   Submitted job 12 with external jobid 'Submitted batch job 1234567'.
+#   Submitted job 12 with external jobid '1234567'.        (sbatch --parsable)
+# The quoted payload is whatever the submit command printed, so take the
+# first run of digits in it as the Slurm job ID.
+_EXTERNAL_JOBID_RE = re.compile(r"external jobid[:\s]*'([^']*)'")
+_FIRST_INT_RE = re.compile(r"\d+")
+
+
+def parseJobIds(line):
+    """Slurm job IDs announced on one line of snakemake driver output."""
+    found = []
+    for payload in _EXTERNAL_JOBID_RE.findall(line):
+        match = _FIRST_INT_RE.search(payload)
+        if match:
+            found.append(match.group(0))
+    return found
+
+
+def runManagedSubprocess(cmd, cwd=None, handle=None):
+    """
+    Drop-in replacement for `subprocess.check_call(cmd, shell=True, cwd=cwd)`
+    that keeps the child killable and its Slurm job IDs visible.
+
+    - `start_new_session=True` puts the child in its own process group, so a
+      later SIGTERM reaches the whole snakePipes driver tree. Deliberately not
+      `preexec_fn=os.setsid`: these calls run from ThreadPoolExecutor workers,
+      and preexec_fn is documented as unsafe in a multi-threaded process.
+    - stdout+stderr are streamed (not buffered to the end), so job IDs are
+      registered as they are submitted and are available to cancel mid-run.
+    - Raises CalledProcessError on non-zero exit, like check_call did, because
+      every call site catches that to return rv=1.
+    """
+    if handle is None:
+        handle = currentHandle()
+    proc = subprocess.Popen(
+        cmd,
+        shell=True,
+        cwd=cwd,
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    if handle is not None:
+        handle.add_process(proc)
+    prefix = f"[{os.path.basename(handle.outputDir)}] " if handle is not None else ""
+    try:
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            log.info(f"{prefix}{line}")
+            if handle is None:
+                continue
+            found = parseJobIds(line)
+            if found and handle.add_job_ids(found):
+                updateMarkerJobIds(handle.outputDir, handle.snapshot()[0])
+        returncode = proc.wait()
+    finally:
+        try:
+            proc.stdout.close()
+        except OSError:
+            pass
+        if handle is not None:
+            handle.remove_process(proc)
+    if returncode != 0:
+        raise subprocess.CalledProcessError(returncode, cmd)
+    return returncode
+
+
+KILL_GRACE_SECONDS = 10
+
+
+def _signalProcessGroup(proc, sig):
+    """
+    Signal the whole process group of a driver started with
+    start_new_session=True, so snakemake's own children go down with it.
+    """
+    try:
+        os.killpg(os.getpgid(proc.pid), sig)
+    except (ProcessLookupError, PermissionError, OSError) as err:
+        log.warning(f"Could not signal process group of pid {proc.pid}: {err}")
+        return False
+    return True
+
+
+def cancelGroup(handle, scancelBin="scancel", grace=KILL_GRACE_SECONDS):
+    """
+    Stop everything one library-group has in flight: its submitted Slurm jobs
+    first, then its local snakePipes driver.
+
+    The marker is flagged cancelled before anything is killed, so a crash
+    handler that itself dies partway still leaves a readable record of what
+    happened.
+    """
+    try:
+        markMarkerCancelled(handle.outputDir)
+    except OSError as err:
+        log.error(f"Could not flag {handle.outputDir} cancelled: {err}")
+    job_ids, procs = handle.snapshot()
+    if job_ids:
+        log.critical(
+            f"Cancelling Slurm job(s) {','.join(job_ids)} for {handle.outputDir}"
+        )
+        try:
+            subprocess.run([scancelBin, *job_ids], check=False, timeout=60)
+        except (OSError, subprocess.SubprocessError) as err:
+            log.error(f"scancel failed for {handle.outputDir}: {err}")
+    if procs:
+        _terminateDrivers(procs, handle.outputDir, grace)
+
+
+def _terminateDrivers(procs, outputDir, grace):
+    """
+    SIGTERM every driver, then give them all together `grace` seconds to exit
+    before SIGKILLing whatever is left. The deadline is shared, not per-driver,
+    so tearing down a flowcell with several stuck drivers still takes about
+    `grace` seconds, not `grace * len(procs)`.
+    """
+    signalled = []
+    for proc in procs:
+        log.critical(f"SIGTERM to driver pid {proc.pid} for {outputDir}")
+        if _signalProcessGroup(proc, signal.SIGTERM):
+            signalled.append(proc)
+    deadline = time.monotonic() + grace
+    for proc in signalled:
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            try:
+                proc.wait(timeout=remaining)
+                continue
+            except subprocess.TimeoutExpired:
+                pass
+        if proc.poll() is None:
+            log.warning(
+                f"Driver pid {proc.pid} for {outputDir} survived {grace}s of "
+                "SIGTERM; escalating to SIGKILL."
+            )
+            _signalProcessGroup(proc, signal.SIGKILL)
+
+
+def cancelAllGroups(registry, scancelBin="scancel", grace=KILL_GRACE_SECONDS):
+    """
+    Tear down every in-flight group in this run_brb process.
+
+    Flowcell-wide on purpose: another project's orphaned Slurm jobs would keep
+    running with no live process to phoneHome their results to Parkour, which
+    is worse than cancelling them and redoing them on the next pass.
+    """
+    registry.abort()
+    for handle in registry.active_groups():
+        try:
+            cancelGroup(handle, scancelBin=scancelBin, grace=grace)
+        except Exception as err:  # noqa: BLE001
+            log.error(f"Cancelling {handle.outputDir} failed: {err}")
+        try:
+            clearMarker(handle.outputDir)
+        except OSError as err:
+            log.error(f"Could not clear {MARKER_NAME} in {handle.outputDir}: {err}")
+        registry.unregister_group(handle.outputDir)

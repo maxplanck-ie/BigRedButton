@@ -54,33 +54,21 @@ def run_brb(configfile, sequencer):
         print(f"Logging into: {logFile}")
         setLog(logFile)
 
-        # Process each group's data, ignore cases where the project isn't in the lanes being processed
-        bdir = "{}/{}".format(
-            config.get("Paths", "baseData"), config.get("Options", "runID")
-        )
-        msg = []
-        for k, v in ParkourDict.items():
-            if not os.path.exists(f"{bdir}/Project_{BRB.misc.pacifier(k)}"):
-                log.info(
-                    f"{bdir}/Project_{BRB.misc.pacifier(k)} doesn't exist, probably lives on another lane."
-                )
-                continue
-            try:
-                msg = msg + BRB.PushButton.GetResults(config, k, v)
-            except Exception as e:
-                BRB.email.errorEmail(
-                    config,
-                    sys.exc_info(),
-                    f"Received an error running PushButton.GetResults() with {k} and {v}",
-                )
-                log.critical(
-                    f"Received an error running PushButton.GetResults() with {k} and {v}"
-                )
-                print(
-                    f"Received an error running PushButton.GetResults() with {k} and {v}",
-                    file=sys.stderr,
-                )
-                raise
+        # Dispatch every project's library-groups through the flowcell-wide
+        # thread pool. Projects that don't live on the lanes being processed
+        # are skipped inside runFlowcell.
+        try:
+            msg = BRB.PushButton.runFlowcell(
+                config,
+                ParkourDict,
+                maxWorkers=BRB.PushButton.poolSize(config, sequencer),
+            )
+        except Exception as e:
+            errMsg = f"Received an error running PushButton.runFlowcell(): {e}"
+            BRB.email.errorEmail(config, sys.exc_info(), errMsg)
+            log.critical(errMsg)
+            print(errMsg, file=sys.stderr)
+            raise
 
         # Email finished message
         log.info("Create e-mail")
