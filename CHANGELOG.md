@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/maxplanck-ie/BigRedButton/compare/v0.8.0...v0.8.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* route Aviti samba QC copies to their machine's own facility folder ([#149](https://github.com/maxplanck-ie/BigRedButton/issues/149)) ([382f5bc](https://github.com/maxplanck-ie/BigRedButton/commit/382f5bce07aaf229a8d5fb08730acf6fa7767420))
+
 ## [0.8.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.7.1...v0.8.0) (2026-08-31)
 
 
