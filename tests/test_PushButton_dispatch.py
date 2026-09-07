@@ -81,7 +81,9 @@ class TestGetResultsReturnsWorkItems:
         # in skipList rather than external_skipList.
         (tmp_path / "group" / "foo" / "sequencing_data").mkdir(parents=True)
 
-        def fakeTelegraph(config, group, project, skipList, organism=None):
+        def fakeTelegraph(
+            config, group, project, skipList, organism=None, org_label=None
+        ):
             return ["telegraph", organism, skipList[0][2], None, None, None, False]
 
         monkeypatch.setattr(BRB.ET, "telegraphHome", fakeTelegraph)
@@ -126,7 +128,9 @@ def makeWorkItem(**kwargs):
     return WorkItem(**base)
 
 
-def fakePhoneHome(config, outputDir, pipeline, tuples, organism, project, libType):
+def fakePhoneHome(
+    config, outputDir, pipeline, tuples, organism, org_label, project, libType
+):
     return [project, organism, libType, pipeline, "success", "PARKOUR_OK"]
 
 
