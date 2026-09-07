@@ -1147,6 +1147,7 @@ def runOneGroup(config, item, registry):
                         item.pipeline,
                         item.tuples,
                         org_name,
+                        org_label,
                         item.project,
                         item.libraryType,
                     )
@@ -1279,7 +1280,7 @@ def GetResults(config, project, libraries):
             )
         msg = msg + [
             BRB.ET.telegraphHome(
-                config, group, BRB.misc.pacifier(project), skipList, org_name
+                config, group, BRB.misc.pacifier(project), skipList, org_name, org_label
             )
         ]
     log.debug(config)

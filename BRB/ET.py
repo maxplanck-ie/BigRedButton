@@ -46,32 +46,31 @@ def getNReads(d):
         return (int(res) / 4), 0.0
 
 
-def getOffSpeciesRate(d, organism=None) -> float:
+def getOffSpeciesRate(d, org_label=None) -> float:
     """
     Parses kraken report for number of reads mapping to unexpected organisms
     """
     fname = glob.glob(f"{d}/*rep")[0]
-    # match parkour org to kraken db organism/group
+    # match Parkour Organism.label (stable, admin-curated short code -- see
+    # the "label" field on library_sample_shared.Organism) to kraken db
+    # group. Organism.name is a free-text display string that Parkour staff
+    # rename freely (e.g. the Nov-2024 organism list overhaul); label is not.
     org_map = {
-        "Human (GRCh38)": "humangrp",
-        "Human (GRCh37 / hg19)": "humangrp",
-        "Mouse (GRCm38 / mm10)": "mousegrp",
-        "Mouse (GRCm39)": "mousegrp",
-        "mouse": "mousegrp",
-        "human": "humangrp",
-        "Escherichia phage Lambda": "lambdaphage",
-        "Caenorhabditis_elegans": "c-elegans",
-        "lamprey": "sea-lamprey",
-        "medaka": "japanese-medaka",
-        "zebrafish": "zebrafish",
+        "h38": "humangrp",
+        "mm10": "mousegrp",
+        "m39": "mousegrp",
+        "lambda": "lambdaphage",
+        "nematode": "c-elegans",
         "drosophila": "flygrp",
     }
-    if organism not in org_map:
-        log.info(f"getOffSpeciesRate - organism {organism} is not in the org_map!")
+    if org_label not in org_map:
+        log.info(
+            f"getOffSpeciesRate - organism label {org_label} is not in the org_map!"
+        )
         return 0
     with open(fname) as f:
         for line in f:
-            if org_map[organism] in line:
+            if org_map[org_label] in line:
                 off = 1 - (float(line.strip().split()[0]) / 100)
     # off-species actually means fraction of non-expected organism reads !
     # off-species reads vs of-species reads ;)
@@ -79,7 +78,7 @@ def getOffSpeciesRate(d, organism=None) -> float:
     return off
 
 
-def getBaseStatistics(config, outputDir, samples_id, organism=None):
+def getBaseStatistics(config, outputDir, samples_id, org_label=None):
     """
     Return a directionary with keys lib names and values:
     (sample name, nReads, off-species rate, % optical dupes)
@@ -105,7 +104,7 @@ def getBaseStatistics(config, outputDir, samples_id, organism=None):
             sampleName = glob.glob(f"{d}/*_R1_fastqc.zip")[0]
             sampleName = os.path.split(sampleName)[1][:-14]
             nReads, optDupes = getNReads(d)  # opt. dup.
-            offRate = getOffSpeciesRate(d, organism)
+            offRate = getOffSpeciesRate(d, org_label)
             baseDict[libName] = [sampleName, nReads, offRate, optDupes]
             s2l[sampleName] = libName
     return baseDict, s2l
@@ -293,12 +292,14 @@ def sendToParkour(config, msg):
     return res
 
 
-def phoneHome(config, outputDir, pipeline, samples_tuples, organism, project, libType):
+def phoneHome(
+    config, outputDir, pipeline, samples_tuples, organism, org_label, project, libType
+):
     """
     Return metrics to Parkour, the results are in outputDir and pipeline needs to be run on them
     """
     samples_id = [row[0] for row in samples_tuples]
-    baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
+    baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, org_label)
     msg = None
     if pipeline == "DNA":
         msg = DNA(config, outputDir, baseDict, sample2lib)
@@ -325,7 +326,7 @@ def phoneHome(config, outputDir, pipeline, samples_tuples, organism, project, li
     return [project, organism, libType, pipeline, "success", ret]
 
 
-def telegraphHome(config, group, project, skipList, organism=None):
+def telegraphHome(config, group, project, skipList, organism=None, org_label=None):
     """
     The skipList is a list of samples/libraries for which we don't run a pipeline, but it'd be nice to still send back sequencing metrics
     Structure of skipList:
@@ -343,7 +344,7 @@ def telegraphHome(config, group, project, skipList, organism=None):
     # Mock path
     outputDir = baseDir / "DNA_mouse"
     samples_id = [row[0] for row in skipList]
-    baseDict, _sample2lib = getBaseStatistics(config, outputDir, samples_id, organism)
+    baseDict, _sample2lib = getBaseStatistics(config, outputDir, samples_id, org_label)
     # Reformat into a matrix
     m = []
     for k, v in baseDict.items():

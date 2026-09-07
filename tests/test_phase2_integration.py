@@ -88,7 +88,7 @@ def flowcell(tmp_path, monkeypatch):
     monkeypatch.setattr(
         PushButton.BRB.ET,
         "phoneHome",
-        lambda config, outputDir, pipeline, tuples, org, project, libType: [
+        lambda config, outputDir, pipeline, tuples, org, org_label, project, libType: [
             project,
             org,
             libType,
