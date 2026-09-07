@@ -68,6 +68,7 @@ def getOffSpeciesRate(d, org_label=None) -> float:
             f"getOffSpeciesRate - organism label {org_label} is not in the org_map!"
         )
         return 0
+    off = 0
     with open(fname) as f:
         for line in f:
             if org_map[org_label] in line:
