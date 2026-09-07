@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/maxplanck-ie/BigRedButton/compare/v0.8.1...v0.8.2) (2026-09-07)
+
+
+### Bug Fixes
+
+* key off-species org_map on Parkour Organism.label ([#152](https://github.com/maxplanck-ie/BigRedButton/issues/152)) ([326cd23](https://github.com/maxplanck-ie/BigRedButton/commit/326cd23a935040347aaa511b1b4068f9b103b1a6))
+
 ## [0.8.1](https://github.com/maxplanck-ie/BigRedButton/compare/v0.8.0...v0.8.1) (2026-08-31)
 
 
