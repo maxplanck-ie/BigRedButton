@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.8.2...v0.9.0) (2026-09-11)
+
+
+### Features
+
+* report live git version and gate on uncommitted config files ([#156](https://github.com/maxplanck-ie/BigRedButton/issues/156)) ([3ca3bd4](https://github.com/maxplanck-ie/BigRedButton/commit/3ca3bd41141a00bda5d164efd9f726e7d36128a0))
+
 ## [0.8.2](https://github.com/maxplanck-ie/BigRedButton/compare/v0.8.1...v0.8.2) (2026-09-07)
 
 
