@@ -22,8 +22,9 @@ def getConfig(configFile=None):
         print(f"Error: No Paths defined in config {configFile}")
         sys.exit(1)
 
+    gitBin = config.get("software", "git", fallback="git")
     if "Options" not in config.sections():
         config.add_section("Options")
-    config.set("Options", "configCommit", configGitInfo(configFile) or "")
+    config.set("Options", "configCommit", configGitInfo(configFile, gitBin) or "")
 
     return config
