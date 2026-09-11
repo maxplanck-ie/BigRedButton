@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/maxplanck-ie/BigRedButton/compare/v0.9.0...v0.9.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* widen crash-restart test timing budgets for coverage runs ([50bc667](https://github.com/maxplanck-ie/BigRedButton/commit/50bc66720fc2630a4ed57ca93aba44b094fca452))
+
 ## [0.9.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.8.2...v0.9.0) (2026-09-11)
 
 
