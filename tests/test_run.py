@@ -64,6 +64,33 @@ class TestRunBrbWiring:
             ["1_A_Foo", "human", "ChIP-Seq", "DNA", "success", "OK", False, 0]
         ]
 
+    def test_marks_finished_and_logs_after_a_successful_flowcell(
+        self, tmp_path, monkeypatch
+    ):
+        def fakeRunFlowcell(cfg, parkourDict, **kwargs):
+            return [["1_A_Foo", "human", "ChIP-Seq", "DNA", "success", "OK", False, 0]]
+
+        wireRunBrb(monkeypatch, tmp_path, fakeRunFlowcell)
+        monkeypatch.setattr(BRB.email, "finishedEmail", lambda cfg, msg: None)
+
+        seen = {}
+        monkeypatch.setattr(
+            BRB.findFinishedFlowCells,
+            "markFinished",
+            lambda cfg: seen.setdefault("markFinished", True),
+        )
+
+        def fakeLogInfo(msg):
+            if msg == "=== finished flowcell ===":
+                raise StopLoop
+
+        monkeypatch.setattr(BRB.run.log, "info", fakeLogInfo)
+
+        with pytest.raises(StopLoop):
+            BRB.run.run_brb.callback(configfile=None, sequencer=None)
+
+        assert seen["markFinished"] is True
+
     def test_error_email_names_the_failing_work_items(self, tmp_path, monkeypatch):
         item = BRB.PushButton.WorkItem(
             project="1_A_Foo",
@@ -94,3 +121,21 @@ class TestRunBrbWiring:
 
         assert "runFlowcell" in seen["msg"]
         assert "1_A_Foo / RNA / stranded mRNA-Seq" in seen["msg"]
+
+    def test_no_new_flowcell_sleeps_and_retries(self, tmp_path, monkeypatch):
+        config = runConfig(tmp_path)
+        monkeypatch.setattr(BRB.getConfig, "getConfig", lambda configfile: config)
+        monkeypatch.setattr(
+            BRB.findFinishedFlowCells,
+            "newFlowCell",
+            lambda cfg, sequencer: (config, None),
+        )
+
+        def fakeSleep(seconds):
+            assert seconds == 60 * 60
+            raise StopLoop
+
+        monkeypatch.setattr(BRB.run, "sleep", fakeSleep)
+
+        with pytest.raises(StopLoop):
+            BRB.run.run_brb.callback(configfile=None, sequencer=None)

@@ -11,9 +11,60 @@ def make_config():
         "fromAddress": "brb@example.org",
         "finishedTo": "bioinfocore@example.org",
         "deepSeq": "deepseq@example.org",
+        "errorTo": "errors@example.org",
         "host": "localhost",
     }
     return config
+
+
+class TestErrorEmail:
+    @patch("BRB.email.smtplib.SMTP")
+    @patch("BRB.email.getVersion", return_value="v1.0.0")
+    def test_sends_to_errorto_with_exception_details(self, mockGetVersion, mockSMTP):
+        config = make_config()
+        mockInstance = MagicMock()
+        mockSMTP.return_value = mockInstance
+        errTuple = (ValueError, ValueError("boom"), "traceback text")
+
+        email.errorEmail(config, errTuple, "flowcell 210608_A00931 failed")
+
+        assert mockInstance.send_message.called
+        sentMsg = mockInstance.send_message.call_args[0][0]
+        assert sentMsg["To"] == "errors@example.org"
+        assert sentMsg["From"] == "brb@example.org"
+        assert "v1.0.0" in sentMsg["Subject"]
+        body = sentMsg.get_payload()
+        assert "flowcell 210608_A00931 failed" in body
+        assert "ValueError" in body
+        assert "traceback text" in body
+        assert mockInstance.quit.called
+
+    @patch("BRB.email.smtplib.SMTP")
+    @patch("BRB.email.getVersion", return_value="v1.0.0")
+    def test_includes_config_commit_when_present(self, mockGetVersion, mockSMTP):
+        config = make_config()
+        config["Options"]["configCommit"] = "abc1234"
+        mockInstance = MagicMock()
+        mockSMTP.return_value = mockInstance
+        errTuple = (RuntimeError, RuntimeError("x"), "tb")
+
+        email.errorEmail(config, errTuple, "failure")
+
+        sentMsg = mockInstance.send_message.call_args[0][0]
+        assert "abc1234" in sentMsg.get_payload()
+
+    @patch("BRB.email.smtplib.SMTP")
+    @patch("BRB.email.getVersion", return_value="v1.0.0")
+    def test_omits_config_commit_line_when_absent(self, mockGetVersion, mockSMTP):
+        config = make_config()
+        mockInstance = MagicMock()
+        mockSMTP.return_value = mockInstance
+        errTuple = (RuntimeError, RuntimeError("x"), "tb")
+
+        email.errorEmail(config, errTuple, "failure")
+
+        sentMsg = mockInstance.send_message.call_args[0][0]
+        assert "Config file commit" not in sentMsg.get_payload()
 
 
 class TestFinishedEmailSkippedSuppression:

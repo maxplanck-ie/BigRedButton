@@ -256,3 +256,86 @@ class TestNewFlowCellSequencerGating:
         assert Path(config.get("Paths", "baseData"), runID) == (
             aviti_base / "AV251009" / runID
         )
+
+    @patch("BRB.findFinishedFlowCells.queryParkour")
+    def test_stale_pre_1804_run_is_skipped(self, mock_query, tmp_path):
+        illu_base = tmp_path / "illumina"
+        aviti_base = tmp_path / "aviti"
+        aviti_base.mkdir()
+        (illu_base / "170101_old_run").mkdir(parents=True)
+        (illu_base / "170101_old_run" / "fastq.made").touch()
+
+        config = create_platform_conf(illu_base, aviti_base)
+
+        config, ParkourDict = newFlowCell(config, sequencer="illumina")
+
+        mock_query.assert_not_called()
+        assert ParkourDict is None
+
+    @patch("BRB.findFinishedFlowCells.markFinished")
+    @patch("BRB.findFinishedFlowCells.queryParkour")
+    def test_empty_parkour_response_marks_finished_and_keeps_scanning(
+        self, mock_query, mock_markFinished, tmp_path
+    ):
+        illu_base = tmp_path / "illumina"
+        aviti_base = tmp_path / "aviti"
+        aviti_base.mkdir()
+        (illu_base / "20250101_illumina_runXXX").mkdir(parents=True)
+        (illu_base / "20250101_illumina_runXXX" / "fastq.made").touch()
+        mock_query.return_value = {}
+
+        config = create_platform_conf(illu_base, aviti_base)
+        config, ParkourDict = newFlowCell(config, sequencer="illumina")
+
+        mock_markFinished.assert_called_once()
+        assert ParkourDict is None
+        assert config.get("Options", "runID") == ""
+
+    def test_no_flowcells_anywhere_returns_none(self, tmp_path):
+        illu_base = tmp_path / "illumina"
+        aviti_base = tmp_path / "aviti"
+        illu_base.mkdir()
+        aviti_base.mkdir()
+
+        config = create_platform_conf(illu_base, aviti_base)
+        config, ParkourDict = newFlowCell(config)
+
+        assert ParkourDict is None
+
+
+class TestQueryParkourFlowcellIdDashHandling:
+    def _config(self, sequencerType, runID):
+        config = configparser.ConfigParser()
+        config["Parkour"] = {
+            "QueryURL": "https://parkour-demo.ie-freiburg.mpg.de/nonext_api",
+            "user": "jefke",
+            "password": "123",
+            "cert": "",
+        }
+        config["Paths"] = {"baseData": "/base"}
+        config["Options"] = {"sequencerType": sequencerType, "runID": runID}
+        return config
+
+    @patch("BRB.findFinishedFlowCells.requests.get")
+    def test_illumina_fcid_with_dash_keeps_only_suffix(self, mock_get):
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {}
+        mock_get.return_value = mock_resp
+
+        config = self._config("Illumina", "150416_SN7001180_0196_BAAA-C605HACXX")
+        queryParkour(config)
+
+        assert mock_get.call_args.kwargs["params"] == {"flowcell_id": "C605HACXX"}
+
+    @patch("BRB.findFinishedFlowCells.requests.get")
+    def test_aviti_fcid_with_dash_keeps_only_suffix(self, mock_get):
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {}
+        mock_get.return_value = mock_resp
+
+        config = self._config("Aviti", "20250901_AV999999_AAA-250443KMND")
+        queryParkour(config)
+
+        assert mock_get.call_args.kwargs["params"] == {"flowcell_id": "250443KMND"}
