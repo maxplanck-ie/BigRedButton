@@ -17,7 +17,7 @@ def errorEmail(config, errTuple, msg):
         + (f"\nConfig file commit: {configCommit}\n" if configCommit else "")
     )
     gitBin = config.get("software", "git", fallback="git")
-    msg["Subject"] = f"[BigRedButton {getVersion('BRB', gitBin)}] Error"
+    msg["Subject"] = f"[BigRedButton] [{getVersion('BRB', gitBin)}] Error"
     msg["From"] = config.get("Email", "fromAddress")
     msg["To"] = config.get("Email", "errorTo")
 
@@ -30,7 +30,7 @@ def finishedEmail(config, msg):
     mailer = MIMEMultipart("alternative")
     gitBin = config.get("software", "git", fallback="git")
     mailer["Subject"] = (
-        f"[BigRedButton {getVersion('BRB', gitBin)}] "
+        f"[BigRedButton] [{getVersion('BRB', gitBin)}] "
         f"{config.get('Options', 'runID')} processed"
     )
     mailer["From"] = config.get("Email", "fromAddress")
