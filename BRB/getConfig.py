@@ -2,6 +2,8 @@ import configparser
 import os
 import sys
 
+from BRB.misc import configGitInfo
+
 
 def getConfig(configFile=None):
     if configFile is None:
@@ -19,5 +21,9 @@ def getConfig(configFile=None):
     if "Paths" not in config.sections():
         print(f"Error: No Paths defined in config {configFile}")
         sys.exit(1)
+
+    if "Options" not in config.sections():
+        config.add_section("Options")
+    config.set("Options", "configCommit", configGitInfo(configFile) or "")
 
     return config

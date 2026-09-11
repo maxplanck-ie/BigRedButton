@@ -1,20 +1,22 @@
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from importlib.metadata import version
 
 from dominate.tags import br, div, html
 from tabulate import tabulate
 
 from BRB.logger import log
+from BRB.misc import getVersion
 
 
 def errorEmail(config, errTuple, msg):
+    configCommit = config.get("Options", "configCommit", fallback="")
     msg = MIMEText(
         msg
         + f"\nError type: {errTuple[0]}\nError value: {errTuple[1]}\n{errTuple[2]}\n"
+        + (f"\nConfig file commit: {configCommit}\n" if configCommit else "")
     )
-    msg["Subject"] = f"[BigRedButton {version('BRB')}] Error"
+    msg["Subject"] = f"[BigRedButton {getVersion('BRB')}] Error"
     msg["From"] = config.get("Email", "fromAddress")
     msg["To"] = config.get("Email", "errorTo")
 
@@ -26,7 +28,7 @@ def errorEmail(config, errTuple, msg):
 def finishedEmail(config, msg):
     mailer = MIMEMultipart("alternative")
     mailer["Subject"] = (
-        f"[BigRedButton {version('BRB')}] {config.get('Options', 'runID')} processed"
+        f"[BigRedButton {getVersion('BRB')}] {config.get('Options', 'runID')} processed"
     )
     mailer["From"] = config.get("Email", "fromAddress")
 
@@ -65,10 +67,12 @@ def finishedEmail(config, msg):
         "sambaUpdate",
         "reruns",
     ]
+    configCommit = config.get("Options", "configCommit", fallback="")
     message = (
         _html.render()
         + "\n\n"
         + tabulate(msg, tabHead, tablefmt="html", disable_numparse=True)
+        + (f"\n\n<p>Config file commit: {configCommit}</p>" if configCommit else "")
     )
 
     email = MIMEText(message, "html")
