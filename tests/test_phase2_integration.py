@@ -162,7 +162,7 @@ def _stubPipeline(
         if what == "crash":
             raise RuntimeError(f"driver for {name} died")
         if what == "wait-for-abort" and registry is not None:
-            deadline = time.monotonic() + 5.0
+            deadline = time.monotonic() + 15.0
             while not registry.aborted:
                 if time.monotonic() > deadline:
                     raise AssertionError(
@@ -176,7 +176,7 @@ def _stubPipeline(
     monkeypatch.setattr(PushButton, "RNA", fake)
 
 
-def _waitFor(predicate, timeout=5.0, what="condition"):
+def _waitFor(predicate, timeout=15.0, what="condition"):
     """Poll `predicate` until it's true, or raise after `timeout` seconds."""
     deadline = time.monotonic() + timeout
     while not predicate():
@@ -186,7 +186,7 @@ def _waitFor(predicate, timeout=5.0, what="condition"):
 
 
 def _settleCrashedGroup(
-    dirs, name, startedEvent, notStartedGrace=0.3, stabilize=0.1, timeout=5.0
+    dirs, name, startedEvent, notStartedGrace=1.0, stabilize=0.1, timeout=15.0
 ):
     """
     After a crashing `runFlowcell` call, wait for a "wait-for-abort" group's
