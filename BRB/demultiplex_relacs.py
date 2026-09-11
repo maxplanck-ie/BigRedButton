@@ -238,7 +238,15 @@ def writePaired(read1, read2, of, bc, bcLen, args, doTrim=True):
     of[0].write(read1[2].encode())
     of[0].write(read1[3].encode())
 
-    of[1].write(rname.encode())
+    # Mate 2 shares the same (barcode/UMI-suffixed) read name, differing
+    # only in the pair-number field, per standard Illumina R1/R2 header
+    # pairing -- not read2's own original header.
+    rname2Fields = rname.rstrip("\n").split()
+    if len(rname2Fields) > 1:
+        rname2Fields[1] = f"2{rname2Fields[1][1:]}"
+    rname2 = " ".join(rname2Fields) + "\n"
+
+    of[1].write(rname2.encode())
     of[1].write(read2[1].encode())
     of[1].write(read2[2].encode())
     of[1].write(read2[3].encode())
@@ -275,7 +283,7 @@ def processPaired(args, sDict, bcLen, read1, read2, bc_dict, ori_rDict):
 
         relacs_bc = writePaired(
             [line1_1, line1_2, line1_3, line1_4],
-            [line1_2, line2_2, line2_3, line2_4],
+            [line2_1, line2_2, line2_3, line2_4],
             sDict[bc],
             bc,
             bcLen,
@@ -311,7 +319,12 @@ def processSingle(args, sDict, bcLen, read1):
         line1_4 = f1.readline().decode("ascii")
         (bc, isDefault) = matchSample(line1_2, None, sDict, bcLen, args.umiLength)
         writeRead(
-            [line1_1, line1_2, line1_3, line1_4], sDict[bc], bc, bcLen, args, isDefault
+            [line1_1, line1_2, line1_3, line1_4],
+            sDict[bc][0],
+            bc,
+            bcLen,
+            args,
+            isDefault,
         )
 
     f1.close()
