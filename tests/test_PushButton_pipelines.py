@@ -1,4 +1,6 @@
 import configparser
+import glob as glob_mod
+import os
 
 import pytest
 
@@ -486,6 +488,242 @@ class TestScATAC:
 
         result = PushButton.scATAC(
             make_config(), "grp", "Proj", HUMAN, "scATAC-Seq", tuples
+        )
+
+        assert result == (str(outputDir), 1, False)
+
+
+def relacsConfig(sequencerType, runID="20260101_AV999999_9999999", **pathOverrides):
+    config = make_config()
+    config["Options"]["runID"] = runID
+    config["Options"]["sequencerType"] = sequencerType
+    for k, v in pathOverrides.items():
+        config["Paths"][k] = v
+    return config
+
+
+def stubRelacsHelpers(monkeypatch, subprocessRaises=None):
+    """
+    Stub RELACS's own post-pipeline collaborators (distinct from stubHelpers,
+    which targets the plain DNA/WGBS/ATAC pipelines). `subprocessRaises` is a
+    predicate `cmd -> bool` deciding which runManagedSubprocess calls raise.
+    """
+    calls = {"runManagedSubprocess": [], "touchDone": []}
+
+    monkeypatch.setattr(
+        PushButton.BRB.misc, "getLatestSeqdir", lambda *a, **k: "seqdir1"
+    )
+    monkeypatch.setattr(PushButton, "removeLinkFiles", lambda *a, **k: None)
+    monkeypatch.setattr(PushButton, "tidyUpABit", lambda *a, **k: None)
+    monkeypatch.setattr(PushButton, "copyRELACS", lambda *a, **k: None)
+    monkeypatch.setattr(PushButton, "stripRights", lambda *a, **k: None)
+
+    def fakeTouchDone(outputDir, fname="analysis.done"):
+        calls["touchDone"].append(fname)
+
+    monkeypatch.setattr(PushButton, "touchDone", fakeTouchDone)
+
+    def fakeRunManagedSubprocess(cmd, **kwargs):
+        calls["runManagedSubprocess"].append(cmd)
+        if "demultiplex_relacs" in cmd:
+            # Simulate the demux driver producing its outputs.
+            demuxDir = os.path.join(
+                kwargs.get("cwd", ""), "RELACS_demultiplexing", "out"
+            )
+            os.makedirs(demuxDir, exist_ok=True)
+            open(os.path.join(demuxDir, "sample1.png"), "w").close()
+            open(os.path.join(demuxDir, "sample1_R1.fastq.gz"), "w").close()
+        if subprocessRaises and subprocessRaises(cmd):
+            raise RuntimeError("driver failed")
+
+    monkeypatch.setattr(PushButton, "runManagedSubprocess", fakeRunManagedSubprocess)
+    return calls
+
+
+class TestRELACS:
+    def test_missing_samplesheet_returns_error(self, tmp_path, monkeypatch):
+        outputDir = tmp_path / "out"
+        outputDir.mkdir()
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(outputDir))
+        tuples = [["lib1", "sample1", "ChIP RELACS high-throughput", False]]
+
+        result = PushButton.RELACS(
+            relacsConfig("NovaSeq"), "grp", "Proj", HUMAN, "ChIP-Seq", tuples
+        )
+
+        assert result == (None, 1, False)
+
+    def test_already_done_external_triggers_delivery(self, tmp_path, monkeypatch):
+        outputDir = tmp_path / "out"
+        outputDir.mkdir()
+        (outputDir / "analysis.done").touch()
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(outputDir))
+        seen = {}
+        monkeypatch.setattr(
+            PushButton,
+            "deliverExternalRELACS",
+            lambda cfg, d, project: seen.setdefault("called", (d, project)),
+        )
+        tuples = [["lib1", "sample1", "ChIP RELACS high-throughput", True]]
+
+        result = PushButton.RELACS(
+            relacsConfig("NovaSeq"), "grp", "Proj", HUMAN, "ChIP-Seq", tuples
+        )
+
+        assert result == (str(outputDir), 0, True)
+        assert seen["called"] == (str(outputDir), "Proj")
+
+    def test_already_done_external_with_delivery_done_skips_delivery(
+        self, tmp_path, monkeypatch
+    ):
+        outputDir = tmp_path / "out"
+        outputDir.mkdir()
+        (outputDir / "analysis.done").touch()
+        (outputDir / "external_delivery.done").touch()
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(outputDir))
+        monkeypatch.setattr(
+            PushButton,
+            "deliverExternalRELACS",
+            lambda *a, **k: pytest.fail("delivery should not run twice"),
+        )
+        tuples = [["lib1", "sample1", "ChIP RELACS high-throughput", True]]
+
+        result = PushButton.RELACS(
+            relacsConfig("NovaSeq"), "grp", "Proj", HUMAN, "ChIP-Seq", tuples
+        )
+
+        assert result == (str(outputDir), 0, True)
+
+    def test_already_done_internal_skips_delivery(self, tmp_path, monkeypatch):
+        outputDir = tmp_path / "out"
+        outputDir.mkdir()
+        (outputDir / "analysis.done").touch()
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(outputDir))
+        monkeypatch.setattr(
+            PushButton,
+            "deliverExternalRELACS",
+            lambda *a, **k: pytest.fail("internal project must not be delivered"),
+        )
+        tuples = [["lib1", "sample1", "ChIP RELACS high-throughput", False]]
+
+        result = PushButton.RELACS(
+            relacsConfig("NovaSeq"), "grp", "Proj", HUMAN, "ChIP-Seq", tuples
+        )
+
+        assert result == (str(outputDir), 0, True)
+
+    def test_aviti_success_copies_samplesheet_and_runs_demux(
+        self, tmp_path, monkeypatch
+    ):
+        outputDir = tmp_path / "out"
+        outputDir.mkdir()
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(outputDir))
+
+        runID = "20260101_AV999999_9999999"
+        sampleSheetSrc = tmp_path / "RELACS_Project_Proj.txt"
+        sampleSheetSrc.write_text("sample1\tACGT\n")
+        realGlob = glob_mod.glob
+
+        def fakeGlob(pattern, **kwargs):
+            if pattern.startswith(f"/dont_touch_this/short_runs/AV*/AV*/{runID}"):
+                return [str(sampleSheetSrc)]
+            return realGlob(pattern, **kwargs)
+
+        monkeypatch.setattr(PushButton.glob, "glob", fakeGlob)
+
+        groupData = tmp_path / "groupdata"
+        monkeypatch.setattr(
+            PushButton.BRB.misc, "getLatestSeqdir", lambda *a, **k: "seqdir1"
+        )
+        sampleDir = (
+            groupData / "grp" / "seqdir1" / runID / "Project_Proj" / "Sample_lib1"
+        )
+        sampleDir.mkdir(parents=True)
+
+        calls = stubRelacsHelpers(monkeypatch)
+        tuples = [["lib1", "sample1", "ChIP RELACS high-throughput", False]]
+
+        result = PushButton.RELACS(
+            relacsConfig("Aviti", runID=runID, groupData=str(groupData)),
+            "grp",
+            "Proj",
+            HUMAN,
+            "ChIP-Seq",
+            tuples,
+        )
+
+        assert result == (str(outputDir), 0, True)
+        assert (outputDir / "RELACS_sampleSheet.txt").read_text() == "sample1\tACGT\n"
+        assert any("demultiplex_relacs" in c for c in calls["runManagedSubprocess"])
+        assert any("DNAmapping" in c for c in calls["runManagedSubprocess"])
+        assert calls["touchDone"] == ["analysis.done"]
+        # Demuxed, non-"unknown" reads get relinked under originalFASTQ.
+        assert (outputDir / "originalFASTQ" / "sample1_R1.fastq.gz").is_symlink()
+        # The transient Sample_* symlink used only to feed the demux CMD is
+        # cleaned back up afterwards.
+        assert not (outputDir / "Sample_lib1").exists()
+
+    def test_non_aviti_skips_demux_when_pngs_already_match_and_delivers_external(
+        self, tmp_path, monkeypatch
+    ):
+        outputDir = tmp_path / "out"
+        outputDir.mkdir()
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(outputDir))
+        (outputDir / "RELACS_sampleSheet.txt").write_text("sample1\tACGT\n")
+        demuxDir = outputDir / "RELACS_demultiplexing" / "out"
+        demuxDir.mkdir(parents=True)
+        (demuxDir / "sample1.png").touch()
+        (demuxDir / "sample1_R1.fastq.gz").touch()
+
+        calls = stubRelacsHelpers(monkeypatch)
+        seen = {}
+        monkeypatch.setattr(
+            PushButton,
+            "deliverExternalRELACS",
+            lambda cfg, d, project: seen.setdefault("delivered", (d, project)),
+        )
+        tuples = [["lib1", "sample1", "ChIP RELACS high-throughput", True]]
+
+        result = PushButton.RELACS(
+            relacsConfig("NovaSeq"), "grp", "Proj", HUMAN, "ChIP-Seq", tuples
+        )
+
+        assert result == (str(outputDir), 0, True)
+        assert not any("demultiplex_relacs" in c for c in calls["runManagedSubprocess"])
+        assert seen["delivered"] == (str(outputDir), "Proj")
+
+    def test_demux_failure_returns_nonzero(self, tmp_path, monkeypatch):
+        outputDir = tmp_path / "out"
+        outputDir.mkdir()
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(outputDir))
+        (outputDir / "RELACS_sampleSheet.txt").write_text("sample1\tACGT\n")
+
+        stubRelacsHelpers(
+            monkeypatch, subprocessRaises=lambda cmd: "demultiplex_relacs" in cmd
+        )
+        tuples = [["lib1", "sample1", "ChIP RELACS high-throughput", False]]
+
+        result = PushButton.RELACS(
+            relacsConfig("NovaSeq"), "grp", "Proj", HUMAN, "ChIP-Seq", tuples
+        )
+
+        assert result == (str(outputDir), 1, False)
+
+    def test_dnamapping_failure_returns_nonzero(self, tmp_path, monkeypatch):
+        outputDir = tmp_path / "out"
+        outputDir.mkdir()
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(outputDir))
+        (outputDir / "RELACS_sampleSheet.txt").write_text("sample1\tACGT\n")
+        demuxDir = outputDir / "RELACS_demultiplexing" / "out"
+        demuxDir.mkdir(parents=True)
+        (demuxDir / "sample1.png").touch()
+        (demuxDir / "sample1_R1.fastq.gz").touch()
+
+        stubRelacsHelpers(monkeypatch, subprocessRaises=lambda cmd: "DNAmapping" in cmd)
+        tuples = [["lib1", "sample1", "ChIP RELACS high-throughput", False]]
+
+        result = PushButton.RELACS(
+            relacsConfig("NovaSeq"), "grp", "Proj", HUMAN, "ChIP-Seq", tuples
         )
 
         assert result == (str(outputDir), 1, False)
