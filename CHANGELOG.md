@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/maxplanck-ie/BigRedButton/compare/v0.9.1...v0.9.2) (2026-09-12)
+
+
+### Bug Fixes
+
+* RELACS demux crash on single-end reads + mate-2 header bug, raise BRB coverage 88%-&gt;94% ([#159](https://github.com/maxplanck-ie/BigRedButton/issues/159)) ([a99e1d2](https://github.com/maxplanck-ie/BigRedButton/commit/a99e1d21fcd021c22c07d937ffad20cd10a5e4db))
+
 ## [0.9.1](https://github.com/maxplanck-ie/BigRedButton/compare/v0.9.0...v0.9.1) (2026-09-11)
 
 
