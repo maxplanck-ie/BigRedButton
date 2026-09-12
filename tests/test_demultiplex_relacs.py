@@ -1,4 +1,5 @@
 import argparse
+import gzip
 import io
 
 import pytest
@@ -8,6 +9,12 @@ import BRB.demultiplex_relacs as dr
 
 def _args(umiLength=0, buffer=1):
     return argparse.Namespace(umiLength=umiLength, buffer=buffer)
+
+
+def _gzFastq(path, records):
+    with gzip.open(path, "wb") as fh:
+        for name, seq, qual in records:
+            fh.write(f"{name}\n{seq}\n+\n{qual}\n".encode())
 
 
 class TestParseArgs:
@@ -191,7 +198,7 @@ class TestWriteRead2:
 
 
 class TestWritePaired:
-    def test_writes_both_mates_with_shared_read_name(self):
+    def test_writes_both_mates_with_shared_name_and_own_pair_flag(self):
         of1, of2 = io.BytesIO(), io.BytesIO()
         read1 = ["@read1 1:N:0\n", "ACTACTGGGG\n", "+\n", "IIIIIIIIII\n"]
         read2 = ["@read1 2:N:0\n", "ACTACTCCCC\n", "+\n", "IIIIIIIIII\n"]
@@ -202,8 +209,9 @@ class TestWritePaired:
         assert bc == "ACTACT"
         w1 = of1.getvalue().decode()
         w2 = of2.getvalue().decode()
+        # Same barcode-suffixed name, differing only in the pair-number field.
         assert w1.startswith("@read1_ACTACT 1:N:0\n")
-        assert w2.startswith("@read1_ACTACT 1:N:0\n")
+        assert w2.startswith("@read1_ACTACT 2:N:0\n")
         assert "GGG\n" in w1
         assert "CCC\n" in w2
 
@@ -218,3 +226,82 @@ class TestWritePaired:
         assert bc == "ACTACT"
         w1 = of1.getvalue().decode()
         assert w1.startswith("@read1_ACTACT_AAAATTTT 1:N:0\n")
+
+
+class TestProcessSingle:
+    """
+    Regression test for a bug where processSingle called writeRead with the
+    raw oDict list value (as wired up by wrapper: oDict[k] = [stdin]) instead
+    of unwrapping it, crashing with AttributeError on every read -- the
+    single-end demux path was unconditionally broken.
+    """
+
+    def test_routes_matched_and_unmatched_reads_to_their_files(self, tmp_path):
+        r1 = tmp_path / "s_R1.fastq.gz"
+        _gzFastq(
+            r1,
+            [
+                ("@read1 1:N:0:1", "ACGTNTTTTTTTT", "IIIIIIIIIIIII"),
+                ("@read2 1:N:0:1", "GGGGNCCCCCCCC", "IIIIIIIIIIIII"),
+            ],
+        )
+        matched = io.BytesIO()
+        default = io.BytesIO()
+        sDict = {"ACGT": [matched], "default": [default]}
+
+        dr.processSingle(_args(), sDict, 4, str(r1))
+
+        matchedText = matched.getvalue().decode()
+        assert matchedText == "@read1_ACGT 1:N:0:1\nTTTTTTTT\n+\nIIIIIIII\n"
+        defaultText = default.getvalue().decode()
+        assert defaultText == "@read2 1:N:0:1\nGGGGNCCCCCCCC\n+\nIIIIIIIIIIIII\n"
+
+
+class TestProcessPaired:
+    def test_routes_matched_and_unmatched_pairs_and_reports_bc_occurance(
+        self, tmp_path, monkeypatch
+    ):
+        r1 = tmp_path / "s_R1.fastq.gz"
+        r2 = tmp_path / "s_R2.fastq.gz"
+        _gzFastq(
+            r1,
+            [
+                ("@read1 1:N:0:1", "ACGTNTTTTTTTT", "IIIIIIIIIIIII"),
+                ("@read2 1:N:0:1", "GGGGNCCCCCCCC", "IIIIIIIIIIIII"),
+            ],
+        )
+        _gzFastq(
+            r2,
+            [
+                ("@read1 2:N:0:1", "ACGTNAAAAAAAA", "IIIIIIIIIIIII"),
+                ("@read2 2:N:0:1", "GGGGNTTTTTTTT", "IIIIIIIIIIIII"),
+            ],
+        )
+        matched1, matched2 = io.BytesIO(), io.BytesIO()
+        default1, default2 = io.BytesIO(), io.BytesIO()
+        oDict = {"ACGT": [matched1, matched2], "default": [default1, default2]}
+        bc_dict = {}
+        seenPlot = {}
+        monkeypatch.setattr(
+            dr,
+            "plot_bc_occurance",
+            lambda read1, bcd, falseBc, output, oriDict: seenPlot.update(
+                read1=read1, bc_dict=dict(bcd), false_bc=falseBc
+            ),
+        )
+
+        args = _args()
+        args.output = str(tmp_path)
+        dr.processPaired(args, oDict, 4, str(r1), str(r2), bc_dict, oDict)
+
+        m1 = matched1.getvalue().decode()
+        assert m1 == "@read1_ACGT 1:N:0:1\nTTTTTTTT\n+\nIIIIIIII\n"
+        assert (
+            matched2.getvalue().decode()
+            == "@read1_ACGT 2:N:0:1\nAAAAAAAA\n+\nIIIIIIII\n"
+        )
+        assert default1.getvalue().decode() == (
+            "@read2 1:N:0:1\nGGGGNCCCCCCCC\n+\nIIIIIIIIIIIII\n"
+        )
+        assert bc_dict == {"ACGT": 1}
+        assert seenPlot == {"read1": str(r1), "bc_dict": {"ACGT": 1}, "false_bc": 1}

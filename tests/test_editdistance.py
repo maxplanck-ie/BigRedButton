@@ -26,3 +26,9 @@ def test_edit_distance_is_symmetric():
 def test_edit_distance_max_dist_short_circuits():
     assert edit_distance("abc", "xyz", max_dist=1) == 2
     assert edit_distance("abc", "ab", max_dist=1) == 1
+
+
+def test_edit_distance_length_diff_short_circuits_before_the_loop():
+    # len("a") - len("abcdef") == 5 > max_dist(1); must return max_dist + 1
+    # without ever entering the DP loop.
+    assert edit_distance("a", "abcdef", max_dist=1) == 2
