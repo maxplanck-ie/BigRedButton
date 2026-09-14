@@ -555,6 +555,83 @@ class TestRelinkFilesUniqueMultiqcName:
         ]
 
 
+class TestRNA:
+    def test_already_done_short_circuits_without_running_anything(
+        self, tmp_path, monkeypatch
+    ):
+        config = make_config()
+        (tmp_path / "analysis.done").write_text("")
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(tmp_path))
+
+        def mustNotRun(*a, **k):
+            raise AssertionError("must not run when analysis.done already exists")
+
+        monkeypatch.setattr(PushButton, "linkFiles", mustNotRun)
+        monkeypatch.setattr(PushButton, "runManagedSubprocess", mustNotRun)
+        outputDir, rv, samba = PushButton.RNA(
+            config,
+            "grp",
+            "1_Doe_Smith",
+            ("mouse", "GRCm38", "/yaml/GRCm38.yaml"),
+            "stranded mRNA-Seq",
+            [["18L001", "sampleA", "TruSeq", False]],
+        )
+        assert (outputDir, rv, samba) == (str(tmp_path), 0, False)
+
+    def test_smart_seq2_protocol_forces_unstranded_librarytype(
+        self, tmp_path, monkeypatch
+    ):
+        config = make_config()
+        calls = []
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(tmp_path))
+        monkeypatch.setattr(PushButton, "linkFiles", lambda *a, **k: True)
+        monkeypatch.setattr(PushButton, "removeLinkFiles", lambda *a, **k: None)
+        monkeypatch.setattr(PushButton, "relinkFiles", lambda *a, **k: None)
+        monkeypatch.setattr(PushButton, "tidyUpABit", lambda *a, **k: None)
+        monkeypatch.setattr(PushButton, "touchDone", lambda *a, **k: None)
+        monkeypatch.setattr(
+            PushButton,
+            "runManagedSubprocess",
+            lambda cmd, **kw: calls.append(cmd) or 0,
+        )
+        PushButton.RNA(
+            config,
+            "grp",
+            "1_Doe_Smith",
+            ("mouse", "GRCm38", "/yaml/GRCm38.yaml"),
+            "stranded mRNA-Seq",
+            [["18L001", "sampleA", "Smart-Seq2", False]],
+        )
+        assert "--libraryType 0" in calls[0]
+
+    def test_nebnext_low_input_protocol_forces_unstranded_and_trims_adapters(
+        self, tmp_path, monkeypatch
+    ):
+        config = make_config()
+        calls = []
+        monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(tmp_path))
+        monkeypatch.setattr(PushButton, "linkFiles", lambda *a, **k: True)
+        monkeypatch.setattr(PushButton, "removeLinkFiles", lambda *a, **k: None)
+        monkeypatch.setattr(PushButton, "relinkFiles", lambda *a, **k: None)
+        monkeypatch.setattr(PushButton, "tidyUpABit", lambda *a, **k: None)
+        monkeypatch.setattr(PushButton, "touchDone", lambda *a, **k: None)
+        monkeypatch.setattr(
+            PushButton,
+            "runManagedSubprocess",
+            lambda cmd, **kw: calls.append(cmd) or 0,
+        )
+        PushButton.RNA(
+            config,
+            "grp",
+            "1_Doe_Smith",
+            ("mouse", "GRCm38", "/yaml/GRCm38.yaml"),
+            "stranded mRNA-Seq",
+            [["18L001", "sampleA", "NEBNext Low Input RNA Library", False]],
+        )
+        assert "--libraryType 0" in calls[0]
+        assert "AGATCGGAAGAGC" in calls[0]
+
+
 class TestManagedSubprocessCallSites:
     def test_no_check_call_remains(self):
         source = Path(PushButton.__file__).read_text()
