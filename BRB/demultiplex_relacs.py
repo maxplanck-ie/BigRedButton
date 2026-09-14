@@ -350,62 +350,52 @@ def wrapper(foo):
 
     # Open the output files and process
     oDict = {}
+    # Each entry's underlying gzip -c child, kept so we can close its stdin
+    # (to signal EOF) and wait for it once we're done writing -- without
+    # this, an unwaited Popen stays in subprocess._active and its stdin pipe
+    # never gets closed by Python, so the child never flushes/exits until
+    # the whole worker process happens to terminate.
+    procs = []
+
+    def spawnGzipWriter(path):
+        proc = subprocess.Popen(
+            ["gzip", "-c"],
+            stdout=open(path, "wb"),
+            stdin=subprocess.PIPE,
+            bufsize=0,
+        )
+        procs.append(proc)
+        return proc.stdin
+
     if R2 is not None:
         for k, v in sDict.items():
             oDict[k] = [
-                subprocess.Popen(
-                    ["gzip", "-c"],
-                    stdout=open(f"{args.output}/{d}/{v[0]}_R1.fastq.gz", "wb"),
-                    stdin=subprocess.PIPE,
-                    bufsize=0,
-                ).stdin,
-                subprocess.Popen(
-                    ["gzip", "-c"],
-                    stdout=open(f"{args.output}/{d}/{v[0]}_R2.fastq.gz", "wb"),
-                    stdin=subprocess.PIPE,
-                    bufsize=0,
-                ).stdin,
+                spawnGzipWriter(f"{args.output}/{d}/{v[0]}_R1.fastq.gz"),
+                spawnGzipWriter(f"{args.output}/{d}/{v[0]}_R2.fastq.gz"),
             ]
         if "default" not in oDict:
-            k = "default"
             v = ["unknown", ""]
-            oDict[k] = [
-                subprocess.Popen(
-                    ["gzip", "-c"],
-                    stdout=open(f"{args.output}/{d}/{v[0]}_R1.fastq.gz", "wb"),
-                    stdin=subprocess.PIPE,
-                    bufsize=0,
-                ).stdin,
-                subprocess.Popen(
-                    ["gzip", "-c"],
-                    stdout=open(f"{args.output}/{d}/{v[0]}_R2.fastq.gz", "wb"),
-                    stdin=subprocess.PIPE,
-                    bufsize=0,
-                ).stdin,
+            oDict["default"] = [
+                spawnGzipWriter(f"{args.output}/{d}/{v[0]}_R1.fastq.gz"),
+                spawnGzipWriter(f"{args.output}/{d}/{v[0]}_R2.fastq.gz"),
             ]
         processPaired(args, oDict, bcLen, R1, R2, bc_dict, sDict)
     else:
         for k, v in sDict.items():
-            oDict[k] = [
-                subprocess.Popen(
-                    ["gzip", "-c"],
-                    stdout=open(f"{args.output}/{d}/{v[0]}_R1.fastq.gz", "wb"),
-                    stdin=subprocess.PIPE,
-                    bufsize=0,
-                ).stdin
-            ]
+            oDict[k] = [spawnGzipWriter(f"{args.output}/{d}/{v[0]}_R1.fastq.gz")]
         if "default" not in oDict:
-            k = "default"
-            v = "unknown"
-            oDict[k] = [
-                subprocess.Popen(
-                    ["gzip", "-c"],
-                    stdout=open(f"{args.output}/{d}/{v[0]}_R1.fastq.gz", "wb"),
-                    stdin=subprocess.PIPE,
-                    bufsize=0,
-                ).stdin
+            v = ["unknown", ""]
+            oDict["default"] = [
+                spawnGzipWriter(f"{args.output}/{d}/{v[0]}_R1.fastq.gz")
             ]
         processSingle(args, oDict, bcLen, R1)
+
+    for fh_list in oDict.values():
+        for fh in fh_list:
+            fh.close()
+    for proc in procs:
+        proc.wait()
+
     return bc_dict
 
 
