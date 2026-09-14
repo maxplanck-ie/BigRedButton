@@ -99,6 +99,18 @@ class TestGetResultsReturnsWorkItems:
         assert workItems[0].tuples == [["L1", "s1", "proto", False]]
         assert msg == [["telegraph", "human", "Other", None, None, None, False]]
 
+    def test_missing_species_label_and_yaml_is_logged(self, tmp_path, caplog):
+        config = dispatchConfig(tmp_path)
+        unknownOrganism = ("mystery-species", None, None)
+        libraries = {
+            "L1": ["s1", "ChIP-Seq", "proto", unknownOrganism, "i7", 30],
+        }
+
+        with caplog.at_level("INFO"):
+            PushButton.GetResults(config, "1_A_Foo", libraries)
+
+        assert "Species label or YAML was not set for mystery-species" in caplog.text
+
     def test_external_skiplist_message_still_produced(self, tmp_path):
         config = dispatchConfig(tmp_path)
         config["external"]["LibraryTypes"] = "ChIP-Seq"

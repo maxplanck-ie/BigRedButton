@@ -1,8 +1,12 @@
 import argparse
 import gzip
 import io
+from pathlib import Path
 
+import matplotlib
 import pytest
+
+matplotlib.use("Agg")
 
 import BRB.demultiplex_relacs as dr
 
@@ -132,6 +136,16 @@ class TestMatchSample:
         # AGTACT differs from ACTACT by one base
         seq = "AGTACTGGGG\n"
         bc, isDefault = dr.matchSample(seq, None, self._oDict(), 6, 0)
+        assert bc == "ACTACT"
+        assert isDefault is True
+
+    def test_one_mismatch_paired_end_agrees(self):
+        # AGTACT differs from ACTACT (the key) by one base, and mate 2 agrees
+        # with mate 1's own (mismatched) barcode -- exercises the paired-end
+        # branch of the 1-mismatch fallback loop, not just the single-end one.
+        seq1 = "AGTACTGGGG\n"
+        seq2 = "AGTACTCCCC\n"
+        bc, isDefault = dr.matchSample(seq1, seq2, self._oDict(), 6, 0)
         assert bc == "ACTACT"
         assert isDefault is True
 
@@ -305,3 +319,167 @@ class TestProcessPaired:
         )
         assert bc_dict == {"ACGT": 1}
         assert seenPlot == {"read1": str(r1), "bc_dict": {"ACGT": 1}, "false_bc": 1}
+
+    def test_repeated_barcode_increments_its_bc_dict_count(self, tmp_path, monkeypatch):
+        r1 = tmp_path / "s_R1.fastq.gz"
+        r2 = tmp_path / "s_R2.fastq.gz"
+        _gzFastq(
+            r1,
+            [
+                ("@read1 1:N:0:1", "ACGTNTTTTTTTT", "IIIIIIIIIIIII"),
+                ("@read2 1:N:0:1", "ACGTNCCCCCCCC", "IIIIIIIIIIIII"),
+            ],
+        )
+        _gzFastq(
+            r2,
+            [
+                ("@read1 2:N:0:1", "ACGTNAAAAAAAA", "IIIIIIIIIIIII"),
+                ("@read2 2:N:0:1", "ACGTNGGGGGGGG", "IIIIIIIIIIIII"),
+            ],
+        )
+        matched1, matched2 = io.BytesIO(), io.BytesIO()
+        oDict = {"ACGT": [matched1, matched2]}
+        bc_dict = {}
+        monkeypatch.setattr(dr, "plot_bc_occurance", lambda *a, **k: None)
+
+        args = _args()
+        args.output = str(tmp_path)
+        dr.processPaired(args, oDict, 4, str(r1), str(r2), bc_dict, oDict)
+
+        assert bc_dict == {"ACGT": 2}
+
+
+class TestPlotBcOccurance:
+    def test_writes_a_png_named_after_the_r1_sample(self, tmp_path):
+        sDict = {"ACTACT": ["Sample1", ""], "TGACTG": ["Sample2", ""]}
+        bc_dict = {"ACTACT": 5, "TGACTG": 3}
+
+        dr.plot_bc_occurance("run_R1.fastq.gz", bc_dict, 2, str(tmp_path), sDict)
+
+        assert (tmp_path / "run_fig.png").exists()
+
+    def test_uses_the_bc_pos_label_when_set(self, tmp_path):
+        sDict = {"ACTACT": ["Sample1", "A1-21"], "TGACTG": ["Sample2", ""]}
+        bc_dict = {"ACTACT": 5, "TGACTG": 3}
+
+        dr.plot_bc_occurance("run_R1.fastq.gz", bc_dict, 2, str(tmp_path), sDict)
+
+        assert (tmp_path / "run_fig.png").exists()
+
+
+class TestWrapper:
+    """
+    `wrapper` builds `{args.output}/{d}` by plain string formatting (not
+    os.path.join), so passing an absolute `d` would nest the whole absolute
+    path under args.output. Its real caller (main) always passes `d` as a
+    samplesheet-relative directory name, so these tests match that by
+    chdir-ing into tmp_path and using a bare relative dirname throughout.
+
+    Also regression-tests two bugs found while writing these tests: the
+    output gzip subprocesses were never closed/waited on (so their output
+    was never flushed deterministically -- production "worked" only because
+    the whole worker process eventually exited, forcing the OS to close the
+    fds), and the auto-added "default" row for single-end samples set
+    v = "unknown" (a bare string) instead of ["unknown", ""], so v[0]
+    indexed into the string and produced a file named "u_R1.fastq.gz".
+    """
+
+    def test_single_end_sample_with_no_default_row_gets_one_added(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        d = Path("Sample_lib1")
+        d.mkdir()
+        _gzFastq(
+            d / "sample_R1.fastq.gz",
+            [
+                ("@read1 1:N:0:1", "ACGTNTTTTTTTT", "IIIIIIIIIIIII"),
+                ("@read2 1:N:0:1", "GGGGNCCCCCCCC", "IIIIIIIIIIIII"),
+            ],
+        )
+        args = _args()
+        args.output = "out"
+        sDict = {"ACGT": ["Sample1", ""]}
+        bc_dict = {}
+
+        dr.wrapper((str(d), args, sDict, 4, bc_dict))
+
+        matched = gzip.open(Path("out") / d / "Sample1_R1.fastq.gz").read()
+        assert matched.decode() == "@read1_ACGT 1:N:0:1\nTTTTTTTT\n+\nIIIIIIII\n"
+        default = gzip.open(Path("out") / d / "unknown_R1.fastq.gz").read()
+        assert default.decode() == "@read2 1:N:0:1\nGGGGNCCCCCCCC\n+\nIIIIIIIIIIIII\n"
+
+    def test_paired_end_sample_with_no_default_row_gets_one_added(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        d = Path("Sample_lib1")
+        d.mkdir()
+        _gzFastq(
+            d / "sample_R1.fastq.gz",
+            [("@read1 1:N:0:1", "ACGTNTTTTTTTT", "IIIIIIIIIIIII")],
+        )
+        _gzFastq(
+            d / "sample_R2.fastq.gz",
+            [("@read1 2:N:0:1", "ACGTNAAAAAAAA", "IIIIIIIIIIIII")],
+        )
+        args = _args()
+        args.output = "out"
+        sDict = {"ACGT": ["Sample1", ""]}
+        bc_dict = {}
+        monkeypatch.setattr(dr, "plot_bc_occurance", lambda *a, **k: None)
+
+        dr.wrapper((str(d), args, sDict, 4, bc_dict))
+
+        matched1 = gzip.open(Path("out") / d / "Sample1_R1.fastq.gz").read()
+        assert matched1.decode() == "@read1_ACGT 1:N:0:1\nTTTTTTTT\n+\nIIIIIIII\n"
+        matched2 = gzip.open(Path("out") / d / "Sample1_R2.fastq.gz").read()
+        assert matched2.decode() == "@read1_ACGT 2:N:0:1\nAAAAAAAA\n+\nIIIIIIII\n"
+        assert (Path("out") / d / "unknown_R2.fastq.gz").exists()
+
+    def test_warns_and_uses_first_when_multiple_r1_files_found(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        monkeypatch.chdir(tmp_path)
+        d = Path("Sample_lib1")
+        d.mkdir()
+        _gzFastq(
+            d / "a_R1.fastq.gz",
+            [("@read1 1:N:0:1", "ACGTNTTTTTTTT", "IIIIIIIIIIIII")],
+        )
+        _gzFastq(
+            d / "b_R1.fastq.gz",
+            [("@read1 1:N:0:1", "ACGTNAAAAAAAA", "IIIIIIIIIIIII")],
+        )
+        args = _args()
+        args.output = "out"
+        sDict = {"ACGT": ["Sample1", ""]}
+
+        dr.wrapper((str(d), args, sDict, 4, {}))
+
+        assert "more than 1 sample found" in capsys.readouterr().out
+        assert (Path("out") / d / "Sample1_R1.fastq.gz").exists()
+
+
+class TestMain:
+    def test_end_to_end_single_end_demux(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        sampleDir = Path("Sample_lib1")
+        sampleDir.mkdir()
+        _gzFastq(
+            sampleDir / "sample_R1.fastq.gz",
+            [
+                ("@read1 1:N:0:1", "ACGTNTTTTTTTT", "IIIIIIIIIIIII"),
+                ("@read2 1:N:0:1", "GGGGNCCCCCCCC", "IIIIIIIIIIIII"),
+            ],
+        )
+        table = Path("samples.txt")
+        table.write_text("Sample_lib1\tACGT\tSample1\n")
+        Path("out").mkdir()
+
+        dr.main([str(table), "out", "-p", "1"])
+
+        matched = gzip.open(Path("out") / sampleDir / "Sample1_R1.fastq.gz").read()
+        assert matched.decode() == "@read1_ACGT 1:N:0:1\nTTTTTTTT\n+\nIIIIIIII\n"
+        default = gzip.open(Path("out") / sampleDir / "unknown_R1.fastq.gz").read()
+        assert default.decode() == "@read2 1:N:0:1\nGGGGNCCCCCCCC\n+\nIIIIIIIIIIIII\n"
