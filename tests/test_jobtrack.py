@@ -273,6 +273,15 @@ def _raise_no_such_process(pid, sig):
     raise ProcessLookupError
 
 
+class TestPidAlive:
+    def test_other_oserror_counts_as_alive(self, monkeypatch):
+        def _blowUp(pid, sig):
+            raise OSError("EPERM-ish but not PermissionError")
+
+        monkeypatch.setattr(jobtrack.os, "kill", _blowUp)
+        assert jobtrack._pidAlive(4242) is True
+
+
 class TestParseJobIds:
     def test_cluster_generic_submission_line(self):
         line = "Submitted job 12 with external jobid 'Submitted batch job 1234567'."
@@ -411,6 +420,21 @@ class TestRunManagedSubprocess:
         t.join()
         assert seen == [True]
 
+    def test_stdout_close_oserror_is_swallowed(self, monkeypatch):
+        realPopen = jobtrack.subprocess.Popen
+
+        def flakyClosePopen(*args, **kwargs):
+            proc = realPopen(*args, **kwargs)
+
+            def blowUp():
+                raise OSError("already closed")
+
+            proc.stdout.close = blowUp
+            return proc
+
+        monkeypatch.setattr(jobtrack.subprocess, "Popen", flakyClosePopen)
+        assert jobtrack.runManagedSubprocess("true") == 0
+
 
 import signal
 
@@ -499,6 +523,25 @@ class TestCancelGroup:
         monkeypatch.setattr(jobtrack.os, "getpgid", gone)
         jobtrack.cancelGroup(handle)
 
+    def test_marker_flag_failure_does_not_stop_the_kill(self, tmp_path, monkeypatch):
+        handle = jobtrack.JobRegistry().register_group(tmp_path)
+        handle.add_job_ids(["1"])
+        proc = FakeProc(pid=321)
+        handle.add_process(proc)
+        signals = []
+
+        def blowUp(outputDir):
+            raise OSError("marker unreadable")
+
+        monkeypatch.setattr(jobtrack, "markMarkerCancelled", blowUp)
+        monkeypatch.setattr(jobtrack.subprocess, "run", lambda *a, **k: None)
+        monkeypatch.setattr(jobtrack.os, "getpgid", lambda pid: pid)
+        monkeypatch.setattr(
+            jobtrack.os, "killpg", lambda pgid, sig: signals.append((pgid, sig))
+        )
+        jobtrack.cancelGroup(handle)
+        assert signals == [(321, signal.SIGTERM)]
+
 
 class TestCancelAllGroups:
     def test_cancels_every_registered_group(self, tmp_path, monkeypatch):
@@ -549,6 +592,23 @@ class TestCancelAllGroups:
         assert len(calls) == 2
         assert reg.active_groups() == []
         assert not (tmp_path / "a" / "running.pid").exists()
+
+    def test_marker_clear_failure_does_not_stop_deregistration(
+        self, tmp_path, monkeypatch
+    ):
+        reg = jobtrack.JobRegistry()
+        for name in ("a", "b"):
+            (tmp_path / name).mkdir()
+            reg.register_group(tmp_path / name)
+            jobtrack.writeMarker(tmp_path / name)
+        monkeypatch.setattr(jobtrack.subprocess, "run", lambda *a, **k: None)
+
+        def blowUp(outputDir):
+            raise OSError("marker already gone")
+
+        monkeypatch.setattr(jobtrack, "clearMarker", blowUp)
+        jobtrack.cancelAllGroups(reg)
+        assert reg.active_groups() == []
 
 
 class StubbornProc:
