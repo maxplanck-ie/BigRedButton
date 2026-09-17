@@ -13,14 +13,14 @@ import BRB.misc
 from BRB.jobtrack import runManagedSubprocess
 from BRB.logger import log
 
-# One entry per (pipeline, organism, libraryType) group within a project.
+# One entry per (pipeline, organism, analysisType) group within a project.
 # `project` is the raw, unpacified Parkour project name -- the pipeline
 # functions pacify it themselves (RELACS needs the unpacified name to find
 # its original sample sheet). `organism` is the (org_name, org_label,
 # org_yaml) 3-tuple; org_label is deliberately not duplicated as its own
 # field, so the two can't drift apart.
 WorkItem = namedtuple(
-    "WorkItem", ["project", "group", "pipeline", "organism", "libraryType", "tuples"]
+    "WorkItem", ["project", "group", "pipeline", "organism", "analysisType", "tuples"]
 )
 
 # Name of the per-group ownership marker written into the group's outputDir.
@@ -86,20 +86,20 @@ def parseExternalAllowlist(configValue):
 
 
 def isExternallyAllowed(
-    libraryType, libraryProtocol, externalLibraryTypes, externalLibraryProtocols
+    analysisType, libraryProtocol, externalAnalysisTypes, externalLibraryProtocols
 ):
     """
     Whether a sample should still be processed for an external (non-PI)
-    project, based on its Parkour library type (exact match against
-    externalLibraryTypes) or library protocol (startswith match against
+    project, based on its Parkour analysis type (exact match against
+    externalAnalysisTypes) or library protocol (startswith match against
     externalLibraryProtocols).
     """
-    if libraryType in externalLibraryTypes:
+    if analysisType in externalAnalysisTypes:
         return True
     return any(libraryProtocol.startswith(p) for p in externalLibraryProtocols)
 
 
-def createPath(config, group, project, org_label, libraryType, tuples):
+def createPath(config, group, project, org_label, analysisType, tuples):
     """Ensures that the output path exists, creates it otherwise, and return where it is"""
     if tuples[0][3]:
         baseDir = "{}/{}/Analysis_{}".format(
@@ -116,7 +116,7 @@ def createPath(config, group, project, org_label, libraryType, tuples):
             BRB.misc.pacifier(project),
         )
     os.makedirs(baseDir, mode=0o700, exist_ok=True)
-    oDir = os.path.join(baseDir, f"{BRB.misc.pacifier(libraryType)}_{org_label}")
+    oDir = os.path.join(baseDir, f"{BRB.misc.pacifier(analysisType)}_{org_label}")
     os.makedirs(oDir, mode=0o700, exist_ok=True)
     return oDir
 
@@ -167,14 +167,14 @@ def removeLinkFiles(d):
         os.unlink(fname)
 
 
-def relinkFiles(config, group, project, org_label, libraryType, tuples):
+def relinkFiles(config, group, project, org_label, analysisType, tuples):
     """
     Generate symlinks under the snakepipes originalFASTQ folder directly from the project folder.
     At this stage the multiqc files are copied over into the bioinfocoredir, as well
     (skipped for external/ignored projects, since bioinfoCoreDir is internal-only).
     """
     # relink fqs
-    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
+    outputDir = createPath(config, group, project, org_label, analysisType, tuples)
     odir = os.path.join(outputDir, "originalFASTQ")
     linkFiles(config, group, project, odir, tuples)
     if tuples[0][3]:
@@ -186,11 +186,11 @@ def relinkFiles(config, group, project, org_label, libraryType, tuples):
     mqcf = os.path.join(outputDir, "multiQC", "multiqc_report.html")
     if os.path.exists(mqcf):
         log.info(f"Multiqc report found for {group} project {project}.")
-        # Keyed on libraryType + org_label as well as project: two groups of
+        # Keyed on analysisType + org_label as well as project: two groups of
         # the same project run concurrently under the Phase 1 thread pool and
         # would otherwise interleave writes into one destination file.
         oname = (
-            f"Analysis{project}_{BRB.misc.pacifier(libraryType)}"
+            f"Analysis{project}_{BRB.misc.pacifier(analysisType)}"
             f"_{org_label}_multiqc.html"
         )
         of = Path(config.get("Paths", "bioinfoCoreDir")) / oname
@@ -315,8 +315,8 @@ def copyRELACS(config, d):
     lane_dir = Path(d).parents[1].stem
     _current_year, year_postfix = getsambaPath(lane_dir, sequencing_type)
     log.info(f"copyRELACS - copying over RELACS files to samba path {year_postfix}")
-    # `d` is .../Analysis_<proj>/<libraryType>_<orgLabel> -- its stem is
-    # already the filesystem-safe (pacified) <libraryType>_<orgLabel>
+    # `d` is .../Analysis_<proj>/<analysisType>_<orgLabel> -- its stem is
+    # already the filesystem-safe (pacified) <analysisType>_<orgLabel>
     # component. Two library-groups of the same project run concurrently
     # under the Phase 1 thread pool and would otherwise collide on the same
     # destination filename in both seqFacDir and bioinfoCoreDir (the same
@@ -381,13 +381,13 @@ def removeDone(outputDir):
         os.remove(os.path.join(outputDir, "analysis.done"))
 
 
-def RNA(config, group, project, organism, libraryType, tuples):
+def RNA(config, group, project, organism, analysisType, tuples):
     """
     Need to set --libraryType
     """
     project = BRB.misc.pacifier(project)
     _org_name, org_label, org_yaml = organism
-    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
+    outputDir = createPath(config, group, project, org_label, analysisType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
     PE = linkFiles(config, group, project, outputDir, tuples)
@@ -425,13 +425,13 @@ def RNA(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
-    relinkFiles(config, group, project, org_label, libraryType, tuples)
+    relinkFiles(config, group, project, org_label, analysisType, tuples)
     tidyUpABit(outputDir)
     touchDone(outputDir)
     return outputDir, 0, False
 
 
-def RELACS(config, group, project, organism, libraryType, tuples):
+def RELACS(config, group, project, organism, analysisType, tuples):
     """
     This is a variant of the DNA mapping pipeline that does RELACS demultiplexing in addition
 
@@ -444,7 +444,7 @@ def RELACS(config, group, project, organism, libraryType, tuples):
     _org_name, org_label, org_yaml = organism
     ignore = tuples[0][3]
     outputDir = createPath(
-        config, group, BRB.misc.pacifier(project), org_label, libraryType, tuples
+        config, group, BRB.misc.pacifier(project), org_label, analysisType, tuples
     )
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         if ignore and not os.path.exists(
@@ -654,12 +654,12 @@ def deliverExternalRELACS(config, outputDir, project):
         )
 
 
-def DNA(config, group, project, organism, libraryType, tuples):
+def DNA(config, group, project, organism, analysisType, tuples):
     """
     Run the DNA mapping pipeline on the samples. Tweals could theoretically be made
     according to the libraryProtocol (tuple[2])
 
-    - Make /data/{group}/{LatestSeqdir}/{runID}/Analysis_{project}/{libraryType}_{org_label} directory
+    - Make /data/{group}/{LatestSeqdir}/{runID}/Analysis_{project}/{analysisType}_{org_label} directory
     - Remove previously linked in files (if any)
     - Link requested fastq files in
     - Run appropriate pipeline
@@ -667,11 +667,11 @@ def DNA(config, group, project, organism, libraryType, tuples):
     - Clean up snakemake directory
     """
     if tuples[0][2].startswith("ChIP RELACS high-throughput"):
-        return RELACS(config, group, project, organism, libraryType, tuples)
+        return RELACS(config, group, project, organism, analysisType, tuples)
 
     project = BRB.misc.pacifier(project)
     _org_name, org_label, org_yaml = organism
-    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
+    outputDir = createPath(config, group, project, org_label, analysisType, tuples)
     log.debug("Running snakePipes in output dir " + outputDir)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
@@ -680,7 +680,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
     CMD = "PATH={}/bin:$PATH".format(
         os.path.join(config.get("Options", "snakemakeWorkflowBaseDir"))
     )
-    if libraryType == "CUTandTag-seq" or libraryType == "CUTandRUN-seq":
+    if analysisType == "CUTandTag-seq" or analysisType == "CUTandRUN-seq":
         CMD = [
             CMD,
             "DNAmapping",
@@ -696,7 +696,7 @@ def DNA(config, group, project, organism, libraryType, tuples):
             outputDir,
             org_yaml,
         ]
-    elif libraryType == "ATAC-Seq":
+    elif analysisType == "ATAC-Seq":
         CMD = [
             CMD,
             "DNAmapping",
@@ -732,24 +732,24 @@ def DNA(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
-    relinkFiles(config, group, project, org_label, libraryType, tuples)
+    relinkFiles(config, group, project, org_label, analysisType, tuples)
     tidyUpABit(outputDir)
     stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0, False
 
 
-def WGBS(config, group, project, organism, libraryType, tuples):
+def WGBS(config, group, project, organism, analysisType, tuples):
     """
     Run the WGBS pipeline
 
-    TODO: set trimming according to the libraryType
+    TODO: set trimming according to the analysisType
     TODO: I don't think we know how to send back metrics yet
     """
 
     project = BRB.misc.pacifier(project)
     _org_name, org_label, org_yaml = organism
-    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
+    outputDir = createPath(config, group, project, org_label, analysisType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
     PE = linkFiles(config, group, project, outputDir, tuples)
@@ -763,27 +763,27 @@ def WGBS(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
-    relinkFiles(config, group, project, org_label, libraryType, tuples)
+    relinkFiles(config, group, project, org_label, analysisType, tuples)
     tidyUpABit(outputDir)
     stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0, False
 
 
-def ATAC(config, group, project, organism, libraryType, tuples):
+def ATAC(config, group, project, organism, analysisType, tuples):
     """
     Run the DNA mapping pipeline and then the default ATAC pipeline
     """
 
     project = BRB.misc.pacifier(project)
     _org_name, org_label, org_yaml = organism
-    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
+    outputDir = createPath(config, group, project, org_label, analysisType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
 
     if not os.path.exists(os.path.join(outputDir, "DNA.done")):
         outputDir, rv, sambaret = DNA(
-            config, group, project, organism, libraryType, tuples
+            config, group, project, organism, analysisType, tuples
         )
         if rv != 0:
             return outputDir, rv, sambaret
@@ -805,7 +805,7 @@ def ATAC(config, group, project, organism, libraryType, tuples):
     return outputDir, 0, False
 
 
-def scRNAseq(config, group, project, organism, libraryType, tuples):
+def scRNAseq(config, group, project, organism, analysisType, tuples):
     """
     Run one of the scRNAseq pipelines (snakePipes or 10X)
 
@@ -816,7 +816,7 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
 
     project = BRB.misc.pacifier(project)
     _org_name, org_label, org_yaml = organism
-    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
+    outputDir = createPath(config, group, project, org_label, analysisType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, True
 
@@ -884,11 +884,11 @@ def scRNAseq(config, group, project, organism, libraryType, tuples):
     return outputDir, 0, sambaUpdate
 
 
-def HiC(config, group, project, organism, libraryType, tuples):
+def HiC(config, group, project, organism, analysisType, tuples):
     """
     Running the HiC pipeline on the samples.
 
-    - Make /data/{group}/{LatestSeqdir}/{runID}/Analysis_{project}/{libraryType}_{org_label} directory
+    - Make /data/{group}/{LatestSeqdir}/{runID}/Analysis_{project}/{analysisType}_{org_label} directory
     - Remove previously linked in files (if any)
     - Link requested fastq files in
     - Run appropriate pipeline
@@ -898,7 +898,7 @@ def HiC(config, group, project, organism, libraryType, tuples):
 
     project = BRB.misc.pacifier(project)
     _org_name, org_label, org_yaml = organism
-    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
+    outputDir = createPath(config, group, project, org_label, analysisType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
     PE = linkFiles(config, group, project, outputDir, tuples)
@@ -924,20 +924,20 @@ def HiC(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
-    relinkFiles(config, group, project, org_label, libraryType, tuples)
+    relinkFiles(config, group, project, org_label, analysisType, tuples)
     tidyUpABit(outputDir)
     stripRights(outputDir)
     touchDone(outputDir)
     return outputDir, 0, False
 
 
-def makePairs(config, group, project, organism, libraryType, tuples):
+def makePairs(config, group, project, organism, analysisType, tuples):
     """
     Running makePairs pipeline.
     """
     project = BRB.misc.pacifier(project)
     _org_name, org_label, org_yaml = organism
-    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
+    outputDir = createPath(config, group, project, org_label, analysisType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, False
     PE = linkFiles(config, group, project, outputDir, tuples)
@@ -951,20 +951,20 @@ def makePairs(config, group, project, organism, libraryType, tuples):
     except:
         return outputDir, 1, False
     removeLinkFiles(outputDir)
-    relinkFiles(config, group, project, org_label, libraryType, tuples)
+    relinkFiles(config, group, project, org_label, analysisType, tuples)
     tidyUpABit(outputDir)
     touchDone(outputDir)
     return outputDir, 0, False
 
 
-def scATAC(config, group, project, organism, libraryType, tuples):
+def scATAC(config, group, project, organism, analysisType, tuples):
     """
     scATAC 10x
     """
 
     project = BRB.misc.pacifier(project)
     _org_name, org_label, org_yaml = organism
-    outputDir = createPath(config, group, project, org_label, libraryType, tuples)
+    outputDir = createPath(config, group, project, org_label, analysisType, tuples)
     if os.path.exists(os.path.join(outputDir, "analysis.done")):
         return outputDir, 0, True
     runID = config.get("Options", "runID").split("_lanes")[0]
@@ -1046,7 +1046,7 @@ def runOneGroup(config, item, registry):
         item.group,
         item.project,
         org_label,
-        item.libraryType,
+        item.analysisType,
         item.tuples,
     )
 
@@ -1055,7 +1055,7 @@ def runOneGroup(config, item, registry):
             [
                 item.project,
                 org_name,
-                item.libraryType,
+                item.analysisType,
                 item.pipeline,
                 status,
                 "not updated",
@@ -1071,7 +1071,7 @@ def runOneGroup(config, item, registry):
     state, marker = BRB.jobtrack.markerState(outputDir)
     if state == BRB.jobtrack.MARKER_LIVE:
         log.warning(
-            f"Skipping {item.project} / {item.pipeline} / {item.libraryType}: "
+            f"Skipping {item.project} / {item.pipeline} / {item.analysisType}: "
             f"{outputDir} is owned by live pid {marker['pid']} "
             f"(job_ids={marker.get('job_ids', [])}). Not dispatching, and not "
             "counting this as a failure."
@@ -1111,7 +1111,7 @@ def runOneGroup(config, item, registry):
                 item.group,
                 item.project,
                 item.organism,
-                item.libraryType,
+                item.analysisType,
                 item.tuples,
             )
             if rv != 0:
@@ -1129,15 +1129,15 @@ def runOneGroup(config, item, registry):
                     item.group,
                     item.project,
                     item.organism,
-                    item.libraryType,
+                    item.analysisType,
                     item.tuples,
                 )
             if rv == 0:
                 log.debug(
-                    f"BRB run for {item.pipeline} {org_label} {item.libraryType} {item.tuples} complete."
+                    f"BRB run for {item.pipeline} {org_label} {item.analysisType} {item.tuples} complete."
                 )
                 log.info(
-                    f"Processed project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.libraryType}, {org_name}. Rerun = {reruncount}"
+                    f"Processed project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.analysisType}, {org_name}. Rerun = {reruncount}"
                 )
                 crashed = False
                 return [
@@ -1149,19 +1149,19 @@ def runOneGroup(config, item, registry):
                         org_name,
                         org_label,
                         item.project,
-                        item.libraryType,
+                        item.analysisType,
                     )
                     + [sambaUpdate, reruncount]
                 ]
             log.warning(
-                f"FAILED project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.libraryType}, {org_name}. Rerun = {reruncount}"
+                f"FAILED project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.analysisType}, {org_name}. Rerun = {reruncount}"
             )
             crashed = False
             return [
                 [
                     item.project,
                     org_name,
-                    item.libraryType,
+                    item.analysisType,
                     item.pipeline,
                     "FAILED",
                     "not updated",
@@ -1190,7 +1190,7 @@ def GetResults(config, project, libraries):
     Returns (workItems, msg): a list of WorkItem entries to be dispatched by
     runFlowcell, and the message entries GetResults produces itself (the
     telegraphHome entry for skipped libraries, and the external-skip entry).
-    It's assumed that everything within a single library type can be analysed together.
+    It's assumed that everything within a single analysis type can be analysed together.
     """
     ignore = False
     try:
@@ -1206,30 +1206,30 @@ def GetResults(config, project, libraries):
         log.info(f"Processing {dataPath}")
     except:
         ignore = True
-    validLibraryTypes = {
+    validAnalysisTypes = {
         v: i
-        for i, v in enumerate(config.get("Options", "validLibraryTypes").split(","))
+        for i, v in enumerate(config.get("Options", "validAnalysisTypes").split(","))
     }
     pipelines = config.get("Options", "pipelines").split(",")
-    # Library types/protocols that should still be processed for external
+    # Analysis types/protocols that should still be processed for external
     # (non-PI) projects. Split into real lists up front: `x in "a,b,c"`
     # would otherwise do substring matching against the raw config string
     # (e.g. "RNA-Seq" would false-positive against "stranded mRNA-Seq").
-    externalLibraryTypes = parseExternalAllowlist(
-        config.get("external", "LibraryTypes", fallback="")
+    externalAnalysisTypes = parseExternalAllowlist(
+        config.get("external", "AnalysisTypes", fallback="")
     )
     externalLibraryProtocols = parseExternalAllowlist(
         config.get("external", "LibraryProtocols", fallback="")
     )
     # split by analysis type and species, since we can only process some types of this
-    analysisTypes = {}
+    pipelineGroups = {}
     skipList = []
     external_skipList = []
     org_dict = {}
     for library, v in libraries.items():
         (
             sampleName,
-            libraryType,
+            analysisType,
             libraryProtocol,
             organism,
             _indexType,
@@ -1237,41 +1237,44 @@ def GetResults(config, project, libraries):
         ) = v
         org_name, org_label, org_yaml = organism
         # Extra checks to see where we miss out
-        if libraryType in validLibraryTypes:
-            log.info(f"ValidLibraryType for sample {library} = {libraryType}")
+        if analysisType in validAnalysisTypes:
+            log.info(f"ValidAnalysisType for sample {library} = {analysisType}")
         else:
-            log.info(f"Not a ValidLibraryType for sample {library} = {libraryType}")
+            log.info(f"Not a ValidAnalysisType for sample {library} = {analysisType}")
         if not (org_label or org_yaml):
             log.info(
                 f"Species label or YAML was not set for {org_name} (check Parkour DB.)"
             )
         externallyAllowed = isExternallyAllowed(
-            libraryType, libraryProtocol, externalLibraryTypes, externalLibraryProtocols
+            analysisType,
+            libraryProtocol,
+            externalAnalysisTypes,
+            externalLibraryProtocols,
         )
         if (
-            libraryType in validLibraryTypes
+            analysisType in validAnalysisTypes
             and (org_label or org_yaml)
             and (ignore == False or externallyAllowed)
         ):
             if org_label not in org_dict:
                 org_dict[org_label] = organism
-            idx = validLibraryTypes[libraryType]
+            idx = validAnalysisTypes[analysisType]
             pipeline = pipelines[idx]
-            if pipeline not in analysisTypes:
-                analysisTypes[pipeline] = {}
-            if org_label not in analysisTypes[pipeline]:
-                analysisTypes[pipeline][org_label] = {}
-            if libraryType not in analysisTypes[pipeline][org_label]:
-                analysisTypes[pipeline][org_label][libraryType] = []
-            analysisTypes[pipeline][org_label][libraryType].append(
+            if pipeline not in pipelineGroups:
+                pipelineGroups[pipeline] = {}
+            if org_label not in pipelineGroups[pipeline]:
+                pipelineGroups[pipeline][org_label] = {}
+            if analysisType not in pipelineGroups[pipeline][org_label]:
+                pipelineGroups[pipeline][org_label][analysisType] = []
+            pipelineGroups[pipeline][org_label][analysisType].append(
                 [library, sampleName, libraryProtocol, ignore]
             )
-            log.debug(f"Considering analysis types: {analysisTypes}")
+            log.debug(f"Considering pipeline groups: {pipelineGroups}")
         else:
             if ignore == False:
-                skipList.append([library, sampleName, libraryType])
+                skipList.append([library, sampleName, analysisType])
             else:
-                external_skipList.append([library, sampleName, libraryType])
+                external_skipList.append([library, sampleName, analysisType])
     msg = []
     if len(skipList):
         for i in skipList:
@@ -1285,15 +1288,15 @@ def GetResults(config, project, libraries):
         ]
     log.debug(config)
     workItems = []
-    for pipeline, v in analysisTypes.items():
+    for pipeline, v in pipelineGroups.items():
         log.debug("Queueing pipeline " + pipeline)
         for org_label, v2 in v.items():
             log.debug("Queueing organism label " + org_label)
             organism = org_dict[org_label]
             org_name, org_label, org_yaml = organism
             log.debug(organism)
-            for libraryType, tuples in v2.items():
-                log.debug("Queueing libraryType " + libraryType)
+            for analysisType, tuples in v2.items():
+                log.debug("Queueing analysisType " + analysisType)
                 log.debug(tuples)
                 # RELACS needs the unpacified project name to copy the original sample sheet to the dest dir
                 # hence the pacifier is applied on the project in each pipeline separately
@@ -1303,7 +1306,7 @@ def GetResults(config, project, libraries):
                         group=group,
                         pipeline=pipeline,
                         organism=organism,
-                        libraryType=libraryType,
+                        analysisType=analysisType,
                         tuples=tuples,
                     )
                 )
@@ -1408,10 +1411,10 @@ def runFlowcell(config, ParkourDict, registry=None, maxWorkers=None):
     for item, exc in failures:
         log.critical(
             f"runFlowcell: worker for project {item.project}, pipeline "
-            f"{item.pipeline}, libraryType {item.libraryType} raised {exc!r}"
+            f"{item.pipeline}, analysisType {item.analysisType} raised {exc!r}"
         )
     summary = "; ".join(
-        f"{item.project} / {item.pipeline} / {item.libraryType}"
+        f"{item.project} / {item.pipeline} / {item.analysisType}"
         for item, _exc in failures
     )
     raise GroupDispatchError(
