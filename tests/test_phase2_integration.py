@@ -33,7 +33,7 @@ def flowcell(tmp_path, monkeypatch):
         "sequencerType": "Aviti",
         "snakemakeWorkflowBaseDir": "/snakepipes",
     }
-    config["external"] = {"LibraryTypes": "", "LibraryProtocols": ""}
+    config["external"] = {"AnalysisTypes": "", "LibraryProtocols": ""}
 
     dirs = {}
     for name in ("alpha", "beta", "gamma"):
@@ -47,7 +47,7 @@ def flowcell(tmp_path, monkeypatch):
             group="smith",
             pipeline="RNA",
             organism=("mouse", "GRCm38", "/yaml/GRCm38.yaml"),
-            libraryType="stranded mRNA-Seq",
+            analysisType="stranded mRNA-Seq",
             tuples=[["18L001", "alpha", "TruSeq", False]],
         ),
         PushButton.WorkItem(
@@ -55,7 +55,7 @@ def flowcell(tmp_path, monkeypatch):
             group="smith",
             pipeline="RNA",
             organism=("human", "GRCh38", "/yaml/GRCh38.yaml"),
-            libraryType="ChIP-Seq",
+            analysisType="ChIP-Seq",
             tuples=[["18L002", "beta", "TruSeq", False]],
         ),
         PushButton.WorkItem(
@@ -63,7 +63,7 @@ def flowcell(tmp_path, monkeypatch):
             group="jones",
             pipeline="RNA",
             organism=("mouse", "GRCm38", "/yaml/GRCm38.yaml"),
-            libraryType="stranded mRNA-Seq",
+            analysisType="stranded mRNA-Seq",
             tuples=[["18L003", "gamma", "TruSeq", False]],
         ),
     ]
@@ -72,7 +72,7 @@ def flowcell(tmp_path, monkeypatch):
     monkeypatch.setattr(
         PushButton,
         "createPath",
-        lambda config, group, project, org_label, libraryType, tuples: str(
+        lambda config, group, project, org_label, analysisType, tuples: str(
             byName[tuples[0][1]]
         ),
     )
@@ -146,7 +146,7 @@ def _stubPipeline(
     itself would produce is inherently racy until it's known to have started.
     """
 
-    def fake(config, group, project, organism, libraryType, tuples):
+    def fake(config, group, project, organism, analysisType, tuples):
         name = tuples[0][1]
         if started is not None and name in started:
             started[name].set()

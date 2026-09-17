@@ -111,7 +111,7 @@ class TestDNA:
         assert calls["touchDone"] == []
 
     @pytest.mark.parametrize(
-        "libraryType,expectedFlag",
+        "analysisType,expectedFlag",
         [
             ("CUTandTag-seq", "--cutntag"),
             ("CUTandRUN-seq", "--cutntag"),
@@ -119,15 +119,15 @@ class TestDNA:
             ("WGS", None),
         ],
     )
-    def test_cmd_varies_by_library_type(
-        self, tmp_path, monkeypatch, libraryType, expectedFlag
+    def test_cmd_varies_by_analysis_type(
+        self, tmp_path, monkeypatch, analysisType, expectedFlag
     ):
         outputDir = tmp_path / "out"
         outputDir.mkdir()
         calls = stubHelpers(monkeypatch, outputDir)
         tuples = [["lib1", "s1", "some protocol", False]]
 
-        PushButton.DNA(make_config(), "grp", "Proj", HUMAN, libraryType, tuples)
+        PushButton.DNA(make_config(), "grp", "Proj", HUMAN, analysisType, tuples)
 
         cmd = calls["runManagedSubprocess"][0]
         if expectedFlag:
