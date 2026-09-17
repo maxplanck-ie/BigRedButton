@@ -6,7 +6,9 @@ from BRB import getConfig
 
 
 def _writeConfig(path, extraLines=""):
-    path.write_text(f"[Paths]\nbaseData=/tmp/base\n{extraLines}")
+    path.write_text(
+        f"[Paths]\nbaseData=/tmp/base\n[Options]\nvalidAnalysisTypes=dna\n{extraLines}"
+    )
 
 
 class TestGetConfigArgumentValidation:
@@ -25,11 +27,50 @@ class TestGetConfigArgumentValidation:
 
     def test_missing_paths_section_exits(self, tmp_path, capsys):
         configFile = tmp_path / "brb.ini"
-        configFile.write_text("[Options]\nsleepTime=1\n")
+        configFile.write_text("[Options]\nvalidAnalysisTypes=dna\nsleepTime=1\n")
         with pytest.raises(SystemExit) as excinfo:
             getConfig.getConfig(str(configFile))
         assert excinfo.value.code == 1
         assert "No Paths defined" in capsys.readouterr().out
+
+    def test_legacy_options_key_exits(self, tmp_path, capsys):
+        configFile = tmp_path / "brb.ini"
+        configFile.write_text(
+            "[Paths]\nbaseData=/tmp/base\n[Options]\nvalidLibraryTypes=dna\n"
+        )
+
+        with pytest.raises(SystemExit) as excinfo:
+            getConfig.getConfig(str(configFile))
+
+        assert excinfo.value.code == 1
+        output = capsys.readouterr().out
+        assert "validLibraryTypes" in output
+        assert "validAnalysisTypes" in output
+        assert str(configFile) in output
+
+    def test_legacy_external_key_exits(self, tmp_path, capsys):
+        configFile = tmp_path / "brb.ini"
+        configFile.write_text(
+            "[Paths]\nbaseData=/tmp/base\n[Options]\nvalidAnalysisTypes=dna\n[external]\nLibraryTypes=dna\n"
+        )
+
+        with pytest.raises(SystemExit) as excinfo:
+            getConfig.getConfig(str(configFile))
+
+        assert excinfo.value.code == 1
+        output = capsys.readouterr().out
+        assert "[external] LibraryTypes" in output
+        assert "AnalysisTypes" in output
+
+    def test_missing_valid_analysis_types_exits(self, tmp_path, capsys):
+        configFile = tmp_path / "brb.ini"
+        configFile.write_text("[Paths]\nbaseData=/tmp/base\n[Options]\nsleepTime=1\n")
+
+        with pytest.raises(SystemExit) as excinfo:
+            getConfig.getConfig(str(configFile))
+
+        assert excinfo.value.code == 1
+        assert "validAnalysisTypes" in capsys.readouterr().out
 
 
 class TestGetConfigSuccess:
@@ -63,7 +104,7 @@ class TestGetConfigSuccess:
 
         assert config.get("Options", "configCommit") == ""
 
-    def test_creates_options_section_if_absent(self, tmp_path, monkeypatch):
+    def test_valid_analysis_types_config_loads(self, tmp_path, monkeypatch):
         configFile = tmp_path / "brb.ini"
         _writeConfig(configFile)
         monkeypatch.setattr(getConfig, "configGitInfo", lambda *a, **k: "abc1234")
@@ -71,10 +112,11 @@ class TestGetConfigSuccess:
         config = getConfig.getConfig(str(configFile))
 
         assert "Options" in config.sections()
+        assert config.get("Options", "validAnalysisTypes") == "dna"
 
     def test_preserves_existing_options_section_entries(self, tmp_path, monkeypatch):
         configFile = tmp_path / "brb.ini"
-        _writeConfig(configFile, extraLines="[Options]\nsleepTime=2\n")
+        _writeConfig(configFile, extraLines="sleepTime=2\n")
         monkeypatch.setattr(getConfig, "configGitInfo", lambda *a, **k: "abc1234")
 
         config = getConfig.getConfig(str(configFile))
