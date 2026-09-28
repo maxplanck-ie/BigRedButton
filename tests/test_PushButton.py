@@ -36,7 +36,7 @@ def make_config(overrides=None):
         "snakemakeWorkflowBaseDir": "/snakepipes",
     }
     config["external"] = {
-        "LibraryTypes": "",
+        "AnalysisTypes": "",
         "LibraryProtocols": "",
         "fexRecipient": "pipegrp@example.org",
         "fexsendBin": "/fex/fexsend",
@@ -97,7 +97,7 @@ class TestIsExternallyAllowed:
 
     def test_no_substring_false_positive(self):
         """
-        Regression test: `libraryType in "a,b,c"` (the old code) does
+        Regression test: `analysisType in "a,b,c"` (the old code) does
         substring matching against the raw string, so "RNA-Seq" would
         false-positive against "stranded mRNA-Seq". With real list
         membership, it must not.
@@ -220,7 +220,7 @@ class TestCopyRELACSAlwaysRuns:
 
 class TestCopyRELACSUniqueGroupName:
     """
-    Two library-groups of the same project (different libraryType or
+    Two library-groups of the same project (different analysisType or
     organism) must not copy their png/html QC files to the same destination
     filename in seqFacDir or bioinfoCoreDir -- under the Phase 1 thread pool
     they would be writing there concurrently. Mirrors
@@ -228,20 +228,20 @@ class TestCopyRELACSUniqueGroupName:
     relinkFiles's multiqc destination naming.
     """
 
-    def _make_output_dir(self, tmp_path, libraryType, org_label):
+    def _make_output_dir(self, tmp_path, analysisType, org_label):
         outputDir = (
             tmp_path
             / "20260101_AV999999_1234567_lanes_1_2"
             / "Analysis_99_Foo_Bar"
-            / f"{libraryType}_{org_label}"
+            / f"{analysisType}_{org_label}"
         )
         (outputDir / "RELACS_demultiplexing" / "Sample_1").mkdir(parents=True)
         (outputDir / "RELACS_demultiplexing" / "Sample_1" / "mark_fig.png").write_text(
-            libraryType + org_label
+            analysisType + org_label
         )
         (outputDir / "multiQC").mkdir(parents=True)
         (outputDir / "multiQC" / "multiqc_report.html").write_text(
-            libraryType + org_label
+            analysisType + org_label
         )
         return outputDir
 
@@ -255,11 +255,11 @@ class TestCopyRELACSUniqueGroupName:
             }
         )
 
-        for libraryType, org_label in (
+        for analysisType, org_label in (
             ("ChIP-Seq", "hg38"),
             ("CUTandTag-seq", "mm10"),
         ):
-            outputDir = self._make_output_dir(tmp_path, libraryType, org_label)
+            outputDir = self._make_output_dir(tmp_path, analysisType, org_label)
             copyRELACS(config, str(outputDir))
 
         bioinfocore_pngs = {
@@ -532,21 +532,21 @@ class TestRelinkFilesUniqueMultiqcName:
         )
         tuples = [["lib1", "sample1", "protocol", False]]
 
-        for libraryType, org_label in (
+        for analysisType, org_label in (
             ("ChIP-Seq", "hg38"),
             ("stranded mRNA-Seq", "mm10"),
         ):
-            outputDir = tmp_path / "out" / f"{libraryType}_{org_label}"
+            outputDir = tmp_path / "out" / f"{analysisType}_{org_label}"
             (outputDir / "multiQC").mkdir(parents=True)
             (outputDir / "multiQC" / "multiqc_report.html").write_text(
-                libraryType + org_label
+                analysisType + org_label
             )
             monkeypatch.setattr(
                 PushButton, "createPath", lambda *a, _o=outputDir, **k: str(_o)
             )
             monkeypatch.setattr(PushButton, "linkFiles", lambda *a, **k: False)
             PushButton.relinkFiles(
-                config, "group", "proj", org_label, libraryType, tuples
+                config, "group", "proj", org_label, analysisType, tuples
             )
 
         assert sorted(p.name for p in bioinfocore.iterdir()) == [
@@ -578,7 +578,7 @@ class TestRNA:
         )
         assert (outputDir, rv, samba) == (str(tmp_path), 0, False)
 
-    def test_smart_seq2_protocol_forces_unstranded_librarytype(
+    def test_smart_seq2_protocol_forces_unstranded_analysis_type(
         self, tmp_path, monkeypatch
     ):
         config = make_config()
@@ -701,7 +701,7 @@ def make_item(tmp_path, pipeline="RNA"):
         group="smith",
         pipeline=pipeline,
         organism=("mouse", "GRCm38", "/yaml/GRCm38.yaml"),
-        libraryType="stranded mRNA-Seq",
+        analysisType="stranded mRNA-Seq",
         tuples=[["18L001", "sampleA", "TruSeq", False]],
     )
 
@@ -720,7 +720,7 @@ class TestRunOneGroupMarkerGate:
         self.dispatched = []
         monkeypatch.setattr(PushButton, "createPath", lambda *a, **k: str(tmp_path))
 
-        def fakeRNA(config, group, project, organism, libraryType, tuples):
+        def fakeRNA(config, group, project, organism, analysisType, tuples):
             self.dispatched.append(project)
             return str(tmp_path), 0, False
 
@@ -750,7 +750,7 @@ class TestRunOneGroupMarkerGate:
     def test_marker_exists_and_handle_bound_while_the_pipeline_runs(self, monkeypatch):
         seen = {}
 
-        def peek(config, group, project, organism, libraryType, tuples):
+        def peek(config, group, project, organism, analysisType, tuples):
             seen["state"] = jobtrack.markerState(self.tmp_path)[0]
             seen["bound"] = jobtrack.currentHandle().outputDir
             return str(self.tmp_path), 0, False
@@ -826,7 +826,7 @@ class TestRunOneGroupMarkerGate:
     def test_failure_retries_once_then_reports_failed(self, monkeypatch):
         attempts = []
 
-        def failing(config, group, project, organism, libraryType, tuples):
+        def failing(config, group, project, organism, analysisType, tuples):
             attempts.append(1)
             return str(self.tmp_path), 1, False
 
@@ -842,7 +842,7 @@ class TestRunOneGroupMarkerGate:
         reg = jobtrack.JobRegistry()
         attempts = []
 
-        def failThenAbort(config, group, project, organism, libraryType, tuples):
+        def failThenAbort(config, group, project, organism, analysisType, tuples):
             attempts.append(1)
             reg.abort()
             return str(self.tmp_path), 1, False

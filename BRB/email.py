@@ -63,7 +63,7 @@ def finishedEmail(config, msg):
     tabHead = [
         "Project",
         "organism",
-        "libraryType",
+        "analysisType",
         "workflow",
         "workflow_status",
         "parkour_status",

@@ -31,12 +31,12 @@ def dispatchConfig(tmp_path):
     config["Options"] = {
         "runID": "run1",
         "sequencerType": "Aviti",
-        "validLibraryTypes": "ChIP-Seq,stranded mRNA-Seq",
+        "validAnalysisTypes": "ChIP-Seq,stranded mRNA-Seq",
         "pipelines": "DNA,RNA",
         "snakemakeWorkflowBaseDir": "/snakepipes",
     }
     config["external"] = {
-        "LibraryTypes": "ChIP-Seq,stranded mRNA-Seq",
+        "AnalysisTypes": "ChIP-Seq,stranded mRNA-Seq",
         "LibraryProtocols": "",
     }
     (tmp_path / "base" / "run1").mkdir(parents=True)
@@ -63,7 +63,7 @@ class TestGetResultsReturnsWorkItems:
 
         assert msg == []
         assert len(workItems) == 2
-        assert {(w.pipeline, w.libraryType) for w in workItems} == {
+        assert {(w.pipeline, w.analysisType) for w in workItems} == {
             ("DNA", "ChIP-Seq"),
             ("RNA", "stranded mRNA-Seq"),
         }
@@ -77,7 +77,7 @@ class TestGetResultsReturnsWorkItems:
 
     def test_skiplist_message_still_produced(self, tmp_path, monkeypatch):
         config = dispatchConfig(tmp_path)
-        # group dir exists => ignore=False => the invalid library type lands
+        # group dir exists => ignore=False => the invalid analysis type lands
         # in skipList rather than external_skipList.
         (tmp_path / "group" / "foo" / "sequencing_data").mkdir(parents=True)
 
@@ -113,7 +113,7 @@ class TestGetResultsReturnsWorkItems:
 
     def test_external_skiplist_message_still_produced(self, tmp_path):
         config = dispatchConfig(tmp_path)
-        config["external"]["LibraryTypes"] = "ChIP-Seq"
+        config["external"]["AnalysisTypes"] = "ChIP-Seq"
         libraries = {
             "L1": ["s1", "ChIP-Seq", "proto", HUMAN, "i7", 30],
             "L2": ["s2", "stranded mRNA-Seq", "proto", HUMAN, "i7", 30],
@@ -121,7 +121,7 @@ class TestGetResultsReturnsWorkItems:
 
         workItems, msg = PushButton.GetResults(config, "1_A_Foo", libraries)
 
-        assert [w.libraryType for w in workItems] == ["ChIP-Seq"]
+        assert [w.analysisType for w in workItems] == ["ChIP-Seq"]
         assert msg == [
             ["1_A_Foo", "human", "stranded mRNA-Seq", None, None, None, False, None]
         ]
@@ -133,7 +133,7 @@ def makeWorkItem(**kwargs):
         "group": "foo",
         "pipeline": "RNA",
         "organism": HUMAN,
-        "libraryType": "stranded mRNA-Seq",
+        "analysisType": "stranded mRNA-Seq",
         "tuples": [["L1", "s1", "proto", True]],
     }
     base.update(kwargs)
@@ -151,8 +151,8 @@ class TestRunOneGroup:
         config = dispatchConfig(tmp_path)
         calls = []
 
-        def stub(config, group, project, organism, libraryType, tuples):
-            calls.append((group, project, libraryType))
+        def stub(config, group, project, organism, analysisType, tuples):
+            calls.append((group, project, analysisType))
             return "/out", 0, False
 
         monkeypatch.setattr(PushButton, "RNA", stub)
@@ -179,7 +179,7 @@ class TestRunOneGroup:
         config = dispatchConfig(tmp_path)
         calls = []
 
-        def stub(config, group, project, organism, libraryType, tuples):
+        def stub(config, group, project, organism, analysisType, tuples):
             calls.append(1)
             return ("/out", 1, False) if len(calls) == 1 else ("/out", 0, True)
 
@@ -196,7 +196,7 @@ class TestRunOneGroup:
         config = dispatchConfig(tmp_path)
         calls = []
 
-        def stub(config, group, project, organism, libraryType, tuples):
+        def stub(config, group, project, organism, analysisType, tuples):
             calls.append(1)
             return "/out", 1, False
 
@@ -245,7 +245,7 @@ class TestOwnershipMarker:
             item.group,
             item.project,
             item.organism[1],
-            item.libraryType,
+            item.analysisType,
             item.tuples,
         )
 
@@ -255,7 +255,7 @@ class TestOwnershipMarker:
         calls = []
         outputDir = self._outputDir(config, item)
 
-        def stub(config, group, project, organism, libraryType, tuples):
+        def stub(config, group, project, organism, analysisType, tuples):
             calls.append(1)
             return outputDir, 0, False
 
@@ -275,7 +275,7 @@ class TestOwnershipMarker:
         outputDir = self._outputDir(config, item)
         seen = {}
 
-        def stub(config, group, project, organism, libraryType, tuples):
+        def stub(config, group, project, organism, analysisType, tuples):
             seen["state"], marker = jobtrack.markerState(outputDir)
             seen["pid"] = marker["pid"]
             return outputDir, 0, False
@@ -326,7 +326,7 @@ class TestOwnershipMarker:
         jobtrack.writeMarker(outputDir, pid=findDeadPid())
         calls = []
 
-        def stub(config, group, project, organism, libraryType, tuples):
+        def stub(config, group, project, organism, analysisType, tuples):
             calls.append(1)
             return outputDir, 0, False
 
@@ -369,7 +369,7 @@ class TestOwnershipMarker:
         config = dispatchConfig(tmp_path)
         item = makeWorkItem()
 
-        def stub(config, group, project, organism, libraryType, tuples):
+        def stub(config, group, project, organism, analysisType, tuples):
             raise RuntimeError("boom")
 
         monkeypatch.setattr(PushButton, "RNA", stub)
@@ -405,7 +405,7 @@ class TestRunFlowcell:
         monkeypatch.setattr(PushButton, "POOL_SIZE", 2)
         monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
 
-        def stub(config, group, project, organism, libraryType, tuples):
+        def stub(config, group, project, organism, analysisType, tuples):
             return "/out", 0, False
 
         monkeypatch.setattr(PushButton, "DNA", stub)
@@ -425,7 +425,7 @@ class TestRunFlowcell:
         monkeypatch.setattr(PushButton, "POOL_SIZE", 2)
         monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
 
-        def stub(config, group, project, organism, libraryType, tuples):
+        def stub(config, group, project, organism, analysisType, tuples):
             return "/out", 0, False
 
         monkeypatch.setattr(PushButton, "DNA", stub)
@@ -464,13 +464,13 @@ class TestRunFlowcell:
         marker = os.path.join(outputDir, PushButton.MARKER_NAME)
         jobtrack.writeMarker(outputDir)
 
-        def dnaStub(config, group, project, organism, libraryType, tuples):
-            assert not (project == "1_A_Foo" and libraryType == "ChIP-Seq"), (
+        def dnaStub(config, group, project, organism, analysisType, tuples):
+            assert not (project == "1_A_Foo" and analysisType == "ChIP-Seq"), (
                 "the marker-owned group must not be dispatched"
             )
             return "/out", 0, False
 
-        def rnaStub(config, group, project, organism, libraryType, tuples):
+        def rnaStub(config, group, project, organism, analysisType, tuples):
             return "/out", 0, False
 
         monkeypatch.setattr(PushButton, "DNA", dnaStub)
@@ -496,11 +496,11 @@ class TestRunFlowcell:
         monkeypatch.setattr(PushButton, "POOL_SIZE", 2)
         monkeypatch.setattr(BRB.ET, "phoneHome", fakePhoneHome)
 
-        def slowStub(config, group, project, organism, libraryType, tuples):
+        def slowStub(config, group, project, organism, analysisType, tuples):
             time.sleep(3)
             return "/out", 0, False
 
-        def crashStub(config, group, project, organism, libraryType, tuples):
+        def crashStub(config, group, project, organism, analysisType, tuples):
             raise RuntimeError("kaboom")
 
         # DNA groups sleep, the RNA group crashes immediately.
@@ -516,7 +516,7 @@ class TestRunFlowcell:
         assert isinstance(excinfo.value.__cause__, RuntimeError)
         failedItems = [item for item, _exc in excinfo.value.failures]
         assert any(
-            i.pipeline == "RNA" and i.libraryType == "stranded mRNA-Seq"
+            i.pipeline == "RNA" and i.analysisType == "stranded mRNA-Seq"
             for i in failedItems
         )
         assert "1_A_Foo" in str(excinfo.value)
@@ -540,7 +540,7 @@ class TestRunFlowcell:
 
         monkeypatch.setattr(PushButton, "ThreadPoolExecutor", RecordingExecutor)
 
-        def crashStub(config, group, project, organism, libraryType, tuples):
+        def crashStub(config, group, project, organism, analysisType, tuples):
             raise RuntimeError("kaboom")
 
         monkeypatch.setattr(PushButton, "DNA", crashStub)
@@ -557,7 +557,7 @@ class TestRunFlowcell:
         """
         The invariant under test is that runFlowcell logs one log.critical
         line per entry in the raised GroupDispatchError.failures, naming that
-        entry's project/pipeline/libraryType -- i.e. it never reports only the
+        entry's project/pipeline/analysisType -- i.e. it never reports only the
         first failure it saw.
 
         Deliberately NOT asserting `len(failures) >= 2`: how many sibling
@@ -569,8 +569,8 @@ class TestRunFlowcell:
         self._makeProjectDirs(tmp_path, ["1_A_Foo", "2_B_Bar"])
         monkeypatch.setattr(PushButton, "POOL_SIZE", 4)
 
-        def crashStub(config, group, project, organism, libraryType, tuples):
-            raise RuntimeError(f"kaboom {project} {libraryType}")
+        def crashStub(config, group, project, organism, analysisType, tuples):
+            raise RuntimeError(f"kaboom {project} {analysisType}")
 
         monkeypatch.setattr(PushButton, "DNA", crashStub)
         monkeypatch.setattr(PushButton, "RNA", crashStub)
@@ -589,7 +589,7 @@ class TestRunFlowcell:
         assert len(criticals) == len(failures)
         for item, _exc in failures:
             assert any(
-                item.project in m and item.pipeline in m and item.libraryType in m
+                item.project in m and item.pipeline in m and item.analysisType in m
                 for m in criticals
             ), f"no log.critical line for {item.project}/{item.pipeline}"
             assert item.project in str(excinfo.value)
@@ -604,11 +604,11 @@ class ConcurrencyTracker:
         self.maxActive = 0
         self.calls = []
 
-    def enter(self, project, libraryType):
+    def enter(self, project, analysisType):
         with self.lock:
             self.active += 1
             self.maxActive = max(self.maxActive, self.active)
-            self.calls.append((project, libraryType))
+            self.calls.append((project, analysisType))
 
     def leave(self):
         with self.lock:
@@ -616,8 +616,8 @@ class ConcurrencyTracker:
 
 
 def makeStub(tracker, rv, delay=0.2, sambaUpdate=False):
-    def stub(config, group, project, organism, libraryType, tuples):
-        tracker.enter(project, libraryType)
+    def stub(config, group, project, organism, analysisType, tuples):
+        tracker.enter(project, analysisType)
         try:
             time.sleep(delay)
         finally:
@@ -628,7 +628,7 @@ def makeStub(tracker, rv, delay=0.2, sambaUpdate=False):
         # registry.unregister_group() key off the value returned here, so a
         # fake/mismatched path would leave the real marker file behind.
         outputDir = PushButton.createPath(
-            config, group, project, organism[1], libraryType, tuples
+            config, group, project, organism[1], analysisType, tuples
         )
         return outputDir, rv, sambaUpdate
 

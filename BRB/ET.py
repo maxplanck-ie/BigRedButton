@@ -331,7 +331,7 @@ def telegraphHome(config, group, project, skipList, organism=None, org_label=Non
     """
     The skipList is a list of samples/libraries for which we don't run a pipeline, but it'd be nice to still send back sequencing metrics
     Structure of skipList:
-    [library, sampleName, libraryType]
+    [library, sampleName, analysisType]
     """
     log.info(f"telegraphHome triggered for {project}")
     # make a fake output directory path

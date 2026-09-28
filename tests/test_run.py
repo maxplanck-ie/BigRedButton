@@ -97,7 +97,7 @@ class TestRunBrbWiring:
             group="foo",
             pipeline="RNA",
             organism=("human", "hg38", "y"),
-            libraryType="stranded mRNA-Seq",
+            analysisType="stranded mRNA-Seq",
             tuples=[["L1", "s1", "proto", False]],
         )
         err = BRB.PushButton.GroupDispatchError(
