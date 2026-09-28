@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.3](https://github.com/maxplanck-ie/BigRedButton/compare/v0.9.2...v0.9.3) (2026-09-28)
+
+
+### Bug Fixes
+
+* don't crash BigRedButton when the config-repo git check times out ([#166](https://github.com/maxplanck-ie/BigRedButton/issues/166)) ([07c79d4](https://github.com/maxplanck-ie/BigRedButton/commit/07c79d4bc48ff1c9540e7849bd6a377af2f99d71))
+
 ## [0.9.2](https://github.com/maxplanck-ie/BigRedButton/compare/v0.9.1...v0.9.2) (2026-09-12)
 
 
