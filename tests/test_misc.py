@@ -162,6 +162,72 @@ class TestConfigGitInfo:
         misc.configGitInfo(str(tmp_path / "brb.ini"), gitBin="/usr/local/bin/git")
         assert all(c == "/usr/local/bin/git" for c in seen)
 
+    def test_status_timeout_warns_and_returns_none(self, tmp_path, monkeypatch, capsys):
+        def fakeRun(cmd, **kwargs):
+            if "rev-parse" in cmd:
+                return sp.CompletedProcess(cmd, 0, stdout="true\n")
+            if "status" in cmd:
+                raise sp.TimeoutExpired(cmd, 5)
+            raise AssertionError(f"unexpected command {cmd}")
+
+        monkeypatch.setattr(misc.sp, "run", fakeRun)
+        assert misc.configGitInfo(str(tmp_path / "brb.ini")) is None
+        err = capsys.readouterr().err
+        assert "could not run git status" in err
+
+    def test_status_calledprocesserror_warns_and_returns_none(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        def fakeRun(cmd, **kwargs):
+            if "rev-parse" in cmd:
+                return sp.CompletedProcess(cmd, 0, stdout="true\n")
+            if "status" in cmd:
+                raise sp.CalledProcessError(128, cmd)
+            raise AssertionError(f"unexpected command {cmd}")
+
+        monkeypatch.setattr(misc.sp, "run", fakeRun)
+        assert misc.configGitInfo(str(tmp_path / "brb.ini")) is None
+        assert "could not run git status" in capsys.readouterr().err
+
+    def test_git_binary_vanishes_after_probe_returns_none(self, tmp_path, monkeypatch):
+        def fakeRun(cmd, **kwargs):
+            if "rev-parse" in cmd:
+                return sp.CompletedProcess(cmd, 0, stdout="true\n")
+            raise FileNotFoundError
+
+        monkeypatch.setattr(misc.sp, "run", fakeRun)
+        assert misc.configGitInfo(str(tmp_path / "brb.ini")) is None
+
+    def test_log_timeout_warns_and_returns_none(self, tmp_path, monkeypatch, capsys):
+        def fakeRun(cmd, **kwargs):
+            if "rev-parse" in cmd:
+                return sp.CompletedProcess(cmd, 0, stdout="true\n")
+            if "status" in cmd:
+                return sp.CompletedProcess(cmd, 0, stdout="")
+            if "log" in cmd:
+                raise sp.TimeoutExpired(cmd, 5)
+            raise AssertionError(f"unexpected command {cmd}")
+
+        monkeypatch.setattr(misc.sp, "run", fakeRun)
+        assert misc.configGitInfo(str(tmp_path / "brb.ini")) is None
+        assert "could not run git log" in capsys.readouterr().err
+
+    def test_dirty_check_still_fails_loudly(self, tmp_path, monkeypatch, capsys):
+        """A git failure must not silence a real dirty-config abort."""
+        monkeypatch.setattr(
+            misc.sp,
+            "run",
+            lambda cmd, **kw: sp.CompletedProcess(
+                cmd,
+                0,
+                stdout="true\n" if "rev-parse" in cmd else " M brb.ini\n",
+            ),
+        )
+        with pytest.raises(SystemExit) as excinfo:
+            misc.configGitInfo(str(tmp_path / "brb.ini"))
+        assert excinfo.value.code == 1
+        assert "uncommitted or untracked" in capsys.readouterr().out
+
 
 class TestPacifier:
     def test_removes_umlauts(self):
