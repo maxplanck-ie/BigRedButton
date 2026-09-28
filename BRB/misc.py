@@ -72,19 +72,19 @@ def getVersion(distName, gitBin="git"):
         return version(distName)
 
 
-def configGitInfo(configfile, gitBin="git"):
+def _runGit(args, gitBin, cwd):
     """
-    If configfile lives inside a git repo, refuse to run when it has
-    uncommitted or untracked changes - otherwise the version/commit
-    reported in emails wouldn't match the config that actually ran.
-    Returns the config file's latest commit hash, or None when the config
-    isn't tracked in a git repo at all (nothing to check).
+    Run a git command, returning its CompletedProcess, or None if the call
+    failed for any reason: git binary missing, the directory not being a
+    repo, the command erroring, or the call being slow enough to hit the
+    timeout. This metadata is best-effort - a slow or flaky filesystem
+    (a hung git on shared storage, say) must never take down a pipeline
+    that is otherwise fine to run.
     """
-    configDir = Path(configfile).resolve().parent
     try:
-        sp.run(
-            [gitBin, "rev-parse", "--is-inside-work-tree"],
-            cwd=configDir,
+        return sp.run(
+            [gitBin, *args],
+            cwd=cwd,
             capture_output=True,
             text=True,
             check=True,
@@ -92,28 +92,49 @@ def configGitInfo(configfile, gitBin="git"):
         )
     except (FileNotFoundError, sp.CalledProcessError, sp.TimeoutExpired):
         return None
-    status = sp.run(
-        [gitBin, "status", "--porcelain", "--", str(configfile)],
-        cwd=configDir,
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=5,
+
+
+def configGitInfo(configfile, gitBin="git"):
+    """
+    If configfile lives inside a git repo, refuse to run when it has
+    uncommitted or untracked changes - otherwise the version/commit
+    reported in emails wouldn't match the config that actually ran.
+    Returns the config file's latest commit hash, or None when the config
+    isn't tracked in a git repo at all (nothing to check), or when git
+    couldn't be queried in time (check skipped - see _runGit).
+    """
+    configDir = Path(configfile).resolve().parent
+    if _runGit(["rev-parse", "--is-inside-work-tree"], gitBin, configDir) is None:
+        return None
+    status = _runGit(
+        ["status", "--porcelain", "--", str(configfile)], gitBin, configDir
     )
+    if status is None:
+        # Unverified, not verified-clean: say so rather than pretend, but
+        # keep going - an unreachable git is not a reason to abort the run.
+        print(
+            f"Warning: could not run git status on {configfile} - skipping "
+            "the uncommitted-changes check and omitting the commit from "
+            "the report.",
+            file=sys.stderr,
+        )
+        return None
     if status.stdout.strip():
         print(
             f"Error: configfile {configfile} has uncommitted or untracked "
             "changes in its git repo - commit it before running."
         )
         sys.exit(1)
-    commit = sp.run(
-        [gitBin, "log", "-1", "--format=%h", "--", str(configfile)],
-        cwd=configDir,
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=5,
+    commit = _runGit(
+        ["log", "-1", "--format=%h", "--", str(configfile)], gitBin, configDir
     )
+    if commit is None:
+        print(
+            f"Warning: could not run git log on {configfile} - the commit "
+            "will be omitted from the report.",
+            file=sys.stderr,
+        )
+        return None
     return commit.stdout.strip() or None
 
 
