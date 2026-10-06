@@ -90,6 +90,35 @@ class TestRunBrbWiring:
 
         assert json.loads(seen["deliverTo"]) == {"cabezas-wallscheid": "cabezas"}
 
+    def test_deliver_to_failure_emails_and_aborts_before_dispatch(
+        self, tmp_path, monkeypatch
+    ):
+        seen = {}
+
+        def fakeRunFlowcell(cfg, parkourDict, **kwargs):
+            raise AssertionError("must not dispatch without deliver_to overrides")
+
+        wireRunBrb(monkeypatch, tmp_path, fakeRunFlowcell)
+
+        def failingResolve(cfg):
+            raise RuntimeError("Failed to resolve deliver_to overrides")
+
+        monkeypatch.setattr(BRB.misc, "resolveDeliverTo", failingResolve)
+        monkeypatch.setattr(
+            BRB.email, "errorEmail", lambda cfg, exc, msg: seen.setdefault("msg", msg)
+        )
+        monkeypatch.setattr(
+            BRB.findFinishedFlowCells,
+            "markFinished",
+            lambda cfg: seen.setdefault("marked", True),
+        )
+
+        with pytest.raises(RuntimeError, match="Failed to resolve"):
+            BRB.run.run_brb.callback(configfile=None, sequencer=None)
+
+        assert "Failed to resolve deliver_to" in seen["msg"]
+        assert "marked" not in seen
+
     def test_marks_finished_and_logs_after_a_successful_flowcell(
         self, tmp_path, monkeypatch
     ):

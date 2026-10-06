@@ -9,62 +9,74 @@ from pathlib import Path
 
 import requests
 
-from BRB.logger import log
-
 
 def resolveDeliverTo(config):
     """
-    Query Parkour's internal_pis endpoint for {PI name: deliver_to} overrides,
-    used to translate a PI's Parkour name into the periphery directory name
-    IT actually uses when the two diverge (dissectBCL has the same mechanism,
-    see misc.deliverDirName there).
+    Query Parkour's internal_pis endpoint and return {PI name: deliver_to} for
+    the PIs that have a non-empty deliver_to override: the periphery directory
+    name IT actually uses when it differs from the PI's Parkour name (e.g.
+    'cabezas' for 'cabezas-wallscheid'). Same mechanism as dissectBCL's
+    misc._resolve_internal_pis / deliverDirName.
 
-    Unlike dissectBCL's internal/external FEX routing decision, this is only
-    an enhancement on top of an already-working fallback (see GetResults() in
-    PushButton.py), so a failed/empty lookup here is not fatal: it's logged
-    and an empty map is returned, leaving the existing fallback in charge.
+    Always fails loudly: GetResults() has no usable fallback for a PI whose
+    directory differs from their name, so degrading to an empty map would
+    silently write their Analysis_* folders under the wrong (or a new) PI
+    directory. That is costlier to unwind than crashing on a network fluke and
+    restarting once Parkour is back.
     """
+    url = config.get("Parkour", "InternalPIsURL", fallback="<unset>")
     try:
+        organizations = config.get("Internals", "Organizations")
         response = requests.get(
-            config.get("Parkour", "InternalPIsURL"),
-            params={
-                "organizations": config.get(
-                    "Internals", "Organizations", fallback="MPI-IE"
-                )
-            },
+            url,
+            params={"organizations": organizations},
             auth=(config.get("Parkour", "user"), config.get("Parkour", "password")),
             verify=config.get("Parkour", "cert"),
         )
-        response.raise_for_status()
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Parkour's internal_pis endpoint returned {response.status_code}: "
+                f"{response.text}"
+            )
         pis = response.json()["pis"]
-    except (requests.exceptions.RequestException, ValueError, KeyError) as e:
-        log.warning(
-            f"resolveDeliverTo: failed to fetch deliver_to overrides from "
-            f"Parkour, falling back to the surname heuristic for every PI: {e}"
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to resolve deliver_to overrides from Parkour's internal_pis "
+            f"endpoint at {url}: {e}"
+        ) from e
+    if not pis:
+        # A 200 with an empty result is not an error to Parkour, but for us it
+        # is: it is exactly what a misconfigured Organizations value produces
+        # (e.g. '[MPI-IE]' with brackets returns 0).
+        raise RuntimeError(
+            f"Parkour's internal_pis endpoint returned an empty PI list for "
+            f"organizations={organizations!r} at {url}. Refusing to continue - "
+            f"check the [Internals] Organizations value."
         )
-        return {}
     if not isinstance(pis, dict):
-        # Older Parkour versions returned a bare list of names with no
-        # deliver_to info at all - nothing to override with.
-        return {}
-    return {name.lower(): token for name, token in pis.items() if token}
+        # Older Parkour versions returned a bare list of names, with no
+        # deliver_to information at all.
+        raise TypeError(
+            f"Parkour's internal_pis endpoint at {url} returned a bare list of "
+            f"names instead of a {{name: deliver_to}} mapping. Parkour is too "
+            f"old to provide deliver_to overrides - refusing to continue."
+        )
+    return {name.lower(): deliver_to for name, deliver_to in pis.items() if deliver_to}
 
 
 def resolveGroup(config, project):
     """
-    Resolve the periphery group (PI) directory name for a project string
-    like "4035_Demollin_Cabezas-Wallscheid": the PI's Parkour deliver_to
-    override, when config["Internals"]["deliverTo"] (populated by
-    resolveDeliverTo()) has one, else a best-effort guess by truncating a
-    hyphenated surname at the first hyphen (e.g. "cabezas-wallscheid" ->
-    "cabezas"). The fallback is only skipped once an override exists.
+    Resolve the periphery group (PI) directory name for a project string like
+    "4035_Demollin_Cabezas-Wallscheid": the PI's deliver_to override from
+    config["Internals"]["deliverTo"] (populated by resolveDeliverTo()) when
+    there is one, else the lowercased PI name itself. Parkour normalises
+    umlauts/spaces in PI names itself, so the name is used as the lookup key
+    as is. No hyphen heuristics: a PI whose directory differs from their name
+    needs a deliver_to in Parkour.
     """
     PI = project.split("_")[-1].lower()
     deliverTo = json.loads(config.get("Internals", "deliverTo", fallback="{}"))
-    group = deliverTo.get(PI)
-    if group is None:
-        group = PI.split("-")[0]
-    return pacifier(group)
+    return pacifier(deliverTo.get(PI, PI))
 
 
 def loadUserDictionary():

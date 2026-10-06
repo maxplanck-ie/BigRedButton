@@ -287,33 +287,51 @@ class TestResolveDeliverTo:
         )
 
     @patch("BRB.misc.requests.get")
-    def test_network_failure_falls_back_to_empty_map(self, mock_get):
+    def test_network_failure_raises_with_context(self, mock_get):
         mock_get.side_effect = requests.exceptions.ConnectionError("boom")
-        config = _make_config()
 
-        assert resolveDeliverTo(config) == {}
+        with pytest.raises(RuntimeError, match="internal_pis.*internal_pis/.*boom"):
+            resolveDeliverTo(_make_config())
 
     @patch("BRB.misc.requests.get")
-    def test_non_200_falls_back_to_empty_map(self, mock_get):
+    def test_non_200_raises_with_status_and_body(self, mock_get):
         mock_resp = Mock()
         mock_resp.status_code = 500
-        mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError(
-            "500 error"
-        )
+        mock_resp.text = "kaputt"
         mock_get.return_value = mock_resp
-        config = _make_config()
 
-        assert resolveDeliverTo(config) == {}
+        with pytest.raises(RuntimeError, match="500: kaputt"):
+            resolveDeliverTo(_make_config())
 
     @patch("BRB.misc.requests.get")
-    def test_legacy_bare_list_response_has_no_overrides(self, mock_get):
+    def test_malformed_payload_raises(self, mock_get):
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"unexpected": {}}
+        mock_get.return_value = mock_resp
+
+        with pytest.raises(RuntimeError, match="Failed to resolve"):
+            resolveDeliverTo(_make_config())
+
+    @patch("BRB.misc.requests.get")
+    def test_empty_pi_list_raises_naming_organizations(self, mock_get):
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"pis": {}}
+        mock_get.return_value = mock_resp
+
+        with pytest.raises(RuntimeError, match=r"empty PI list.*'MPI-IE'"):
+            resolveDeliverTo(_make_config())
+
+    @patch("BRB.misc.requests.get")
+    def test_legacy_bare_list_response_raises(self, mock_get):
         mock_resp = Mock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"pis": ["akhtar", "cabezas-wallscheid"]}
         mock_get.return_value = mock_resp
-        config = _make_config()
 
-        assert resolveDeliverTo(config) == {}
+        with pytest.raises(TypeError, match="too old"):
+            resolveDeliverTo(_make_config())
 
 
 class TestResolveGroup:
@@ -321,20 +339,23 @@ class TestResolveGroup:
         config = _make_config(deliver_to={"cabezas-wallscheid": "cabezas"})
         assert resolveGroup(config, "4035_Demollin_Cabezas-Wallscheid") == "cabezas"
 
-    def test_falls_back_to_hyphen_truncation_without_override(self):
+    def test_hyphenated_name_without_override_is_kept_whole(self):
+        # No hyphen truncation: a PI whose directory differs from their name
+        # needs a deliver_to in Parkour.
         config = _make_config(deliver_to={})
-        assert resolveGroup(config, "4035_Demollin_Cabezas-Wallscheid") == "cabezas"
+        assert (
+            resolveGroup(config, "4035_Demollin_Cabezas-Wallscheid")
+            == "cabezas-wallscheid"
+        )
 
-    def test_falls_back_when_deliverTo_key_missing_entirely(self):
+    def test_missing_deliverTo_key_uses_pi_name(self):
         config = _make_config()  # no "Internals"/"deliverTo" key set at all
-        assert resolveGroup(config, "4035_Demollin_Cabezas-Wallscheid") == "cabezas"
+        assert resolveGroup(config, "1234_jdoe_Manke") == "manke"
 
-    def test_simple_surname_unaffected(self):
-        config = _make_config(deliver_to={})
-        assert resolveGroup(config, "1234_jdoe_manke") == "manke"
-
-    def test_override_wins_even_when_it_differs_from_fallback_guess(self):
-        # A PI whose deliver_to override isn't just "truncate at the first
-        # hyphen" - the override must take priority over the guess.
+    def test_override_applies_to_names_with_spaces(self):
         config = _make_config(deliver_to={"alhaj abed": "alhajabed"})
+        assert resolveGroup(config, "9001_jdoe_AlHaj Abed") == "alhajabed"
+
+    def test_pi_with_space_and_no_override_is_pacified(self):
+        config = _make_config(deliver_to={})
         assert resolveGroup(config, "9001_jdoe_AlHaj Abed") == "alhajabed"
