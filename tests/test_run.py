@@ -1,4 +1,5 @@
 import configparser
+import json
 
 import pytest
 
@@ -65,6 +66,29 @@ class TestRunBrbWiring:
         assert seen["msg"] == [
             ["1_A_Foo", "human", "ChIP-Seq", "DNA", "success", "OK", False, 0]
         ]
+
+    def test_deliver_to_overrides_reach_runFlowcell_config(self, tmp_path, monkeypatch):
+        seen = {}
+
+        def fakeRunFlowcell(cfg, parkourDict, **kwargs):
+            seen["deliverTo"] = cfg["Internals"]["deliverTo"]
+            return []
+
+        wireRunBrb(monkeypatch, tmp_path, fakeRunFlowcell)
+        monkeypatch.setattr(
+            BRB.misc, "resolveDeliverTo", lambda cfg: {"cabezas-wallscheid": "cabezas"}
+        )
+        monkeypatch.setattr(BRB.email, "finishedEmail", lambda cfg, msg: None)
+
+        def stopHere(cfg):
+            raise StopLoop
+
+        monkeypatch.setattr(BRB.findFinishedFlowCells, "markFinished", stopHere)
+
+        with pytest.raises(StopLoop):
+            BRB.run.run_brb.callback(configfile=None, sequencer=None)
+
+        assert json.loads(seen["deliverTo"]) == {"cabezas-wallscheid": "cabezas"}
 
     def test_marks_finished_and_logs_after_a_successful_flowcell(
         self, tmp_path, monkeypatch
