@@ -1,9 +1,13 @@
+import configparser
+import json
 import subprocess as sp
-from unittest.mock import mock_open, patch
+from unittest.mock import Mock, mock_open, patch
 
 import pytest
+import requests
 
 from BRB import misc
+from BRB.misc import resolveDeliverTo, resolveGroup
 
 
 class TestLoadUserDictionary:
@@ -241,3 +245,117 @@ class TestPacifier:
 
     def test_plain_ascii_is_unchanged(self):
         assert misc.pacifier("PlainName") == "PlainName"
+
+
+def _make_config(deliver_to=None):
+    config = configparser.ConfigParser()
+    config["Parkour"] = {
+        "InternalPIsURL": "https://parkour-demo.example.org/api/internal_pis/",
+        "user": "jefke",
+        "password": "123",
+        "cert": "",
+    }
+    config["Internals"] = {"Organizations": "MPI-IE"}
+    if deliver_to is not None:
+        config["Internals"]["deliverTo"] = json.dumps(deliver_to)
+    return config
+
+
+class TestResolveDeliverTo:
+    @patch("BRB.misc.requests.get")
+    def test_returns_only_non_empty_overrides(self, mock_get):
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "pis": {
+                "cabezas-wallscheid": "cabezas",
+                "akhtar": None,
+                "alhaj abed": "alhajabed",
+            }
+        }
+        mock_get.return_value = mock_resp
+        config = _make_config()
+
+        result = resolveDeliverTo(config)
+
+        assert result == {"cabezas-wallscheid": "cabezas", "alhaj abed": "alhajabed"}
+        mock_get.assert_called_once_with(
+            "https://parkour-demo.example.org/api/internal_pis/",
+            params={"organizations": "MPI-IE"},
+            auth=("jefke", "123"),
+            verify="",
+        )
+
+    @patch("BRB.misc.requests.get")
+    def test_network_failure_raises_with_context(self, mock_get):
+        mock_get.side_effect = requests.exceptions.ConnectionError("boom")
+
+        with pytest.raises(RuntimeError, match="internal_pis.*internal_pis/.*boom"):
+            resolveDeliverTo(_make_config())
+
+    @patch("BRB.misc.requests.get")
+    def test_non_200_raises_with_status_and_body(self, mock_get):
+        mock_resp = Mock()
+        mock_resp.status_code = 500
+        mock_resp.text = "kaputt"
+        mock_get.return_value = mock_resp
+
+        with pytest.raises(RuntimeError, match="500: kaputt"):
+            resolveDeliverTo(_make_config())
+
+    @patch("BRB.misc.requests.get")
+    def test_malformed_payload_raises(self, mock_get):
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"unexpected": {}}
+        mock_get.return_value = mock_resp
+
+        with pytest.raises(RuntimeError, match="Failed to resolve"):
+            resolveDeliverTo(_make_config())
+
+    @patch("BRB.misc.requests.get")
+    def test_empty_pi_list_raises_naming_organizations(self, mock_get):
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"pis": {}}
+        mock_get.return_value = mock_resp
+
+        with pytest.raises(RuntimeError, match=r"empty PI list.*'MPI-IE'"):
+            resolveDeliverTo(_make_config())
+
+    @patch("BRB.misc.requests.get")
+    def test_legacy_bare_list_response_raises(self, mock_get):
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"pis": ["akhtar", "cabezas-wallscheid"]}
+        mock_get.return_value = mock_resp
+
+        with pytest.raises(TypeError, match="too old"):
+            resolveDeliverTo(_make_config())
+
+
+class TestResolveGroup:
+    def test_uses_deliver_to_override_when_present(self):
+        config = _make_config(deliver_to={"cabezas-wallscheid": "cabezas"})
+        assert resolveGroup(config, "4035_Demollin_Cabezas-Wallscheid") == "cabezas"
+
+    def test_hyphenated_name_without_override_is_kept_whole(self):
+        # No hyphen truncation: a PI whose directory differs from their name
+        # needs a deliver_to in Parkour.
+        config = _make_config(deliver_to={})
+        assert (
+            resolveGroup(config, "4035_Demollin_Cabezas-Wallscheid")
+            == "cabezas-wallscheid"
+        )
+
+    def test_missing_deliverTo_key_uses_pi_name(self):
+        config = _make_config()  # no "Internals"/"deliverTo" key set at all
+        assert resolveGroup(config, "1234_jdoe_Manke") == "manke"
+
+    def test_override_applies_to_names_with_spaces(self):
+        config = _make_config(deliver_to={"alhaj abed": "alhajabed"})
+        assert resolveGroup(config, "9001_jdoe_AlHaj Abed") == "alhajabed"
+
+    def test_pi_with_space_and_no_override_is_pacified(self):
+        config = _make_config(deliver_to={})
+        assert resolveGroup(config, "9001_jdoe_AlHaj Abed") == "alhajabed"

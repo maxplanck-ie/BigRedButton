@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import json
 import os
 import sys
 from pathlib import Path
@@ -58,6 +59,15 @@ def run_brb(configfile, sequencer):
         # thread pool. Projects that don't live on the lanes being processed
         # are skipped inside runFlowcell.
         try:
+            # Resolve Parkour's deliver_to overrides for this flowcell, used by
+            # PushButton.GetResults() to place a PI's data under the right
+            # periphery directory when it diverges from their Parkour name.
+            # Fails loudly (and is e-mailed below) rather than misrouting.
+            if not config.has_section("Internals"):
+                config.add_section("Internals")
+            config["Internals"]["deliverTo"] = json.dumps(
+                BRB.misc.resolveDeliverTo(config)
+            )
             msg = BRB.PushButton.runFlowcell(
                 config,
                 ParkourDict,

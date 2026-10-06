@@ -1,10 +1,12 @@
 import configparser
+import json
 
 import pytest
 
 import BRB.email
 import BRB.findFinishedFlowCells
 import BRB.getConfig
+import BRB.misc
 import BRB.PushButton
 import BRB.run
 
@@ -29,6 +31,7 @@ def wireRunBrb(monkeypatch, tmp_path, runFlowcellImpl):
         "1_A_Foo": {"L1": ["s1", "ChIP-Seq", "proto", ("human", "hg38", "y"), "i7", 30]}
     }
     monkeypatch.setattr(BRB.getConfig, "getConfig", lambda configfile: config)
+    monkeypatch.setattr(BRB.misc, "resolveDeliverTo", lambda cfg: {})
     monkeypatch.setattr(
         BRB.findFinishedFlowCells,
         "newFlowCell",
@@ -63,6 +66,58 @@ class TestRunBrbWiring:
         assert seen["msg"] == [
             ["1_A_Foo", "human", "ChIP-Seq", "DNA", "success", "OK", False, 0]
         ]
+
+    def test_deliver_to_overrides_reach_runFlowcell_config(self, tmp_path, monkeypatch):
+        seen = {}
+
+        def fakeRunFlowcell(cfg, parkourDict, **kwargs):
+            seen["deliverTo"] = cfg["Internals"]["deliverTo"]
+            return []
+
+        wireRunBrb(monkeypatch, tmp_path, fakeRunFlowcell)
+        monkeypatch.setattr(
+            BRB.misc, "resolveDeliverTo", lambda cfg: {"cabezas-wallscheid": "cabezas"}
+        )
+        monkeypatch.setattr(BRB.email, "finishedEmail", lambda cfg, msg: None)
+
+        def stopHere(cfg):
+            raise StopLoop
+
+        monkeypatch.setattr(BRB.findFinishedFlowCells, "markFinished", stopHere)
+
+        with pytest.raises(StopLoop):
+            BRB.run.run_brb.callback(configfile=None, sequencer=None)
+
+        assert json.loads(seen["deliverTo"]) == {"cabezas-wallscheid": "cabezas"}
+
+    def test_deliver_to_failure_emails_and_aborts_before_dispatch(
+        self, tmp_path, monkeypatch
+    ):
+        seen = {}
+
+        def fakeRunFlowcell(cfg, parkourDict, **kwargs):
+            raise AssertionError("must not dispatch without deliver_to overrides")
+
+        wireRunBrb(monkeypatch, tmp_path, fakeRunFlowcell)
+
+        def failingResolve(cfg):
+            raise RuntimeError("Failed to resolve deliver_to overrides")
+
+        monkeypatch.setattr(BRB.misc, "resolveDeliverTo", failingResolve)
+        monkeypatch.setattr(
+            BRB.email, "errorEmail", lambda cfg, exc, msg: seen.setdefault("msg", msg)
+        )
+        monkeypatch.setattr(
+            BRB.findFinishedFlowCells,
+            "markFinished",
+            lambda cfg: seen.setdefault("marked", True),
+        )
+
+        with pytest.raises(RuntimeError, match="Failed to resolve"):
+            BRB.run.run_brb.callback(configfile=None, sequencer=None)
+
+        assert "Failed to resolve deliver_to" in seen["msg"]
+        assert "marked" not in seen
 
     def test_marks_finished_and_logs_after_a_successful_flowcell(
         self, tmp_path, monkeypatch
@@ -125,6 +180,7 @@ class TestRunBrbWiring:
     def test_no_new_flowcell_sleeps_and_retries(self, tmp_path, monkeypatch):
         config = runConfig(tmp_path)
         monkeypatch.setattr(BRB.getConfig, "getConfig", lambda configfile: config)
+        monkeypatch.setattr(BRB.misc, "resolveDeliverTo", lambda cfg: {})
         monkeypatch.setattr(
             BRB.findFinishedFlowCells,
             "newFlowCell",

@@ -1,4 +1,5 @@
 import configparser
+import json
 import os
 import threading
 import time
@@ -74,6 +75,20 @@ class TestGetResultsReturnsWorkItems:
             assert w.organism == HUMAN
         dnaItem = next(w for w in workItems if w.pipeline == "DNA")
         assert dnaItem.tuples == [["L1", "s1", "proto", True]]
+
+    def test_deliver_to_override_picks_the_group_directory(self, tmp_path):
+        config = dispatchConfig(tmp_path)
+        # The hyphen-truncation guess would be "foo" (absent); the Parkour
+        # override points at "fb", which exists, so the library is NOT ignored.
+        config["Internals"] = {"deliverTo": json.dumps({"foo-bar": "fb"})}
+        (tmp_path / "group" / "fb" / "sequencing_data").mkdir(parents=True)
+        libraries = {"L1": ["s1", "ChIP-Seq", "proto", HUMAN, "i7", 30]}
+
+        workItems, msg = PushButton.GetResults(config, "1_A_Foo-Bar", libraries)
+
+        assert msg == []
+        assert [w.group for w in workItems] == ["fb"]
+        assert workItems[0].tuples == [["L1", "s1", "proto", False]]
 
     def test_skiplist_message_still_produced(self, tmp_path, monkeypatch):
         config = dispatchConfig(tmp_path)
