@@ -79,8 +79,13 @@ class TestfindFinishedFlowCells:
         markFinished(config)
         assert Path(ifs, "fc_unfin", "analysis.done").exists()
 
-    def test_queryParkour(self):
+    @patch("BRB.findFinishedFlowCells.requests.get")
+    def test_queryParkour(self, mock_get, ifs):
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {}
+        mock_get.return_value = mock_resp
         config = create_conf(
             [["Paths", "baseData", ifs], ["Options", "sequencerType", "Illumina"]]
         )
