@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.9.3...v1.0.0) (2026-10-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* resolve PI group directory via Parkour deliver_to only, failing loudly on lookup errors ([#142](https://github.com/maxplanck-ie/BigRedButton/issues/142))
+
+### Features
+
+* resolve PI group directory via Parkour deliver_to only, failing loudly on lookup errors ([#142](https://github.com/maxplanck-ie/BigRedButton/issues/142)) ([70cdc13](https://github.com/maxplanck-ie/BigRedButton/commit/70cdc134ea1aa1eecaa9538f48fa008eec84409b))
+
 ## [0.9.3](https://github.com/maxplanck-ie/BigRedButton/compare/v0.9.2...v0.9.3) (2026-09-28)
 
 
