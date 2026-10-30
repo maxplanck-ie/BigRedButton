@@ -1291,6 +1291,12 @@ def runOneGroup(config, item, registry):
         registry.unregister_group(outputDir)
         return skipRow("SKIPPED (flowcell teardown in progress)")
     BRB.jobtrack.writeMarker(outputDir)
+    if registry.aborted:
+        # Teardown latched after the check above; its clearMarker may have run
+        # before this write created the marker, so clear it here.
+        BRB.jobtrack.clearMarker(outputDir)
+        registry.unregister_group(outputDir)
+        return skipRow("SKIPPED (flowcell teardown in progress)")
     crashed = True
     try:
         with BRB.jobtrack.bindGroup(handle):
