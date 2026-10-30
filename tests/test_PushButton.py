@@ -637,9 +637,9 @@ class TestManagedSubprocessCallSites:
         source = Path(PushButton.__file__).read_text()
         assert "subprocess.check_call" not in source
 
-    def test_all_twelve_sites_converted(self):
+    def test_all_thirteen_sites_converted(self):
         source = Path(PushButton.__file__).read_text()
-        assert source.count("runManagedSubprocess(") == 12
+        assert source.count("runManagedSubprocess(") == 13
 
     def test_the_two_cwd_sites_keep_their_cwd(self):
         source = Path(PushButton.__file__).read_text()
