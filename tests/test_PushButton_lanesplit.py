@@ -415,3 +415,29 @@ class TestMultiomeEdgeCases:
         PushButton.runFlowcell(multiomeConfig(tmp_path, 2), umlaut)
 
         assert ":con_RNA:con_ATAC" in cmds[0]
+
+    def test_genome_arg_is_a_config_key_not_a_yaml_path(self, multiome):
+        # Parkour's organism "yaml" is a snakePipes yaml path in production;
+        # cellranger-arc needs a key of 10x_ARC.config.yaml.
+        tmp_path, cmds = multiome
+        prod = {
+            PROJECT: {
+                bc: [
+                    v[0],
+                    v[1],
+                    v[2],
+                    (
+                        "human",
+                        "hg38",
+                        "/data/repository/organisms/hg38/snakePipes_organism.yaml",
+                    ),
+                    v[4],
+                    v[5],
+                ]
+                for bc, v in MULTIOME[PROJECT].items()
+            }
+        }
+
+        PushButton.runFlowcell(multiomeConfig(tmp_path, 2), prod)
+
+        assert " hg38 --snakemakePath" in cmds[0]
