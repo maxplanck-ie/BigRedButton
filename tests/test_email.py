@@ -110,6 +110,31 @@ class TestFinishedEmailSkippedSuppression:
         assert recipients == ["bioinfocore@example.org"]
 
     @patch("BRB.email.smtplib.SMTP")
+    def test_multiome_attention_entry_suppresses_deepseq_notification(self, mockSMTP):
+        # A Multiome group with pairs waiting for another lane folder (or
+        # unpaired) is not finished either.
+        config = make_config()
+        mockInstance = MagicMock()
+        mockSMTP.return_value = mockInstance
+        msg = [
+            [
+                "9999_Foo_Bar",
+                "human",
+                "RNA-Seq single cell",
+                "scMultiome",
+                "ATTENTION (see /x/multiome.attention)",
+                "PARKOUR_OK",
+                True,
+                0,
+            ],
+        ]
+
+        email.finishedEmail(config, msg)
+
+        recipients = mockInstance.sendmail.call_args[0][1]
+        assert recipients == ["bioinfocore@example.org"]
+
+    @patch("BRB.email.smtplib.SMTP")
     def test_no_skipped_or_failed_entries_still_notifies_deepseq(self, mockSMTP):
         config = make_config()
         mockInstance = MagicMock()

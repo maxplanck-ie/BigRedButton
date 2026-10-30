@@ -295,3 +295,123 @@ class TestMultiome:
         assert len(cmds) == 1
         assert "--pair con:con_RNA:con_ATAC" in cmds[0]
         assert "ko" not in cmds[0].split("--pair ", 1)[1]
+
+
+def laneDir(tmp_path, lane):
+    return tmp_path / "base" / f"{FLOWCELL}_lanes_{lane}"
+
+
+def note(tmp_path, lane):
+    notes = list(laneDir(tmp_path, lane).rglob(PushButton.MULTIOME_NOTE))
+    return notes[0].read_text() if notes else None
+
+
+class TestMultiomeEdgeCases:
+    def test_partner_lane_not_demultiplexed_at_all_waits_and_flags(
+        self, tmp_path, monkeypatch
+    ):
+        # lanes_2 picked up while dissectBCL has not written lanes_1 yet:
+        # the GEX libraries must not be dropped as "on another lane".
+        makeLane(tmp_path, 2, {"99L003": "con_ATAC"}, ["I1", "I2", "R1", "R2"])
+        (laneDir(tmp_path, 2) / "fastq.made").touch()
+        monkeypatch.setattr(PushButton, "POOL_SIZE", 1)
+        monkeypatch.setattr(
+            BRB.ET,
+            "phoneHome",
+            lambda c, o, p, t, org, lab, proj, lt: [proj, org, lt, p, "success", "OK"],
+        )
+        cmds = []
+        monkeypatch.setattr(
+            PushButton, "runManagedSubprocess", lambda c, **k: cmds.append(c)
+        )
+        lib = {k: MULTIOME[PROJECT][k] for k in ("99L001", "99L003")}
+
+        msg = PushButton.runFlowcell(multiomeConfig(tmp_path, 2), {PROJECT: lib})
+
+        assert cmds == []
+        assert not list(laneDir(tmp_path, 2).rglob("analysis.done"))
+        assert "con: waiting" in note(tmp_path, 2)
+        assert msg[0][4].startswith("ATTENTION")
+
+    def test_unpaired_library_flags_attention_but_group_is_done(self, multiome):
+        tmp_path, _cmds = multiome
+        partial = {
+            PROJECT: {k: v for k, v in MULTIOME[PROJECT].items() if k != "99L002"}
+        }
+
+        msg = PushButton.runFlowcell(multiomeConfig(tmp_path, 2), partial)
+
+        assert "ko: ATAC library 99L004 has no GEX partner" in note(tmp_path, 2)
+        assert msg[0][4].startswith("ATTENTION")
+        # Nothing will ever complete ko by itself: do not hold the group open.
+        assert list(laneDir(tmp_path, 2).rglob("analysis.done"))
+
+    def test_clean_pass_removes_a_stale_note(self, multiome):
+        tmp_path, _cmds = multiome
+        partial = {
+            PROJECT: {k: v for k, v in MULTIOME[PROJECT].items() if k != "99L002"}
+        }
+        PushButton.runFlowcell(multiomeConfig(tmp_path, 2), partial)
+        for done in laneDir(tmp_path, 2).rglob("analysis.done"):
+            done.unlink()  # operator forces a rerun after fixing Parkour
+
+        msg = PushButton.runFlowcell(multiomeConfig(tmp_path, 2), MULTIOME)
+
+        assert note(tmp_path, 2) is None
+        assert msg[0][4] == "success"
+
+    def test_half_with_fastqs_in_two_lanes_is_not_run(self, multiome):
+        tmp_path, cmds = multiome
+        # con_ATAC also sequenced on lane 1 (pool loaded on both lanes).
+        makeLane(tmp_path, 1, {"99L003": "con_ATAC"}, ["I1", "I2", "R1", "R2"])
+
+        PushButton.runFlowcell(multiomeConfig(tmp_path, 2), MULTIOME)
+
+        assert len(cmds) == 1
+        assert "--pair ko:ko_RNA:ko_ATAC" in cmds[0]
+        assert "--pair con:" not in cmds[0]
+        assert "con: ATAC 99L003 has FASTQs in 2 lane folders" in note(tmp_path, 2)
+
+    def test_duplicate_base_name_is_not_run(self, multiome):
+        tmp_path, cmds = multiome
+        makeLane(tmp_path, 1, {"99L005": "con_RNA_b"}, ["R1", "R2"])
+        dup = {PROJECT: dict(MULTIOME[PROJECT])}
+        dup[PROJECT]["99L005"] = [
+            "con_RNA",
+            "RNA-Seq single cell",
+            MULTI_GEX,
+            HUMAN,
+            "i7",
+            30,
+        ]
+
+        PushButton.runFlowcell(multiomeConfig(tmp_path, 2), dup)
+
+        assert "--pair con:" not in cmds[0]
+        assert "con: two RNA libraries in Parkour (99L001, 99L005)" in note(tmp_path, 2)
+
+    def test_fastq_names_are_taken_from_disk_not_parkour(self, multiome):
+        # dissectBCL strips umlauts from FASTQ names; the wrapper searches
+        # for the on-disk name, so Parkour's spelling must not leak through.
+        tmp_path, cmds = multiome
+        umlaut = {PROJECT: dict(MULTIOME[PROJECT])}
+        umlaut[PROJECT]["99L001"] = [
+            "cön_RNA",
+            "RNA-Seq single cell",
+            MULTI_GEX,
+            HUMAN,
+            "i7",
+            30,
+        ]
+        umlaut[PROJECT]["99L003"] = [
+            "cön_ATAC",
+            "ATAC-Seq single cell",
+            MULTI_ATAC,
+            HUMAN,
+            "i7",
+            30,
+        ]
+
+        PushButton.runFlowcell(multiomeConfig(tmp_path, 2), umlaut)
+
+        assert ":con_RNA:con_ATAC" in cmds[0]
