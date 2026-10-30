@@ -80,6 +80,14 @@ def run_brb(configfile, sequencer):
             print(errMsg, file=sys.stderr)
             raise
 
+        # Multiome groups with pairs that could not run this pass (waiting
+        # for another lane folder, unpaired, ...): make them hard to miss.
+        for row in msg:
+            if str(row[4]).startswith("ATTENTION"):
+                warn = f"Multiome {row[0]} ({config.get('Options', 'runID')}): {row[4]}"
+                log.warning(warn)
+                print(f"[bold red]!!! {warn}[/bold red]")
+
         # Email finished message
         log.info("Create e-mail")
         log.info(msg)

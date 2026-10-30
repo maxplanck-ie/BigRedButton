@@ -1,6 +1,7 @@
 import concurrent.futures
 import glob
 import os
+import re
 import shutil
 import stat
 from collections import namedtuple
@@ -25,6 +26,18 @@ WorkItem = namedtuple(
 
 # Name of the per-group ownership marker written into the group's outputDir.
 MARKER_NAME = "running.pid"
+
+# Parkour protocols of the two halves of a 10x Multiome sample. They are
+# processed jointly by cellranger-arc (scMultiome), never by scRNAseq/scATAC.
+MULTIOME_PROTOCOLS = {
+    "Chromium_NextGEM_Multiome_GEX": "_RNA",
+    "Chromium_NextGEM_Multiome_ATAC": "_ATAC",
+}
+
+# Written into a scMultiome outputDir when some pairs could not be run in this
+# pass (waiting for the other lane, unpaired, ...). One reason per line. Its
+# presence turns the e-mail row into ATTENTION and is printed by run_brb.
+MULTIOME_NOTE = "multiome.attention"
 
 # Fixed for now, deliberately not .ini-configurable. Kept low because not all
 # of a group's work is Slurm-offloaded: RELACS runs `demultiplex_relacs -p 10`
@@ -116,7 +129,11 @@ def createPath(config, group, project, org_label, analysisType, tuples):
             BRB.misc.pacifier(project),
         )
     os.makedirs(baseDir, mode=0o700, exist_ok=True)
-    oDir = os.path.join(baseDir, f"{BRB.misc.pacifier(analysisType)}_{org_label}")
+    dirName = f"{BRB.misc.pacifier(analysisType)}_{org_label}"
+    if len(tuples[0]) > 4:
+        # Mixed-protocol split (see GetResults): keep the groups' dirs apart.
+        dirName += f"_{tuples[0][4]}"
+    oDir = os.path.join(baseDir, dirName)
     os.makedirs(oDir, mode=0o700, exist_ok=True)
     return oDir
 
@@ -1018,6 +1035,178 @@ def scATAC(config, group, project, organism, analysisType, tuples):
     return outputDir, 0, True
 
 
+def scMultiome(config, group, project, organism, analysisType, tuples):
+    """
+    10x Multiome (GEX + ATAC), one joint cellranger-arc run per sample.
+
+    GEX and ATAC are paired by Parkour sample name: <base>_RNA with
+    <base>_ATAC. With dissectBCL --forcelanesplit the two halves can sit in
+    different <flowcell>_lanes_<n> folders, which BRB processes one at a time
+    and in no fixed order. A pair is therefore run by the first lane folder
+    whose pass finds both halves ready: FASTQs in this folder, or in a sibling
+    folder that already has fastq.made. A pair that has <base>.done (written
+    by the 10x_ARC wrapper) in a sibling lane's output is not run again.
+    Pairs that are not ready yet are left to the sibling lane's pass, so this
+    group is only marked analysis.done when it has nothing left to wait for.
+
+    Anything that keeps a pair from running is written, one line each, to
+    MULTIOME_NOTE in outputDir and logged as a warning:
+    - waiting: one half's FASTQs are not in any ready lane folder yet;
+    - unpaired: Parkour has only the GEX or only the ATAC library on this
+      flowcell (other flowcell, different organism, or a name that does not
+      end in _RNA/_ATAC);
+    - duplicate: two GEX (or two ATAC) libraries share one base name;
+    - split: one half has FASTQs in more than one lane folder, while
+      cellranger-arc takes one input folder per modality.
+    Only "waiting" holds back analysis.done; the others never resolve
+    by themselves and need the operator.
+    """
+    project = BRB.misc.pacifier(project)
+    _org_name, org_label, org_yaml = organism
+    outputDir = createPath(config, group, project, org_label, analysisType, tuples)
+    if os.path.exists(os.path.join(outputDir, "analysis.done")):
+        return outputDir, 0, True
+    runID = config.get("Options", "runID")
+    baseData = config.get("Paths", "baseData")
+    lane = re.match(r"^(.*)_lanes_\d+$", runID)
+    if lane:
+        laneIDs = sorted(
+            (
+                p.name
+                for p in Path(baseData).glob(f"{lane.group(1)}_lanes_*")
+                if re.search(r"_lanes_\d+$", p.name)
+            ),
+            key=lambda n: int(n.rsplit("_", 1)[1]),
+        )
+    else:
+        laneIDs = [runID]
+    ready = [
+        laneID
+        for laneID in laneIDs
+        if laneID == runID or Path(baseData, laneID, "fastq.made").exists()
+    ]
+
+    def inLane(path, laneID):
+        # Same path with the run folder component swapped for laneID.
+        return Path(*(laneID if part == runID else part for part in Path(path).parts))
+
+    # Project folder of this run: where linkFiles/scATAC also read FASTQs.
+    if tuples[0][3]:
+        projectDir = Path(baseData, runID, f"Project_{project}")
+    else:
+        projectDir = Path(
+            config.get("Paths", "groupData"),
+            BRB.misc.pacifier(group),
+            BRB.misc.getLatestSeqdir(config.get("Paths", "groupData"), group),
+            runID,
+            f"Project_{project}",
+        )
+
+    # Locate each Parkour library: pair base, FASTQ sample name, and the
+    # ready lane folders that hold its FASTQs.
+    issues = []
+    halves = {"_RNA": {}, "_ATAC": {}}
+    for t in tuples:
+        suffix = MULTIOME_PROTOCOLS[t[2]]
+        base = BRB.misc.pacifier(t[1]).removesuffix(suffix)
+        found = [
+            inLane(projectDir, laneID)
+            for laneID in ready
+            if any(inLane(projectDir, laneID).glob(f"Sample_{t[0]}/*.fastq.gz"))
+        ]
+        # dissectBCL rewrites umlauts and spaces in FASTQ names, so the name
+        # the wrapper searches for is taken from disk, not from Parkour.
+        r1 = sorted(p for d in found for p in d.glob(f"Sample_{t[0]}/*_R1.fastq.gz"))
+        fastqName = r1[0].name.removesuffix("_R1.fastq.gz") if r1 else t[1]
+        if base in halves[suffix]:
+            issues.append(
+                f"{base}: two {suffix[1:]} libraries in Parkour "
+                f"({halves[suffix][base]['lib']}, {t[0]}), not run."
+            )
+            halves[suffix][base]["dup"] = True
+            continue
+        halves[suffix][base] = {
+            "lib": t[0],
+            "name": fastqName,
+            "dirs": found,
+            "dup": False,
+        }
+
+    runs = {}
+    waiting = []
+    for base in sorted(set(halves["_RNA"]) | set(halves["_ATAC"])):
+        gex, atac = halves["_RNA"].get(base), halves["_ATAC"].get(base)
+        if gex is None or atac is None:
+            have, miss = ("ATAC", "GEX") if gex is None else ("GEX", "ATAC")
+            issues.append(
+                f"{base}: {have} library {(gex or atac)['lib']} has no {miss} "
+                "partner on this flowcell in Parkour, not run."
+            )
+            continue
+        if gex["dup"] or atac["dup"]:
+            continue
+        doneIn = [
+            laneID
+            for laneID in laneIDs
+            if laneID != runID
+            and inLane(outputDir, laneID).joinpath(f"{base}.done").exists()
+        ]
+        if doneIn:
+            log.info(f"{project}: Multiome sample {base} already done in {doneIn[0]}.")
+            continue
+        split = [
+            f"{kind} {h['lib']} has FASTQs in {len(h['dirs'])} lane folders"
+            for kind, h in (("GEX", gex), ("ATAC", atac))
+            if len(h["dirs"]) > 1
+        ]
+        if split:
+            issues.append(
+                f"{base}: {'; '.join(split)}, cellranger-arc takes one folder "
+                "per modality, not run."
+            )
+            continue
+        if not gex["dirs"] or not atac["dirs"]:
+            waiting.append(base)
+            continue
+        runs.setdefault((gex["dirs"][0], atac["dirs"][0]), []).append(
+            f"--pair {base}:{gex['name']}:{atac['name']}"
+        )
+    if waiting:
+        issues.append(
+            f"{', '.join(waiting)}: waiting for the other half's FASTQs (lane "
+            "folder without fastq.made yet). The pass of the lane folder that "
+            "completes them runs them; if it never comes, run them by hand."
+        )
+    note = Path(outputDir, MULTIOME_NOTE)
+    for issue in issues:
+        log.warning(f"{runID} {project} Multiome: {issue}")
+    if issues:
+        note.write_text("\n".join(issues) + "\n")
+    else:
+        note.unlink(missing_ok=True)
+    if not runs:
+        if not waiting:
+            touchDone(outputDir)
+        return outputDir, 0, False
+
+    snakeMakePath = "{}/bin".format(config.get("Options", "snakemakeWorkflowBaseDir"))
+    for (gexDir, atacDir), pairs in runs.items():
+        CMD = config.get("10x", "ARC")
+        CMD += f" --gex-indir {gexDir} --atac-indir {atacDir} " + " ".join(pairs)
+        CMD += f" -o {outputDir} {org_yaml} --snakemakePath {snakeMakePath}"
+        log.info(f"scMultiome wf CMD: {CMD}")
+        try:
+            runManagedSubprocess(CMD)
+        except:
+            return outputDir, 1, False
+    copyCellRanger(config, outputDir, tuples[0][3])
+    stripRights(outputDir)
+    tidyUpABit(outputDir)
+    if not waiting:
+        touchDone(outputDir)
+    return outputDir, 0, True
+
+
 def runOneGroup(config, item, registry):
     """
     Ownership-guarded dispatch of a single WorkItem, coordinated through
@@ -1102,6 +1291,12 @@ def runOneGroup(config, item, registry):
         registry.unregister_group(outputDir)
         return skipRow("SKIPPED (flowcell teardown in progress)")
     BRB.jobtrack.writeMarker(outputDir)
+    if registry.aborted:
+        # Teardown latched after the check above; its clearMarker may have run
+        # before this write created the marker, so clear it here.
+        BRB.jobtrack.clearMarker(outputDir)
+        registry.unregister_group(outputDir)
+        return skipRow("SKIPPED (flowcell teardown in progress)")
     crashed = True
     try:
         with BRB.jobtrack.bindGroup(handle):
@@ -1140,19 +1335,19 @@ def runOneGroup(config, item, registry):
                     f"Processed project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.analysisType}, {org_name}. Rerun = {reruncount}"
                 )
                 crashed = False
-                return [
-                    BRB.ET.phoneHome(
-                        config,
-                        outputDir,
-                        item.pipeline,
-                        item.tuples,
-                        org_name,
-                        org_label,
-                        item.project,
-                        item.analysisType,
-                    )
-                    + [sambaUpdate, reruncount]
-                ]
+                row = BRB.ET.phoneHome(
+                    config,
+                    outputDir,
+                    item.pipeline,
+                    item.tuples,
+                    org_name,
+                    org_label,
+                    item.project,
+                    item.analysisType,
+                ) + [sambaUpdate, reruncount]
+                if Path(outputDir, MULTIOME_NOTE).exists():
+                    row[4] = f"ATTENTION (see {outputDir}/{MULTIOME_NOTE})"
+                return [row]
             log.warning(
                 f"FAILED project {BRB.misc.pacifier(item.project)} with the {item.pipeline} pipeline. {item.analysisType}, {org_name}. Rerun = {reruncount}"
             )
@@ -1173,6 +1368,36 @@ def runOneGroup(config, item, registry):
         if not crashed:
             BRB.jobtrack.clearMarker(outputDir)
             registry.unregister_group(outputDir)
+
+
+def filterLaneSamples(config, project, libraries):
+    """
+    On a single-lane folder (<flowcell>_lanes_<n>, from dissectBCL
+    --forcelanesplit), keep only the libraries that have FASTQs in that
+    folder's Project_<project>/Sample_<barcode>. Other run folders hold all
+    their samples, so they are returned unchanged. Multiome libraries are
+    always kept: scMultiome pairs them across lane folders and decides
+    whether a pair is run, waits for the other lane, or needs the operator.
+    """
+    runID = config.get("Options", "runID")
+    lane = re.match(r"^(.*)_lanes_\d+$", runID)
+    if not lane:
+        return libraries
+    baseData = config.get("Paths", "baseData")
+    pacified = BRB.misc.pacifier(project)
+    projectDir = Path(baseData, runID, f"Project_{pacified}")
+    kept = {}
+    for barcode, v in libraries.items():
+        if v[2] in MULTIOME_PROTOCOLS or any(
+            projectDir.glob(f"Sample_{barcode}/*.fastq.gz")
+        ):
+            kept[barcode] = v
+        else:
+            log.info(
+                f"{runID}: no FASTQs for {barcode} ({v[0]}) in "
+                f"{Path(baseData, runID, f'Project_{pacified}')}, it lives on another lane."
+            )
+    return kept
 
 
 def GetResults(config, project, libraries):
@@ -1257,15 +1482,21 @@ def GetResults(config, project, libraries):
         ):
             if org_label not in org_dict:
                 org_dict[org_label] = organism
-            idx = validAnalysisTypes[analysisType]
-            pipeline = pipelines[idx]
+            if libraryProtocol in MULTIOME_PROTOCOLS:
+                # GEX and ATAC halves of one Multiome sample go to one joint
+                # cellranger-arc run, not to the per-modality pipelines.
+                pipeline = "scMultiome"
+                groupKey = "Multiome"
+            else:
+                pipeline = pipelines[validAnalysisTypes[analysisType]]
+                groupKey = analysisType
             if pipeline not in pipelineGroups:
                 pipelineGroups[pipeline] = {}
             if org_label not in pipelineGroups[pipeline]:
                 pipelineGroups[pipeline][org_label] = {}
-            if analysisType not in pipelineGroups[pipeline][org_label]:
-                pipelineGroups[pipeline][org_label][analysisType] = []
-            pipelineGroups[pipeline][org_label][analysisType].append(
+            if groupKey not in pipelineGroups[pipeline][org_label]:
+                pipelineGroups[pipeline][org_label][groupKey] = []
+            pipelineGroups[pipeline][org_label][groupKey].append(
                 [library, sampleName, libraryProtocol, ignore]
             )
             log.debug(f"Considering pipeline groups: {pipelineGroups}")
@@ -1297,18 +1528,36 @@ def GetResults(config, project, libraries):
             for analysisType, tuples in v2.items():
                 log.debug("Queueing analysisType " + analysisType)
                 log.debug(tuples)
+                # One pipeline run assumes one protocol (tuples[0][2]). If an
+                # analysisType holds several (e.g. one per lane), split them
+                # and give each its own output dir via a 5th tuple element.
+                byProtocol = {}
+                for t in tuples:
+                    byProtocol.setdefault(t[2], []).append(t)
+                if len(byProtocol) > 1 and pipeline != "scMultiome":
+                    log.info(
+                        f"{project}/{analysisType}: {len(byProtocol)} protocols, "
+                        f"splitting: {sorted(byProtocol)}"
+                    )
+                    groups = [
+                        [t + [BRB.misc.pacifier(proto)] for t in ts]
+                        for proto, ts in byProtocol.items()
+                    ]
+                else:
+                    groups = [tuples]
                 # RELACS needs the unpacified project name to copy the original sample sheet to the dest dir
                 # hence the pacifier is applied on the project in each pipeline separately
-                workItems.append(
-                    WorkItem(
-                        project=project,
-                        group=group,
-                        pipeline=pipeline,
-                        organism=organism,
-                        analysisType=analysisType,
-                        tuples=tuples,
+                for groupTuples in groups:
+                    workItems.append(
+                        WorkItem(
+                            project=project,
+                            group=group,
+                            pipeline=pipeline,
+                            organism=organism,
+                            analysisType=analysisType,
+                            tuples=groupTuples,
+                        )
                     )
-                )
     # In case there is an external_skipList, there shouldn't be a skipList !
     if external_skipList:
         assert not skipList
@@ -1351,6 +1600,14 @@ def runFlowcell(config, ParkourDict, registry=None, maxWorkers=None):
                 f"{bdir}/Project_{BRB.misc.pacifier(k)} doesn't exist, probably lives on another lane."
             )
             continue
+        laneLibraries = filterLaneSamples(config, k, v)
+        if v and not laneLibraries:
+            log.info(
+                f"{bdir}/Project_{BRB.misc.pacifier(k)} has no samples of this "
+                "lane, skipping project."
+            )
+            continue
+        v = laneLibraries
         projectItems, projectMsg = GetResults(config, k, v)
         workItems.extend(projectItems)
         msg.extend(projectMsg)

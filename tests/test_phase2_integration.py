@@ -285,6 +285,29 @@ class TestCrashAndRestart:
         for jobId in betaJobIds:
             assert jobId in scancelled
 
+    def test_teardown_between_abort_check_and_marker_write_leaves_no_marker(
+        self, flowcell, monkeypatch
+    ):
+        # Force cancelAllGroups into the window between runOneGroup's
+        # `registry.aborted` check and its writeMarker for "gamma": the
+        # teardown's clearMarker then runs before the marker exists.
+        config, _parkour, dirs, items = flowcell
+        monkeypatch.setattr(jobtrack.subprocess, "run", lambda *a, **k: None)
+        registry = jobtrack.JobRegistry()
+        _stubPipeline(dirs, [], {}, monkeypatch, registry=registry)
+        gammaDir = str(dirs["gamma"])
+        origWrite = jobtrack.writeMarker
+
+        def teardownThenWrite(outputDir, *args, **kwargs):
+            if str(outputDir) == gammaDir:
+                jobtrack.cancelAllGroups(registry)
+            return origWrite(outputDir, *args, **kwargs)
+
+        monkeypatch.setattr(jobtrack, "writeMarker", teardownThenWrite)
+        row = PushButton.runOneGroup(config, items[2], registry)
+        assert row[0][4].startswith("SKIPPED")
+        assert jobtrack.markerState(dirs["gamma"])[0] == jobtrack.MARKER_ABSENT
+
     def test_restart_redoes_only_unfinished_groups(self, flowcell, monkeypatch):
         config, parkour, dirs, _items = flowcell
         monkeypatch.setattr(jobtrack.subprocess, "run", lambda *a, **k: None)
