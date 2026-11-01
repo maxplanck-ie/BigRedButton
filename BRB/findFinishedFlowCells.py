@@ -14,6 +14,11 @@ def flowCellProcessed(config):
 
 
 def markFinished(config):
+    """
+    Write analysis.done marker for a processed flow cell.
+    Creates/updates analysis.done under config[Paths][baseData]/config[Options][runID]
+    to signal the flowcell has been fully processed.
+    """
     _p = Path(config["Paths"]["baseData"], config["Options"]["runID"], "analysis.done")
     _p.touch()
     log.info(f"{_p} created, flow cell processed.")

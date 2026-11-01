@@ -45,10 +45,11 @@ def finishedEmail(config, msg):
         # Only inform deepseq if no workflow failed, and no group was
         # skipped (a flowcell with a skipped group -- e.g. owned by a live
         # PID from another process -- was not actually fully processed this
-        # pass, so deepSeq should not be told it's ready).
+        # pass, so deepSeq should not be told it's ready), and no Multiome
+        # group needs attention (pairs waiting for another lane or unpaired).
         statuses = [i[4] for i in msg]
         if statuses.count("FAILED") == 0 and not any(
-            s.startswith("SKIPPED") for s in statuses
+            str(s).startswith(("SKIPPED", "ATTENTION")) for s in statuses
         ):
             recipient = config.get("Email", "deepSeq")
             _html.add(

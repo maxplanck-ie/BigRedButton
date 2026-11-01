@@ -35,6 +35,9 @@ dependencies = [
 BigRedButton = "BRB.run:run_brb"
 demultiplex_relacs = "BRB.demultiplex_relacs:main"
 
+
+[tool.setuptools]
+packages = ["BRB"]
 [tool.setuptools_scm]
 
 [tool.ruff]
