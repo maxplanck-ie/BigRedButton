@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/maxplanck-ie/BigRedButton/compare/v1.0.0...v1.0.1) (2026-11-01)
+
+
+### Bug Fixes
+
+* handle lane-split flowcells and run 10x Multiome with cellranger-arc ([#174](https://github.com/maxplanck-ie/BigRedButton/issues/174)) ([2d1c29b](https://github.com/maxplanck-ie/BigRedButton/commit/2d1c29b0d9f7ca2afe5cc84494db1cb9138c1d3c))
+
 ## [1.0.0](https://github.com/maxplanck-ie/BigRedButton/compare/v0.9.3...v1.0.0) (2026-10-22)
 
 
