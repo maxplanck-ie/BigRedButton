@@ -416,9 +416,10 @@ class TestMultiomeEdgeCases:
 
         assert ":con_RNA:con_ATAC" in cmds[0]
 
-    def test_genome_arg_is_a_config_key_not_a_yaml_path(self, multiome):
-        # Parkour's organism "yaml" is a snakePipes yaml path in production;
-        # cellranger-arc needs a key of 10x_ARC.config.yaml.
+    def test_genome_arg_is_the_full_yaml_path_passed_to_wrapper(self, multiome):
+        # Parkour's organism "yaml" is a snakePipes yaml path in production.
+        # The 10x_ARC wrapper (10X_snakepipe#21) now handles genome normalization,
+        # so BRB passes the full org_yaml path directly to the wrapper.
         tmp_path, cmds = multiome
         prod = {
             PROJECT: {
@@ -440,4 +441,7 @@ class TestMultiomeEdgeCases:
 
         PushButton.runFlowcell(multiomeConfig(tmp_path, 2), prod)
 
-        assert " hg38 --snakemakePath" in cmds[0]
+        assert (
+            "/data/repository/organisms/hg38/snakePipes_organism.yaml --snakemakePath"
+            in cmds[0]
+        )

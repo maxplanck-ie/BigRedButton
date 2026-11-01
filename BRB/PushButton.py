@@ -35,19 +35,6 @@ MULTIOME_PROTOCOLS = {
 }
 
 
-def arcGenomeKey(org_yaml):
-    """
-    The genome argument for the 10x_ARC wrapper: a key of its config yaml.
-    Parkour's organism "yaml" is a snakePipes organism yaml *path* in
-    production (a bare key only in tests), so normalise it the same way
-    scRNAseq does instead of handing the path to cellranger-arc --reference.
-    """
-    for key in ("GRCh38", "hg38", "GRCm39", "mm10"):
-        if key in org_yaml:
-            return key
-    return org_yaml
-
-
 # Written into a scMultiome outputDir when some pairs could not be run in this
 # pass (waiting for the other lane, unpaired, ...). One reason per line. Its
 # presence turns the e-mail row into ATTENTION and is printed by run_brb.
@@ -1191,6 +1178,8 @@ def scMultiome(config, group, project, organism, analysisType, tuples):
             "folder without fastq.made yet). The pass of the lane folder that "
             "completes them runs them; if it never comes, run them by hand."
         )
+    else:
+        issues = [i for i in issues if not i.startswith("waiting:")]
     note = Path(outputDir, MULTIOME_NOTE)
     for issue in issues:
         log.warning(f"{runID} {project} Multiome: {issue}")
@@ -1207,9 +1196,7 @@ def scMultiome(config, group, project, organism, analysisType, tuples):
     for (gexDir, atacDir), pairs in runs.items():
         CMD = config.get("10x", "ARC")
         CMD += f" --gex-indir {gexDir} --atac-indir {atacDir} " + " ".join(pairs)
-        CMD += (
-            f" -o {outputDir} {arcGenomeKey(org_yaml)} --snakemakePath {snakeMakePath}"
-        )
+        CMD += f" -o {outputDir} {org_yaml} --snakemakePath {snakeMakePath}"
         log.info(f"scMultiome wf CMD: {CMD}")
         try:
             runManagedSubprocess(CMD)
@@ -1307,12 +1294,6 @@ def runOneGroup(config, item, registry):
         registry.unregister_group(outputDir)
         return skipRow("SKIPPED (flowcell teardown in progress)")
     BRB.jobtrack.writeMarker(outputDir)
-    if registry.aborted:
-        # Teardown latched after the check above; its clearMarker may have run
-        # before this write created the marker, so clear it here.
-        BRB.jobtrack.clearMarker(outputDir)
-        registry.unregister_group(outputDir)
-        return skipRow("SKIPPED (flowcell teardown in progress)")
     crashed = True
     try:
         with BRB.jobtrack.bindGroup(handle):
