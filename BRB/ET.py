@@ -21,11 +21,19 @@ _parkourPostLock = threading.Lock()
 
 def getNReads(d):
     """
-    Get the number of reads and % optical dupes from a directory
+    Get the number of reads and % optical dupes from a directory.
+
+    splitFastq writes "<optical_dups> <total_reads>" to <sample>.metrics
+    (<sample>.duplicate.txt before ~2026-08). Runs processed before
+    dissectBCL v1.3.5 can still have the file in the un-prefixed Project_
+    directory, so look there too.
     """
-    if len(glob.glob(f"{d}/*.duplicate.txt")):
-        fname = glob.glob(f"{d}/*.duplicate.txt")[0]
-        with open(fname) as fh:
+    for base in (d, d.replace("FASTQC_", "")):
+        hits = glob.glob(f"{base}/*.metrics") or glob.glob(f"{base}/*.duplicate.txt")
+        if hits:
+            break
+    if hits:
+        with open(hits[0]) as fh:
             s = fh.read()
         optDupes, total = s.split()
         try:
@@ -34,6 +42,10 @@ def getNReads(d):
             opt_frac = float(-1)
         return int(total) - int(optDupes), opt_frac
     else:
+        log.warning(
+            f"getNReads - no *.metrics/*.duplicate.txt in {d}; "
+            "reporting 0% optical duplicates from raw R1 read count"
+        )
         # For machines in which we don't mark duplicates
         # Just count the number of reads in R1
         CMD1 = [
