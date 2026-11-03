@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/maxplanck-ie/BigRedButton/compare/v1.0.1...v1.0.2) (2026-11-03)
+
+
+### Bug Fixes
+
+* read optical duplicates from splitFastq's .metrics output ([#178](https://github.com/maxplanck-ie/BigRedButton/issues/178)) ([91c9eae](https://github.com/maxplanck-ie/BigRedButton/commit/91c9eae1717a219c7db177a0c98b66c150be1255))
+
 ## [1.0.1](https://github.com/maxplanck-ie/BigRedButton/compare/v1.0.0...v1.0.1) (2026-11-01)
 
 
