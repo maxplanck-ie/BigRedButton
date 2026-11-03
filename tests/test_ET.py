@@ -3,6 +3,8 @@ import gzip
 import threading
 import time
 
+import pytest
+
 import BRB.ET
 
 
@@ -94,6 +96,22 @@ class TestGetNReads:
         total, optFrac = BRB.ET.getNReads(str(tmp_path))
         assert total == 0
         assert optFrac == -1.0
+
+    def test_metrics_file_computes_optical_dupe_fraction(self, tmp_path):
+        # splitFastq now writes <sample>.metrics instead of <sample>.duplicate.txt
+        (tmp_path / "sample.metrics").write_text("144129\t14488041\n")
+        total, optFrac = BRB.ET.getNReads(str(tmp_path))
+        assert total == 14488041 - 144129
+        assert optFrac == pytest.approx(100.0 * 144129 / 14488041)
+
+    def test_metrics_file_left_in_unprefixed_project_dir_is_found(self, tmp_path):
+        # runs from before dissectBCL v1.3.5 never had .metrics moved to FASTQC_*
+        sampleDir = tmp_path / "Sample_S1"
+        sampleDir.mkdir()
+        (sampleDir / "S1.metrics").write_text("10 100\n")
+        total, optFrac = BRB.ET.getNReads(str(tmp_path / "FASTQC_Sample_S1"))
+        assert total == 90
+        assert optFrac == 10.0
 
     def test_falls_back_to_counting_fastq_lines_when_no_duplicate_file(self, tmp_path):
         # getNReads strips a leading "FASTQC_" from the dir name when no
