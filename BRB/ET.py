@@ -205,6 +205,66 @@ def DNA(config, outputDir, baseDict, sample2lib):
     return m
 
 
+def ATAC(config, outputDir, baseDict, sample2lib):
+    """
+    Parse ATAC-seq output directory to get peak metrics and fragment length.
+
+    Reads MACS2_QC *.filtered.BAM_peaks.qc.txt for peak_count, FRiP,
+    peak_genome_coverage and multiQC deeptools_fragmentlengths_table.txt
+    for fragment_median.
+    """
+    m = []
+    for k, v in baseDict.items():
+        sample = sample2lib[k]
+        peak_count = frip = peak_genome_coverage = fragment_median = None
+        # MACS2_QC
+        macs_qc = Path(outputDir) / "MACS2_QC"
+        if macs_qc.exists():
+            for f in macs_qc.glob(f"{sample}.filtered.BAM_peaks.qc.txt"):
+                try:
+                    df = pd.read_csv(f, sep="\t")
+                    if not df.empty:
+                        peak_count = int(df.iloc[0]["peak_count"])
+                        frip = float(df.iloc[0]["FRiP"])
+                        peak_genome_coverage = float(df.iloc[0]["peak_genome_coverage"])
+                except Exception as e:  # noqa: BLE001
+                    log.warning(f"ATAC MACS2_QC parse failed for {sample}: {e!r}")
+        # deepTools fragment length
+        frag_tbl = (
+            Path(outputDir)
+            / "multiQC"
+            / "multiqc_data"
+            / "deeptools_fragmentlengths_table.txt"
+        )
+        if frag_tbl.exists():
+            try:
+                df = pd.read_csv(frag_tbl, sep="\t")
+                row = df.loc[
+                    df.iloc[:, 0].astype(str).str.startswith(f"{sample}.filtered")
+                ]
+                if not row.empty:
+                    fragment_median = float(row.iloc[0, 1])  # second column is Median
+            except Exception as e:  # noqa: BLE001
+                log.warning(f"ATAC fragment length parse failed for {sample}: {e!r}")
+
+        entry = {
+            "barcode": k,
+            "reads_pf_sequenced": v[1],
+            "confident_reads": v[2],
+            "optical_duplicates": v[3],
+        }
+        if peak_count is not None:
+            entry["peak_count"] = peak_count
+        if frip is not None:
+            entry["frip"] = frip
+        if peak_genome_coverage is not None:
+            entry["peak_genome_coverage"] = peak_genome_coverage
+        if fragment_median is not None:
+            entry["fragment_median"] = fragment_median
+        m.append(entry)
+    return m
+
+
 def RNA(config, outputDir, baseDict, sample2lib):
     """
     Parse an output directory to get a dictionary of libraries and their associated values.
@@ -318,6 +378,8 @@ def phoneHome(
         msg = DNA(config, outputDir, baseDict, sample2lib)
     elif pipeline == "RNA":
         msg = RNA(config, outputDir, baseDict, sample2lib)
+    elif pipeline == "ATAC":
+        msg = ATAC(config, outputDir, baseDict, sample2lib)
     else:
         m = []
         for k, v in baseDict.items():
