@@ -116,7 +116,7 @@ class TestDNA:
             ("CUTandTag-seq", "--cutntag"),
             ("CUTandRUN-seq", "--cutntag"),
             ("ATAC-Seq", "nexteraF"),
-            ("xSCAR-seq", "--alignerOpts=--local"),
+            ("xSCAR-Seq", "--alignerOpts=--local"),
             ("WGS", None),
         ],
     )
