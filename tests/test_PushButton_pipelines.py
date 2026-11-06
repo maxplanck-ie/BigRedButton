@@ -116,6 +116,7 @@ class TestDNA:
             ("CUTandTag-seq", "--cutntag"),
             ("CUTandRUN-seq", "--cutntag"),
             ("ATAC-Seq", "nexteraF"),
+            ("xSCAR-seq", "--alignerOpts=--local"),
             ("WGS", None),
         ],
     )
@@ -135,6 +136,7 @@ class TestDNA:
         else:
             assert "--cutntag" not in cmd
             assert "nexteraF" not in cmd
+            assert "--alignerOpts" not in cmd
 
 
 class TestWGBS:
