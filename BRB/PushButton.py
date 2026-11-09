@@ -729,6 +729,24 @@ def DNA(config, group, project, organism, analysisType, tuples):
             outputDir,
             org_yaml,
         ]
+    elif analysisType == "xSCAR-Seq":
+        # Processed like ChIP-seq, but with Bowtie2 local alignment.
+        # `=` form: argparse rejects a bare `--local` as the value.
+        CMD = [
+            CMD,
+            "DNAmapping",
+            "--DAG",
+            "--trim",
+            "--dedup",
+            "--mapq",
+            "3",
+            "--alignerOpts=--local",
+            "-i",
+            outputDir,
+            "-o",
+            outputDir,
+            org_yaml,
+        ]
     else:
         CMD = [
             CMD,
