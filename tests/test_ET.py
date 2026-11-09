@@ -400,7 +400,7 @@ class TestPhoneHome:
         monkeypatch.setattr(BRB.ET, "sendToParkour", lambda c, m: m)
 
         result = BRB.ET.phoneHome(
-            config, "outdir", "ATAC", [("S1", "libtype")], "human", "h38", "P", "ATAC"
+            config, "outdir", "HiC", [("S1", "libtype")], "human", "h38", "P", "HiC"
         )
 
         assert result[5] == [
@@ -448,3 +448,20 @@ class TestTelegraphHome:
             }
         ]
         assert result[6] is False
+
+
+class TestPeakQC:
+    def test_maps_macs2_qc_columns(self, tmp_path):
+        qc = tmp_path / "MACS2_QC"
+        qc.mkdir()
+        (qc / "s1.filtered.BAM_peaks.qc.txt").write_text(
+            "peak_count\tFRiP\tpeak_genome_coverage\n3364\t0.198\t0.0123\n"
+        )
+        assert BRB.ET.peakQC(str(tmp_path), "s1") == {
+            "peak_count": 3364,
+            "frip": 0.198,
+            "peak_genome_coverage": 0.0123,
+        }
+
+    def test_run_without_peak_calling_adds_no_keys(self, tmp_path):
+        assert BRB.ET.peakQC(str(tmp_path), "s1") == {}
