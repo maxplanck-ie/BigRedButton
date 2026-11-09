@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/maxplanck-ie/BigRedButton/compare/v1.0.2...v1.1.0) (2026-11-09)
+
+
+### Features
+
+* support xSCAR-seq analysis type ([#182](https://github.com/maxplanck-ie/BigRedButton/issues/182)) ([b2f0290](https://github.com/maxplanck-ie/BigRedButton/commit/b2f0290b13e10d2d2e03185c67f8ae4788c1d859))
+
 ## [1.0.2](https://github.com/maxplanck-ie/BigRedButton/compare/v1.0.1...v1.0.2) (2026-11-03)
 
 
