@@ -205,6 +205,35 @@ def DNA(config, outputDir, baseDict, sample2lib):
     return m
 
 
+def peakQC(outputDir, sampleName):
+    """
+    MACS2_QC/<sample>.filtered.BAM_peaks.qc.txt -> peak_count, frip,
+    peak_genome_coverage. Empty dict when the run has no peak calling.
+    """
+    f = os.path.join(outputDir, "MACS2_QC", f"{sampleName}.filtered.BAM_peaks.qc.txt")
+    if not os.path.exists(f):
+        return {}
+    row = pd.read_csv(f, sep="\t").iloc[0]
+    return {
+        "peak_count": int(row["peak_count"]),
+        "frip": float(row["FRiP"]),
+        "peak_genome_coverage": float(row["peak_genome_coverage"]),
+    }
+
+
+def chromatin(config, outputDir, baseDict, sample2lib):
+    """
+    ChIP/CUT&Tag/CUT&RUN/ATAC: DNA-mapping stats plus peak QC when present.
+    """
+    m = DNA(config, outputDir, baseDict, sample2lib)
+    barcode2sample = {v: k for k, v in sample2lib.items()}
+    for entry in m:
+        sampleName = barcode2sample.get(entry["barcode"])
+        if sampleName is not None:
+            entry.update(peakQC(outputDir, sampleName))
+    return m
+
+
 def RNA(config, outputDir, baseDict, sample2lib):
     """
     Parse an output directory to get a dictionary of libraries and their associated values.
@@ -314,8 +343,8 @@ def phoneHome(
     samples_id = [row[0] for row in samples_tuples]
     baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, org_label)
     msg = None
-    if pipeline == "DNA":
-        msg = DNA(config, outputDir, baseDict, sample2lib)
+    if pipeline in ("DNA", "ATAC"):
+        msg = chromatin(config, outputDir, baseDict, sample2lib)
     elif pipeline == "RNA":
         msg = RNA(config, outputDir, baseDict, sample2lib)
     else:
