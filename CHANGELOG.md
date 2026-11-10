@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/maxplanck-ie/BigRedButton/compare/v1.1.0...v1.2.0) (2026-11-10)
+
+
+### Features
+
+* **ET:** send peak QC (peak_count, frip, peak_genome_coverage) for ChIP, CUT&Tag/CUT&Run and ATAC ([#184](https://github.com/maxplanck-ie/BigRedButton/issues/184)) ([285aa8c](https://github.com/maxplanck-ie/BigRedButton/commit/285aa8ce51f266c73d015f1a872a93b64ea63e27))
+
 ## [1.1.0](https://github.com/maxplanck-ie/BigRedButton/compare/v1.0.2...v1.1.0) (2026-11-09)
 
 
