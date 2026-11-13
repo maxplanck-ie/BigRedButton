@@ -465,3 +465,30 @@ class TestPeakQC:
 
     def test_run_without_peak_calling_adds_no_keys(self, tmp_path):
         assert BRB.ET.peakQC(str(tmp_path), "s1") == {}
+
+
+class TestFragmentQC:
+    def test_reads_quantiles_and_total_pairs(self, tmp_path):
+        frag = tmp_path / "deepTools_qc" / "bamPEFragmentSize"
+        frag.mkdir(parents=True)
+        (frag / "fragmentSize.metric.tsv").write_text(
+            "\tFrag. Len. 1st. Qu.\tFrag. Len. Median\tFrag. Len. 3rd Qu."
+            "\tFrag. Len. 10%\tFrag. Len. 90%\n"
+            "filtered_bam/s1.filtered.bam\t57.0\t85.0\t151.0\t44.0\t246.0\n"
+        )
+        mq = tmp_path / "multiQC" / "multiqc_data"
+        mq.mkdir(parents=True)
+        (mq / "multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tread1_passed\ns1\t16595486\t8297743\n"
+        )
+        assert BRB.ET.fragmentQC(str(tmp_path), "s1") == {
+            "fragment_q1": 57,
+            "fragment_median": 85,
+            "fragment_q3": 151,
+            "fragment_p10": 44,
+            "fragment_p90": 246,
+            "fragments_total": 8297743,
+        }
+
+    def test_missing_sources_add_no_keys(self, tmp_path):
+        assert BRB.ET.fragmentQC(str(tmp_path), "s1") == {}

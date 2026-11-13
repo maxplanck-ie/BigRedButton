@@ -221,15 +221,52 @@ def peakQC(outputDir, sampleName):
     }
 
 
+FRAGMENT_COLS = {
+    "fragment_q1": "Frag. Len. 1st. Qu.",
+    "fragment_median": "Frag. Len. Median",
+    "fragment_q3": "Frag. Len. 3rd Qu.",
+    "fragment_p10": "Frag. Len. 10%",
+    "fragment_p90": "Frag. Len. 90%",
+}
+
+
+def fragmentQC(outputDir, sampleName):
+    """
+    deepTools_qc/bamPEFragmentSize/fragmentSize.metric.tsv -> fragment_q1,
+    fragment_median, fragment_q3, fragment_p10, fragment_p90 (bp);
+    multiQC samtools flagstat read1_passed -> fragments_total (pairs before
+    filtering). Keys are omitted when their source is missing.
+    """
+    out = {}
+    f = os.path.join(
+        outputDir, "deepTools_qc/bamPEFragmentSize/fragmentSize.metric.tsv"
+    )
+    if os.path.exists(f):
+        df = pd.read_csv(f, sep="\t", index_col=0)
+        row = f"filtered_bam/{sampleName}.filtered.bam"
+        if row in df.index:
+            for key, col in FRAGMENT_COLS.items():
+                out[key] = int(df.loc[row, col])
+    f = os.path.join(outputDir, "multiQC/multiqc_data/multiqc_samtools_flagstat.txt")
+    if os.path.exists(f):
+        df = pd.read_csv(f, sep="\t", usecols=["Sample", "read1_passed"])
+        df = df.loc[df["Sample"].astype(str) == sampleName]
+        if len(df):
+            out["fragments_total"] = int(df["read1_passed"].values[0])
+    return out
+
+
 def chromatin(config, outputDir, baseDict, sample2lib):
     """
-    ChIP/CUT&Tag/CUT&RUN/ATAC: DNA-mapping stats plus peak QC when present.
+    ChIP/CUT&Tag/CUT&RUN/ATAC: DNA-mapping stats plus fragment-length and
+    peak QC when present.
     """
     m = DNA(config, outputDir, baseDict, sample2lib)
     barcode2sample = {v: k for k, v in sample2lib.items()}
     for entry in m:
         sampleName = barcode2sample.get(entry["barcode"])
         if sampleName is not None:
+            entry.update(fragmentQC(outputDir, sampleName))
             entry.update(peakQC(outputDir, sampleName))
     return m
 
