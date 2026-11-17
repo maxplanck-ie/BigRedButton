@@ -1,5 +1,6 @@
 import glob
 import json
+import math
 import os
 import re
 import subprocess
@@ -379,7 +380,16 @@ def HiC(config, outputDir, baseDict, sample2lib):
     return m
 
 
+def dropNaN(msg):
+    """json.dumps writes NaN (not valid JSON); a 0/0 rate must be left out instead."""
+    return [
+        {k: v for k, v in e.items() if not (isinstance(v, float) and math.isnan(v))}
+        for e in msg
+    ]
+
+
 def sendToParkour(config, msg):
+    msg = dropNaN(msg)
     basePath = config.get("Paths", "baseData")
     runID = config.get("Options", "runID")
     aviti_check = glob.glob(f"{basePath}/{runID}/RunManifest.csv")

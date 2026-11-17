@@ -541,3 +541,17 @@ def test_getNReads_empty_stats_file_uses_fastq_count(tmp_path):
     with gzip.open(raw / "s1_R1.fastq.gz", "wt") as f:
         f.write("@r\nA\n+\nI\n" * 5)
     assert BRB.ET.getNReads(str(qc)) == (5, 0.0)
+
+
+def test_dropNaN_leaves_out_undefined_rates_only():
+    m = [
+        {
+            "barcode": "B",
+            "dupped_reads": float("nan"),
+            "optical_duplicates": 0.0,
+            "mapped_reads": 3.5,
+        }
+    ]
+    assert BRB.ET.dropNaN(m) == [
+        {"barcode": "B", "optical_duplicates": 0.0, "mapped_reads": 3.5}
+    ]
