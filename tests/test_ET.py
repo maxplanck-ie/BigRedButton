@@ -492,3 +492,39 @@ class TestFragmentQC:
 
     def test_missing_sources_add_no_keys(self, tmp_path):
         assert BRB.ET.fragmentQC(str(tmp_path), "s1") == {}
+
+
+HIC_BASE = {"25L1": [None, 1000, 1000, 0.5], "25L2": [None, 2000, 2000, 0.5]}
+HIC_SAMPLES = {"hicA": "25L1", "hicB": "25L2"}
+
+
+class TestHiC:
+    def writeMultiqc(self, tmp_path, rows):
+        mq = tmp_path / "multiQC" / "multiqc_data"
+        mq.mkdir(parents=True)
+        (mq / "multiqc_hicexplorer.txt").write_text(
+            "Sample\tPairs mappable, unique and high quality_pct\n" + rows
+        )
+
+    def test_sends_unique_pair_rate_first_bin_size_wins(self, tmp_path):
+        self.writeMultiqc(
+            tmp_path,
+            "hicA_bs10kb.cool\t87.7\nhicA_bs50kb.cool\t12.3\nhicB_bs10kb.cool\t61.0\n",
+        )
+        m = BRB.ET.HiC(None, str(tmp_path), HIC_BASE, HIC_SAMPLES)
+        assert {e["barcode"]: e["uniq_mapped"] for e in m} == {
+            "25L1": 87.7,
+            "25L2": 61.0,
+        }
+        assert m[0]["reads_pf_sequenced"] == 1000
+
+    def test_library_without_a_row_keeps_base_stats_only(self, tmp_path):
+        self.writeMultiqc(tmp_path, "hicA_bs10kb.cool\t87.7\n")
+        m = BRB.ET.HiC(None, str(tmp_path), HIC_BASE, HIC_SAMPLES)
+        assert "uniq_mapped" not in m[1]
+        assert m[1]["optical_duplicates"] == 0.5
+
+    def test_run_without_multiqc_sends_base_stats(self, tmp_path):
+        m = BRB.ET.HiC(None, str(tmp_path), HIC_BASE, HIC_SAMPLES)
+        assert [e["barcode"] for e in m] == ["25L1", "25L2"]
+        assert all("uniq_mapped" not in e for e in m)

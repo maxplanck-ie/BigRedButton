@@ -1,6 +1,7 @@
 import glob
 import json
 import os
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -343,6 +344,41 @@ def RNA(config, outputDir, baseDict, sample2lib):
     return m
 
 
+def HiC(config, outputDir, baseDict, sample2lib):
+    """
+    Base statistics plus the unique high quality pair rate from hicexplorer.
+
+    multiqc_hicexplorer.txt has one row per matrix, named <sample>_bs<binsize>.cool.
+    """
+    m = []
+    for k, v in baseDict.items():
+        m.append(
+            {
+                "barcode": k,
+                "reads_pf_sequenced": v[1],
+                "confident_reads": v[2],
+                "optical_duplicates": v[3],
+            }
+        )
+    hic = f"{outputDir}/multiQC/multiqc_data/multiqc_hicexplorer.txt"
+    if not os.path.exists(hic):
+        return m
+    df = pd.read_csv(
+        hic, sep="\t", usecols=["Sample", "Pairs mappable, unique and high quality_pct"]
+    )
+    rate = {}
+    for name, pct in zip(df["Sample"].astype(str), df.iloc[:, 1]):
+        sample = re.sub(r"_bs\d+\w*\.cool$", "", name)
+        rate.setdefault(sample, pct)  # several bin sizes: first row wins
+    for entry in m:
+        sample = next(
+            (s for s, lib in sample2lib.items() if lib == entry["barcode"]), None
+        )
+        if sample in rate:
+            entry["uniq_mapped"] = rate[sample]
+    return m
+
+
 def sendToParkour(config, msg):
     basePath = config.get("Paths", "baseData")
     runID = config.get("Options", "runID")
@@ -384,6 +420,8 @@ def phoneHome(
         msg = chromatin(config, outputDir, baseDict, sample2lib)
     elif pipeline == "RNA":
         msg = RNA(config, outputDir, baseDict, sample2lib)
+    elif pipeline == "HiC":
+        msg = HiC(config, outputDir, baseDict, sample2lib)
     else:
         m = []
         for k, v in baseDict.items():
