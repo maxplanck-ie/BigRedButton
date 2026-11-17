@@ -1,5 +1,6 @@
 import configparser
 import gzip
+import math
 import threading
 import time
 
@@ -530,17 +531,41 @@ class TestHiC:
         assert all("uniq_mapped" not in e for e in m)
 
 
-def test_getNReads_empty_stats_file_uses_fastq_count(tmp_path):
+def _fastqcLayout(tmp_path, stats, reads=5):
     import gzip
 
     qc = tmp_path / "FASTQC_Project_1" / "Sample_B1"
     qc.mkdir(parents=True)
-    (qc / "s1.duplicate.txt").write_text("")
+    for name, text in stats.items():
+        (qc / name).write_text(text)
     raw = tmp_path / "Project_1" / "Sample_B1"
     raw.mkdir(parents=True)
     with gzip.open(raw / "s1_R1.fastq.gz", "wt") as f:
-        f.write("@r\nA\n+\nI\n" * 5)
-    assert BRB.ET.getNReads(str(qc)) == (5, 0.0)
+        f.write("@r\nA\n+\nI\n" * reads)
+    return qc
+
+
+@pytest.mark.parametrize("text", ["", "10.0 100.0", "opt total", "5 3", "1 2 3"])
+def test_getNReads_unusable_stats_file_gives_read_count_and_unknown_rate(
+    tmp_path, text
+):
+    qc = _fastqcLayout(tmp_path, {"s1.duplicate.txt": text})
+    total, opt = BRB.ET.getNReads(str(qc))
+    assert total == 5
+    assert math.isnan(opt)
+
+
+def test_getNReads_skips_empty_file_and_uses_a_valid_sibling(tmp_path):
+    qc = _fastqcLayout(tmp_path, {"a.metrics": "", "b.metrics": "10 100\n"})
+    assert BRB.ET.getNReads(str(qc)) == (90, 10.0)
+
+
+def test_getNReads_unusable_stats_and_no_fastq_gives_unknown_not_crash(tmp_path):
+    qc = tmp_path / "FASTQC_Project_1" / "Sample_B1"
+    qc.mkdir(parents=True)
+    (qc / "s1.metrics").write_text("")
+    total, opt = BRB.ET.getNReads(str(qc))
+    assert math.isnan(total) and math.isnan(opt)
 
 
 def test_dropNaN_leaves_out_undefined_rates_only():

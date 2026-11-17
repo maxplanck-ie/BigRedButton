@@ -21,6 +21,18 @@ from BRB.logger import log
 _parkourPostLock = threading.Lock()
 
 
+def _readDupFile(path):
+    """(optical_dups, total) from a splitFastq stats file, None if empty or garbled."""
+    try:
+        fields = open(path).read().split()
+    except OSError:
+        return None
+    if len(fields) != 2 or not all(f.isdigit() for f in fields):
+        return None
+    opt, total = map(int, fields)
+    return (opt, total) if opt <= total else None
+
+
 def getNReads(d):
     """
     Get the number of reads and % optical dupes from a directory.
@@ -28,36 +40,36 @@ def getNReads(d):
     splitFastq writes "<optical_dups> <total_reads>" to <sample>.metrics
     (<sample>.duplicate.txt before ~2026-08). Runs processed before
     dissectBCL v1.3.5 can still have the file in the un-prefixed Project_
-    directory, so look there too.
+    directory, so look there too. The first usable file wins; an empty or
+    garbled one is skipped.
+
+    No stats file at all (machines that do not mark duplicates): count R1 reads
+    and report 0% optical duplicates. Stats files present but all unusable:
+    the optical duplicate rate is NaN (left out of the payload), not a made-up 0.
     """
+    seen = False
     for base in (d, d.replace("FASTQC_", "")):
-        hits = glob.glob(f"{base}/*.metrics") or glob.glob(f"{base}/*.duplicate.txt")
-        if hits:
-            break
-    fields = open(hits[0]).read().split() if hits else []
-    if len(fields) == 2:
-        optDupes, total = fields
-        try:
-            opt_frac = 100.0 * float(optDupes) / float(total)
-        except ZeroDivisionError:
-            opt_frac = float(-1)
-        return int(total) - int(optDupes), opt_frac
-    else:
-        log.warning(
-            f"getNReads - no usable *.metrics/*.duplicate.txt in {d} "
-            f"({'empty or malformed' if hits else 'none found'}); "
-            "reporting 0% optical duplicates from raw R1 read count"
-        )
-        # For machines in which we don't mark duplicates
-        # Just count the number of reads in R1
-        CMD1 = [
-            "zcat",
-            glob.glob("{}/*_R1.fastq.gz".format(d.replace("FASTQC_", "")))[0],
-        ]
-        CMD2 = ["wc", "-l"]
-        c1 = subprocess.Popen(CMD1, stdout=subprocess.PIPE)
-        res = subprocess.check_output(CMD2, stdin=c1.stdout)
-        return (int(res) / 4), 0.0
+        for pat in ("*.metrics", "*.duplicate.txt"):
+            for f in sorted(glob.glob(f"{base}/{pat}")):
+                seen = True
+                got = _readDupFile(f)
+                if got:
+                    optDupes, total = got
+                    opt_frac = 100.0 * optDupes / total if total else float(-1)
+                    return total - optDupes, opt_frac
+    log.warning(
+        f"getNReads - no usable *.metrics/*.duplicate.txt in {d} "
+        f"({'all empty or malformed' if seen else 'none found'}); "
+        "counting R1 reads"
+    )
+    fastq = glob.glob("{}/*_R1.fastq.gz".format(d.replace("FASTQC_", "")))
+    if not fastq:
+        return float("nan"), float("nan")
+    # For machines in which we don't mark duplicates
+    # Just count the number of reads in R1
+    c1 = subprocess.Popen(["zcat", fastq[0]], stdout=subprocess.PIPE)
+    res = subprocess.check_output(["wc", "-l"], stdin=c1.stdout)
+    return int(res) // 4, float("nan") if seen else 0.0
 
 
 def getOffSpeciesRate(d, org_label=None) -> float:
