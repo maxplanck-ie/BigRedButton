@@ -1,8 +1,10 @@
 import configparser
 import gzip
 import math
+import os
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -28,7 +30,7 @@ class TestSendToParkourSerialisation:
         state = {"inFlight": 0, "maxInFlight": 0, "posts": 0}
         guard = threading.Lock()
 
-        def fakePost(url, auth=None, data=None, verify=None):
+        def fakePost(url, auth=None, data=None, verify=None, timeout=None):
             with guard:
                 state["inFlight"] += 1
                 state["posts"] += 1
@@ -186,7 +188,9 @@ class TestSendToParkourFlowcellId:
         monkeypatch.setattr(
             BRB.ET.requests,
             "post",
-            lambda url, auth=None, data=None, verify=None: seen.update(data) or "OK",
+            lambda url, auth=None, data=None, verify=None, timeout=None: (
+                seen.update(data) or "OK"
+            ),
         )
         BRB.ET.sendToParkour(config, [{"barcode": "1"}])
         assert seen["flowcell_id"] == "HCCMWDRXY"
@@ -200,7 +204,9 @@ class TestSendToParkourFlowcellId:
         monkeypatch.setattr(
             BRB.ET.requests,
             "post",
-            lambda url, auth=None, data=None, verify=None: seen.update(data) or "OK",
+            lambda url, auth=None, data=None, verify=None, timeout=None: (
+                seen.update(data) or "OK"
+            ),
         )
         BRB.ET.sendToParkour(config, [{"barcode": "1"}])
         assert seen["flowcell_id"] == "6"
@@ -214,7 +220,9 @@ class TestSendToParkourFlowcellId:
         monkeypatch.setattr(
             BRB.ET.requests,
             "post",
-            lambda url, auth=None, data=None, verify=None: seen.update(data) or "OK",
+            lambda url, auth=None, data=None, verify=None, timeout=None: (
+                seen.update(data) or "OK"
+            ),
         )
         BRB.ET.sendToParkour(config, [{"barcode": "1"}])
         assert seen["flowcell_id"] == "HCCMWDRXY"
@@ -275,7 +283,7 @@ class TestDNA:
             }
         ]
 
-    def test_sample_missing_from_dup_df_defaults_dup_rate_to_zero(self, tmp_path):
+    def test_sample_missing_from_dup_df_leaves_dup_rate_unknown(self, tmp_path):
         import os
 
         config = parkourConfig(tmp_path)
@@ -299,7 +307,7 @@ class TestDNA:
         baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
         m = BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1"})
 
-        assert m[0]["dupped_reads"] == 0
+        assert math.isnan(m[0]["dupped_reads"])
 
 
 class TestRNA:
@@ -580,3 +588,60 @@ def test_dropNaN_leaves_out_undefined_rates_only():
     assert BRB.ET.dropNaN(m) == [
         {"barcode": "B", "optical_duplicates": 0.0, "mapped_reads": 3.5}
     ]
+
+
+def test_phoneHome_sends_base_stats_when_the_parser_raises(tmp_path, monkeypatch):
+    config = parkourConfig(tmp_path)
+    monkeypatch.setattr(
+        BRB.ET,
+        "getBaseStatistics",
+        lambda *a, **k: ({"L1": ["S1", 10, 8, 0.5]}, {"S1": "L1"}),
+    )
+
+    def boom(*a, **k):
+        raise IndexError("empty peaks.qc")
+
+    monkeypatch.setattr(BRB.ET, "chromatin", boom)
+    sent = {}
+    monkeypatch.setattr(
+        BRB.ET, "sendToParkour", lambda c, m: sent.update(msg=m) or "OK"
+    )
+    res = BRB.ET.phoneHome(
+        config,
+        "outdir",
+        "ATAC",
+        [("S1", "libtype")],
+        "human",
+        "h38",
+        "ProjectX",
+        "ATAC",
+    )
+    assert sent["msg"] == [
+        {
+            "barcode": "L1",
+            "reads_pf_sequenced": 10,
+            "confident_reads": 8,
+            "optical_duplicates": 0.5,
+        }
+    ]
+    assert res[4] == "success"
+
+
+def test_telegraphHome_looks_up_the_analysis_prefixed_project_dir(
+    tmp_path, monkeypatch
+):
+    config = parkourConfig(tmp_path)
+    config["Paths"]["groupData"] = str(tmp_path / "groupdata")
+    os.makedirs(tmp_path / "groupdata" / "PIName" / "sequencing_data", exist_ok=True)
+    got = {}
+
+    def fakeBase(cfg, outputDir, samples, label):
+        got["dir"] = Path(outputDir)
+        return {"L1": ["S1", 1, 2, 3]}, {"S1": "L1"}
+
+    monkeypatch.setattr(BRB.ET, "getBaseStatistics", fakeBase)
+    monkeypatch.setattr(BRB.ET, "sendToParkour", lambda c, m: m)
+    BRB.ET.telegraphHome(
+        config, "PIName", "ProjectX", [("S1", "S1", "WGS")], "human", "h38"
+    )
+    assert got["dir"].parent.name == "Analysis_ProjectX"

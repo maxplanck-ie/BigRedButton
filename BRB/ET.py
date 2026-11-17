@@ -178,9 +178,9 @@ def DNA(config, outputDir, baseDict, sample2lib):
         )
 
         # Following condition handle sample-name mismatches caused by trailing '_' or any other sign in parsed filenames
-        # Assign "0 (zero)" if the sample is not present in dup_df.
+        # Unknown (NaN, left out of the payload) if the sample is not present in dup_df.
         if sampleName not in list(dup_df["Sample"].astype(str)):
-            dup_rate = 0
+            dup_rate = float("nan")
         else:
             dup_df = dup_df.loc[dup_df["Sample"].astype(str) == sampleName]
             dup_rate = (
@@ -304,7 +304,7 @@ def RNA(config, outputDir, baseDict, sample2lib):
                 elif "% of reads mapped to multiple loci" in line:
                     multimap = float(line.strip().split("\t")[-1][:-1])
                     tot += multimap
-        sampleName = os.path.basename(fname).split(".")[0]
+        sampleName = os.path.basename(fname)[: -len(".Log.final.out")]
         baseDict[sample2lib[sampleName]].append(tot)
         baseDict[sample2lib[sampleName]].append(uniq)
         baseDict[sample2lib[sampleName]].append(multimap)
@@ -381,7 +381,7 @@ def HiC(config, outputDir, baseDict, sample2lib):
     )
     rate = {}
     for name, pct in zip(df["Sample"].astype(str), df.iloc[:, 1]):
-        sample = re.sub(r"_bs\d+\w*\.cool$", "", name)
+        sample = re.sub(r"_bs\d+[A-Za-z]*\.cool$", "", name)
         rate.setdefault(sample, pct)  # several bin sizes: first row wins
     for entry in m:
         sample = next(
@@ -424,6 +424,7 @@ def sendToParkour(config, msg):
             auth=(config.get("Parkour", "user"), config.get("Parkour", "password")),
             data=d,
             verify=config.get("Parkour", "cert"),
+            timeout=60,
         )
     log.info(f"sendToParkour return {res}")
     return res
@@ -438,24 +439,30 @@ def phoneHome(
     samples_id = [row[0] for row in samples_tuples]
     baseDict, sample2lib = getBaseStatistics(config, outputDir, samples_id, org_label)
     msg = None
-    if pipeline in ("DNA", "ATAC"):
-        msg = chromatin(config, outputDir, baseDict, sample2lib)
-    elif pipeline == "RNA":
-        msg = RNA(config, outputDir, baseDict, sample2lib)
-    elif pipeline == "HiC":
-        msg = HiC(config, outputDir, baseDict, sample2lib)
-    else:
-        m = []
-        for k, v in baseDict.items():
-            m.append(
-                {
-                    "barcode": k,
-                    "reads_pf_sequenced": v[1],
-                    "confident_reads": v[2],
-                    "optical_duplicates": v[3],
-                }
+    parsers = {
+        "DNA": chromatin,
+        "ATAC": chromatin,
+        "RNA": RNA,
+        "HiC": HiC,
+    }
+    if pipeline in parsers:
+        try:
+            msg = parsers[pipeline](config, outputDir, baseDict, sample2lib)
+        except Exception:  # noqa: BLE001 - any parser error: still send the base stats
+            log.exception(
+                f"phoneHome: parsing {pipeline} results of {project} failed, "
+                "sending the base statistics only"
             )
-        msg = m
+    if msg is None:
+        msg = [
+            {
+                "barcode": k,
+                "reads_pf_sequenced": v[1],
+                "confident_reads": v[2],
+                "optical_duplicates": v[3],
+            }
+            for k, v in baseDict.items()
+        ]
     log.info(f"phoneHome: got msg = {msg}")
     if msg is not None:
         ret = sendToParkour(config, msg)
@@ -478,7 +485,7 @@ def telegraphHome(config, group, project, skipList, organism=None, org_label=Non
         BRB.misc.pacifier(group),
         BRB.misc.getLatestSeqdir(config.get("Paths", "groupData"), group),
         config.get("Options", "runID"),
-        BRB.misc.pacifier(project),
+        f"Analysis_{BRB.misc.pacifier(project)}",
     )
     # Mock path
     outputDir = baseDir / "DNA_mouse"
