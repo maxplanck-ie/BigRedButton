@@ -528,3 +528,16 @@ class TestHiC:
         m = BRB.ET.HiC(None, str(tmp_path), HIC_BASE, HIC_SAMPLES)
         assert [e["barcode"] for e in m] == ["25L1", "25L2"]
         assert all("uniq_mapped" not in e for e in m)
+
+
+def test_getNReads_empty_stats_file_uses_fastq_count(tmp_path):
+    import gzip
+
+    qc = tmp_path / "FASTQC_Project_1" / "Sample_B1"
+    qc.mkdir(parents=True)
+    (qc / "s1.duplicate.txt").write_text("")
+    raw = tmp_path / "Project_1" / "Sample_B1"
+    raw.mkdir(parents=True)
+    with gzip.open(raw / "s1_R1.fastq.gz", "wt") as f:
+        f.write("@r\nA\n+\nI\n" * 5)
+    assert BRB.ET.getNReads(str(qc)) == (5, 0.0)

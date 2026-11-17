@@ -33,10 +33,9 @@ def getNReads(d):
         hits = glob.glob(f"{base}/*.metrics") or glob.glob(f"{base}/*.duplicate.txt")
         if hits:
             break
-    if hits:
-        with open(hits[0]) as fh:
-            s = fh.read()
-        optDupes, total = s.split()
+    fields = open(hits[0]).read().split() if hits else []
+    if len(fields) == 2:
+        optDupes, total = fields
         try:
             opt_frac = 100.0 * float(optDupes) / float(total)
         except ZeroDivisionError:
@@ -44,7 +43,8 @@ def getNReads(d):
         return int(total) - int(optDupes), opt_frac
     else:
         log.warning(
-            f"getNReads - no *.metrics/*.duplicate.txt in {d}; "
+            f"getNReads - no usable *.metrics/*.duplicate.txt in {d} "
+            f"({'empty or malformed' if hits else 'none found'}); "
             "reporting 0% optical duplicates from raw R1 read count"
         )
         # For machines in which we don't mark duplicates
