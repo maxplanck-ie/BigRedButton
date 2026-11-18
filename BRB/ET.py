@@ -285,75 +285,91 @@ def chromatin(config, outputDir, baseDict, sample2lib):
     return m
 
 
+def _multiqcRows(outputDir, fileName, cols):
+    """{sample: row} from a multiQC table, first row per sample; {} when the file is missing."""
+    f = os.path.join(outputDir, "multiQC", "multiqc_data", fileName)
+    if not os.path.exists(f):
+        return {}
+    rows = {}
+    for row in pd.read_csv(f, sep="\t", usecols=["Sample", *cols]).to_dict("records"):
+        rows.setdefault(str(row["Sample"]), row)
+    return rows
+
+
+def _pct(part, total):
+    """part as % of total; NaN when total is 0, which dropNaN leaves out of the payload."""
+    return 100.0 * part / total if total else float("nan")
+
+
+def _starMapping(fname):
+    """(mapped %, uniquely mapped %, multi-mapped %) from a STAR Log.final.out."""
+    uniq = multimap = 0.0
+    with open(fname) as f:
+        for line in f:
+            if "Uniquely mapped reads %" in line:
+                uniq = float(line.strip().split("\t")[-1][:-1])
+            elif "% of reads mapped to multiple loci" in line:
+                multimap = float(line.strip().split("\t")[-1][:-1])
+    return uniq + multimap, uniq, multimap
+
+
 def RNA(config, outputDir, baseDict, sample2lib):
     """
-    Parse an output directory to get a dictionary of libraries and their associated values.
+    Add STAR mapping, flagstat duplication and featureCounts assignment to each library's base stats.
 
-    Add % mapped to baseDict. Filter it for those actually in the output
+    A library needs all three sources. One that lacks any of them (or has no row for its
+    sample) is sent base stats only, with a warning naming it; the other libraries keep theirs.
     """
-
+    flagstat = _multiqcRows(
+        outputDir,
+        "multiqc_samtools_flagstat.txt",
+        ["total_passed", "duplicates_passed"],
+    )
+    featurecounts = _multiqcRows(
+        outputDir, "multiqc_featurecounts.txt", ["Total", "Assigned"]
+    )
+    rna = {}
+    missing = {}
     for fname in glob.glob(f"{outputDir}/STAR/*/*.Log.final.out"):
-        tot = 0
-        uniq = 0
-        multimap = 0
-        with open(fname) as f:
-            for line in f:
-                if "Uniquely mapped reads %" in line:
-                    uniq = float(line.strip().split("\t")[-1][:-1])
-                    tot += uniq
-                elif "% of reads mapped to multiple loci" in line:
-                    multimap = float(line.strip().split("\t")[-1][:-1])
-                    tot += multimap
         sampleName = os.path.basename(fname)[: -len(".Log.final.out")]
-        baseDict[sample2lib[sampleName]].append(tot)
-        baseDict[sample2lib[sampleName]].append(uniq)
-        baseDict[sample2lib[sampleName]].append(multimap)
-        #  duplication
-        dup_info = glob.glob(
-            f"{outputDir}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt"
-        )[0]
-        dup_df = pd.read_csv(
-            dup_info, sep="\t", usecols=["Sample", "total_passed", "duplicates_passed"]
-        )
-        dup_df = dup_df.loc[dup_df["Sample"].astype(str) == sampleName]
-        dup_rate = (
-            dup_df["duplicates_passed"].values / dup_df["total_passed"].values * 100
-        )
-        dup_rate = dup_rate[0]
-        baseDict[sample2lib[sampleName]].append(dup_rate)
-        # assigned reads
-        assigned_info = glob.glob(
-            f"{outputDir}/multiQC/multiqc_data/multiqc_featurecounts.txt"
-        )[0]
-        assigned_df = pd.read_csv(
-            assigned_info, sep="\t", usecols=["Sample", "Total", "Assigned"]
-        )
-        assigned_df = assigned_df.loc[
-            assigned_df["Sample"].astype(str) == sampleName + ".filtered"
-        ]
-        assigned_rate = (
-            assigned_df["Assigned"].values / assigned_df["Total"].values * 100
-        )
-        assigned_rate = assigned_rate[0]
-        baseDict[sample2lib[sampleName]].append(assigned_rate)
-
-    log.info(f"ET - RNA module parsed {baseDict}")
-    # Reformat into a matrix
+        lib = sample2lib[sampleName]
+        dup = flagstat.get(sampleName)
+        assigned = featurecounts.get(f"{sampleName}.filtered")
+        if dup is None or assigned is None:
+            missing[lib] = [
+                name
+                for name, row in (
+                    ("multiQC flagstat", dup),
+                    ("multiQC featureCounts", assigned),
+                )
+                if row is None
+            ]
+            continue
+        mapped, uniq, multimap = _starMapping(fname)
+        rna[lib] = {
+            "mapped_reads": mapped,
+            "uniq_mapped": uniq,
+            "multi_mapped": multimap,
+            "dupped_reads": _pct(dup["duplicates_passed"], dup["total_passed"]),
+            "assigned_reads": _pct(assigned["Assigned"], assigned["Total"]),
+        }
     m = []
-    for k, v in baseDict.items():
-        m.append(
-            {
-                "barcode": k,
-                "reads_pf_sequenced": v[1],
-                "confident_reads": v[2],
-                "optical_duplicates": v[3],
-                "mapped_reads": v[4],
-                "uniq_mapped": v[5],
-                "multi_mapped": v[6],
-                "dupped_reads": v[7],
-                "assigned_reads": v[8],
-            }
-        )
+    for lib, v in baseDict.items():
+        entry = {
+            "barcode": lib,
+            "reads_pf_sequenced": v[1],
+            "confident_reads": v[2],
+            "optical_duplicates": v[3],
+        }
+        if lib in rna:
+            entry.update(rna[lib])
+        else:
+            sources = missing.get(lib, ["STAR Log.final.out"])
+            log.warning(
+                f"RNA: {lib} missing {', '.join(sources)} in {outputDir}; sending base statistics only"
+            )
+        m.append(entry)
+    log.info(f"ET - RNA module parsed {m}")
     return m
 
 
@@ -362,33 +378,35 @@ def HiC(config, outputDir, baseDict, sample2lib):
     Base statistics plus the unique high quality pair rate from hicexplorer.
 
     multiqc_hicexplorer.txt has one row per matrix, named <sample>_bs<binsize>.cool.
+    Each library takes the rate of the sample its base statistics came from
+    (baseDict[lib][0]): that sample's 10kb matrix if present, else its first row.
     """
-    m = []
-    for k, v in baseDict.items():
-        m.append(
-            {
-                "barcode": k,
-                "reads_pf_sequenced": v[1],
-                "confident_reads": v[2],
-                "optical_duplicates": v[3],
-            }
-        )
     hic = f"{outputDir}/multiQC/multiqc_data/multiqc_hicexplorer.txt"
-    if not os.path.exists(hic):
-        return m
-    df = pd.read_csv(
-        hic, sep="\t", usecols=["Sample", "Pairs mappable, unique and high quality_pct"]
-    )
-    rate = {}
-    for name, pct in zip(df["Sample"].astype(str), df.iloc[:, 1]):
-        sample = re.sub(r"_bs\d+[A-Za-z]*\.cool$", "", name)
-        rate.setdefault(sample, pct)  # several bin sizes: first row wins
-    for entry in m:
-        sample = next(
-            (s for s, lib in sample2lib.items() if lib == entry["barcode"]), None
+    rate = {}  # sample -> (binsize, unique high quality pair %)
+    if os.path.exists(hic):
+        df = pd.read_csv(
+            hic,
+            sep="\t",
+            usecols=["Sample", "Pairs mappable, unique and high quality_pct"],
         )
-        if sample in rate:
-            entry["uniq_mapped"] = rate[sample]
+        for name, pct in zip(
+            df["Sample"].astype(str), df["Pairs mappable, unique and high quality_pct"]
+        ):
+            mt = re.fullmatch(r"(.*)_bs(\d+[A-Za-z]*)\.cool", name)
+            sample, binsize = (mt.group(1), mt.group(2)) if mt else (name, None)
+            if sample not in rate or (binsize == "10kb" and rate[sample][0] != "10kb"):
+                rate[sample] = (binsize, pct)
+    m = []
+    for lib, v in baseDict.items():
+        entry = {
+            "barcode": lib,
+            "reads_pf_sequenced": v[1],
+            "confident_reads": v[2],
+            "optical_duplicates": v[3],
+        }
+        if v[0] in rate:
+            entry["uniq_mapped"] = rate[v[0]][1]
+        m.append(entry)
     return m
 
 
@@ -398,6 +416,11 @@ def dropNaN(msg):
         {k: v for k, v in e.items() if not (isinstance(v, float) and math.isnan(v))}
         for e in msg
     ]
+
+
+def _parkourFailed(ret):
+    """True when Parkour did not take the results: the POST raised (ret None) or HTTP >= 400."""
+    return ret is None or ret.status_code >= 400
 
 
 def sendToParkour(config, msg):
@@ -419,14 +442,24 @@ def sendToParkour(config, msg):
         d["sequences"] = json.dumps(msg)
     log.info(f"sendToParkour: Sending {d} to Parkour")
     with _parkourPostLock:
-        res = requests.post(
-            config.get("Parkour", "ResultsURL"),
-            auth=(config.get("Parkour", "user"), config.get("Parkour", "password")),
-            data=d,
-            verify=config.get("Parkour", "cert"),
-            timeout=60,
-        )
+        try:
+            res = requests.post(
+                config.get("Parkour", "ResultsURL"),
+                auth=(config.get("Parkour", "user"), config.get("Parkour", "password")),
+                data=d,
+                verify=config.get("Parkour", "cert"),
+                timeout=60,
+            )
+        except requests.RequestException as e:
+            log.error(
+                f"sendToParkour: POST to Parkour failed, results not updated: {e}"
+            )
+            return None
     log.info(f"sendToParkour return {res}")
+    if res.status_code >= 400:
+        log.error(
+            f"sendToParkour: Parkour answered HTTP {res.status_code} {res.reason}, results not updated"
+        )
     return res
 
 
@@ -469,7 +502,8 @@ def phoneHome(
     else:
         ret = None
 
-    return [project, organism, libType, pipeline, "success", ret]
+    status = "FAILED" if _parkourFailed(ret) else "success"
+    return [project, organism, libType, pipeline, status, ret]
 
 
 def telegraphHome(config, group, project, skipList, organism=None, org_label=None):
@@ -506,4 +540,5 @@ def telegraphHome(config, group, project, skipList, organism=None, org_label=Non
     # Format the libtypes
     libTypes = ",".join({i[2] for i in skipList})
     # [project, organism, libtypes, workflow, workflow status, parkour status, sambaUpdate]
-    return [project, organism, libTypes, None, None, ret, False]
+    status = "FAILED" if _parkourFailed(ret) else None
+    return [project, organism, libTypes, None, status, ret, False]

@@ -7,8 +7,17 @@ import time
 from pathlib import Path
 
 import pytest
+import requests
 
 import BRB.ET
+
+
+def fakeResponse(status=200, reason="OK", body=""):
+    res = requests.Response()
+    res.status_code = status
+    res.reason = reason
+    res._content = body.encode()
+    return res
 
 
 def parkourConfig(tmp_path):
@@ -38,7 +47,7 @@ class TestSendToParkourSerialisation:
             time.sleep(0.05)
             with guard:
                 state["inFlight"] -= 1
-            return "RESPONSE"
+            return fakeResponse()
 
         monkeypatch.setattr(BRB.ET.requests, "post", fakePost)
 
@@ -58,8 +67,10 @@ class TestSendToParkourSerialisation:
 
     def test_return_value_unchanged(self, tmp_path, monkeypatch):
         config = parkourConfig(tmp_path)
-        monkeypatch.setattr(BRB.ET.requests, "post", lambda *a, **k: "RESPONSE")
-        assert BRB.ET.sendToParkour(config, [{"barcode": "1"}]) == "RESPONSE"
+        monkeypatch.setattr(
+            BRB.ET.requests, "post", lambda *a, **k: fakeResponse(body="RESPONSE")
+        )
+        assert BRB.ET.sendToParkour(config, [{"barcode": "1"}]).text == "RESPONSE"
 
 
 class TestGetOffSpeciesRate:
@@ -189,7 +200,7 @@ class TestSendToParkourFlowcellId:
             BRB.ET.requests,
             "post",
             lambda url, auth=None, data=None, verify=None, timeout=None: (
-                seen.update(data) or "OK"
+                seen.update(data) or fakeResponse()
             ),
         )
         BRB.ET.sendToParkour(config, [{"barcode": "1"}])
@@ -205,7 +216,7 @@ class TestSendToParkourFlowcellId:
             BRB.ET.requests,
             "post",
             lambda url, auth=None, data=None, verify=None, timeout=None: (
-                seen.update(data) or "OK"
+                seen.update(data) or fakeResponse()
             ),
         )
         BRB.ET.sendToParkour(config, [{"barcode": "1"}])
@@ -221,7 +232,7 @@ class TestSendToParkourFlowcellId:
             BRB.ET.requests,
             "post",
             lambda url, auth=None, data=None, verify=None, timeout=None: (
-                seen.update(data) or "OK"
+                seen.update(data) or fakeResponse()
             ),
         )
         BRB.ET.sendToParkour(config, [{"barcode": "1"}])
@@ -365,7 +376,7 @@ class TestPhoneHome:
 
         def fakeSend(c, m):
             sent["msg"] = m
-            return "OK"
+            return fakeResponse(body="OK")
 
         monkeypatch.setattr(BRB.ET, "sendToParkour", fakeSend)
 
@@ -381,7 +392,8 @@ class TestPhoneHome:
         )
 
         assert sent["msg"] == [{"barcode": "L1"}]
-        assert result == ["ProjectX", "human", "WGS", "DNA", "success", "OK"]
+        assert result[:5] == ["ProjectX", "human", "WGS", "DNA", "success"]
+        assert result[5].text == "OK"
 
     def test_rna_pipeline_dispatches_to_rna_module(self, tmp_path, monkeypatch):
         config = parkourConfig(tmp_path)
@@ -391,13 +403,17 @@ class TestPhoneHome:
             lambda *a, **k: ({"L1": ["S1", 1, 2, 3]}, {"S1": "L1"}),
         )
         monkeypatch.setattr(BRB.ET, "RNA", lambda *a, **k: [{"barcode": "L1"}])
-        monkeypatch.setattr(BRB.ET, "sendToParkour", lambda c, m: m)
+        sent = {}
+        monkeypatch.setattr(
+            BRB.ET, "sendToParkour", lambda c, m: sent.update(msg=m) or fakeResponse()
+        )
 
         result = BRB.ET.phoneHome(
             config, "outdir", "RNA", [("S1", "libtype")], "human", "h38", "P", "mRNA"
         )
 
-        assert result == ["P", "human", "mRNA", "RNA", "success", [{"barcode": "L1"}]]
+        assert sent["msg"] == [{"barcode": "L1"}]
+        assert result[:5] == ["P", "human", "mRNA", "RNA", "success"]
 
     def test_other_pipeline_uses_base_fields_only(self, tmp_path, monkeypatch):
         config = parkourConfig(tmp_path)
@@ -406,13 +422,16 @@ class TestPhoneHome:
             "getBaseStatistics",
             lambda *a, **k: ({"L1": ["S1", 1, 2, 3]}, {"S1": "L1"}),
         )
-        monkeypatch.setattr(BRB.ET, "sendToParkour", lambda c, m: m)
+        sent = {}
+        monkeypatch.setattr(
+            BRB.ET, "sendToParkour", lambda c, m: sent.update(msg=m) or fakeResponse()
+        )
 
         result = BRB.ET.phoneHome(
             config, "outdir", "HiC", [("S1", "libtype")], "human", "h38", "P", "HiC"
         )
 
-        assert result[5] == [
+        assert sent["msg"] == [
             {
                 "barcode": "L1",
                 "reads_pf_sequenced": 1,
@@ -420,6 +439,7 @@ class TestPhoneHome:
                 "optical_duplicates": 3,
             }
         ]
+        assert result[4] == "success"
 
 
 class TestTelegraphHome:
@@ -436,7 +456,10 @@ class TestTelegraphHome:
             "getBaseStatistics",
             lambda *a, **k: ({"L1": ["S1", 1, 2, 3]}, {"S1": "L1"}),
         )
-        monkeypatch.setattr(BRB.ET, "sendToParkour", lambda c, m: m)
+        sent = {}
+        monkeypatch.setattr(
+            BRB.ET, "sendToParkour", lambda c, m: sent.update(msg=m) or fakeResponse()
+        )
 
         skipList = [("S1", "S1", "WGS")]
         result = BRB.ET.telegraphHome(
@@ -448,7 +471,7 @@ class TestTelegraphHome:
         assert result[2] == "WGS"
         assert result[3] is None
         assert result[4] is None
-        assert result[5] == [
+        assert sent["msg"] == [
             {
                 "barcode": "L1",
                 "reads_pf_sequenced": 1,
@@ -503,7 +526,7 @@ class TestFragmentQC:
         assert BRB.ET.fragmentQC(str(tmp_path), "s1") == {}
 
 
-HIC_BASE = {"25L1": [None, 1000, 1000, 0.5], "25L2": [None, 2000, 2000, 0.5]}
+HIC_BASE = {"25L1": ["hicA", 1000, 1000, 0.5], "25L2": ["hicB", 2000, 2000, 0.5]}
 HIC_SAMPLES = {"hicA": "25L1", "hicB": "25L2"}
 
 
@@ -515,7 +538,7 @@ class TestHiC:
             "Sample\tPairs mappable, unique and high quality_pct\n" + rows
         )
 
-    def test_sends_unique_pair_rate_first_bin_size_wins(self, tmp_path):
+    def test_sends_10kb_pair_rate_per_sample(self, tmp_path):
         self.writeMultiqc(
             tmp_path,
             "hicA_bs10kb.cool\t87.7\nhicA_bs50kb.cool\t12.3\nhicB_bs10kb.cool\t61.0\n",
@@ -537,6 +560,24 @@ class TestHiC:
         m = BRB.ET.HiC(None, str(tmp_path), HIC_BASE, HIC_SAMPLES)
         assert [e["barcode"] for e in m] == ["25L1", "25L2"]
         assert all("uniq_mapped" not in e for e in m)
+
+    def test_10kb_row_beats_an_earlier_other_bin_size(self, tmp_path):
+        self.writeMultiqc(tmp_path, "hicA_bs100kb.cool\t12.0\nhicA_bs10kb.cool\t87.7\n")
+        m = BRB.ET.HiC(None, str(tmp_path), HIC_BASE, HIC_SAMPLES)
+        assert m[0]["uniq_mapped"] == 87.7
+
+    def test_first_row_used_when_no_10kb_row(self, tmp_path):
+        self.writeMultiqc(tmp_path, "hicA_bs50kb.cool\t12.3\nhicA_bs100kb.cool\t9.0\n")
+        m = BRB.ET.HiC(None, str(tmp_path), HIC_BASE, HIC_SAMPLES)
+        assert m[0]["uniq_mapped"] == 12.3
+
+    def test_shared_barcode_uses_rate_of_the_sample_in_base_stats(self, tmp_path):
+        self.writeMultiqc(tmp_path, "hicA_bs10kb.cool\t87.7\nhicB_bs10kb.cool\t61.0\n")
+        shared = {"hicA": "25L1", "hicB": "25L1"}
+        for sample, rate in (("hicA", 87.7), ("hicB", 61.0)):
+            base = {"25L1": [sample, 1000, 1000, 0.5]}
+            m = BRB.ET.HiC(None, str(tmp_path), base, shared)
+            assert m[0]["uniq_mapped"] == rate
 
 
 def _fastqcLayout(tmp_path, stats, reads=5):
@@ -604,7 +645,7 @@ def test_phoneHome_sends_base_stats_when_the_parser_raises(tmp_path, monkeypatch
     monkeypatch.setattr(BRB.ET, "chromatin", boom)
     sent = {}
     monkeypatch.setattr(
-        BRB.ET, "sendToParkour", lambda c, m: sent.update(msg=m) or "OK"
+        BRB.ET, "sendToParkour", lambda c, m: sent.update(msg=m) or fakeResponse()
     )
     res = BRB.ET.phoneHome(
         config,
@@ -640,8 +681,136 @@ def test_telegraphHome_looks_up_the_analysis_prefixed_project_dir(
         return {"L1": ["S1", 1, 2, 3]}, {"S1": "L1"}
 
     monkeypatch.setattr(BRB.ET, "getBaseStatistics", fakeBase)
-    monkeypatch.setattr(BRB.ET, "sendToParkour", lambda c, m: m)
+    monkeypatch.setattr(BRB.ET, "sendToParkour", lambda c, m: fakeResponse())
     BRB.ET.telegraphHome(
         config, "PIName", "ProjectX", [("S1", "S1", "WGS")], "human", "h38"
     )
     assert got["dir"].parent.name == "Analysis_ProjectX"
+
+
+def _answerPost(monkeypatch, answer):
+    def fakePost(*a, **k):
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(BRB.ET.requests, "post", fakePost)
+
+
+class TestParkourOutcomeStatus:
+    @pytest.mark.parametrize(
+        "answer, status",
+        [
+            (fakeResponse(200), "success"),
+            (fakeResponse(500, "Internal Server Error"), "FAILED"),
+            (requests.ConnectionError("parkour down"), "FAILED"),
+        ],
+    )
+    def test_phoneHome_row_reports_parkour_outcome(
+        self, tmp_path, monkeypatch, answer, status
+    ):
+        config = parkourConfig(tmp_path)
+        monkeypatch.setattr(
+            BRB.ET,
+            "getBaseStatistics",
+            lambda *a, **k: ({"L1": ["S1", 1, 2, 3]}, {"S1": "L1"}),
+        )
+        _answerPost(monkeypatch, answer)
+
+        result = BRB.ET.phoneHome(
+            config, "outdir", "WGS", [("S1", "libtype")], "human", "h38", "P", "WGS"
+        )
+
+        assert result[4] == status
+
+    @pytest.mark.parametrize(
+        "answer, status",
+        [
+            (fakeResponse(200), None),
+            (fakeResponse(500, "Internal Server Error"), "FAILED"),
+            (requests.ConnectionError("parkour down"), "FAILED"),
+        ],
+    )
+    def test_telegraphHome_row_reports_parkour_outcome(
+        self, tmp_path, monkeypatch, answer, status
+    ):
+        config = parkourConfig(tmp_path)
+        config["Paths"]["groupData"] = str(tmp_path / "groupdata")
+        os.makedirs(
+            tmp_path / "groupdata" / "PIName" / "sequencing_data", exist_ok=True
+        )
+        monkeypatch.setattr(
+            BRB.ET,
+            "getBaseStatistics",
+            lambda *a, **k: ({"L1": ["S1", 1, 2, 3]}, {"S1": "L1"}),
+        )
+        _answerPost(monkeypatch, answer)
+
+        result = BRB.ET.telegraphHome(
+            config, "PIName", "ProjectX", [("S1", "S1", "WGS")], "human", "h38"
+        )
+
+        assert result[4] == status
+
+
+class TestRNAMissingSources:
+    def _writeStar(self, outputDir, sample, uniq):
+        d = outputDir / "STAR" / sample
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{sample}.Log.final.out").write_text(
+            f"Uniquely mapped reads %\t{uniq}%\n"
+            "% of reads mapped to multiple loci\t5.00%\n"
+        )
+
+    def test_library_missing_a_source_keeps_base_stats_others_keep_rna(
+        self, tmp_path, caplog
+    ):
+        outputDir = tmp_path / "RNA_human"
+        self._writeStar(outputDir, "S.1", "85.00")
+        self._writeStar(outputDir, "S2", "70.00")
+        mq = outputDir / "multiQC" / "multiqc_data"
+        mq.mkdir(parents=True)
+        (mq / "multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tduplicates_passed\nS.1\t100\t10\nS2\t100\t20\n"
+        )
+        (mq / "multiqc_featurecounts.txt").write_text(
+            "Sample\tTotal\tAssigned\nS.1.filtered\t100\t80\n"
+        )
+        baseDict = {
+            "L1": ["S.1", 90, 0.05, 10.0],
+            "L2": ["S2", 80, 0.04, 20.0],
+            "L3": ["S3", 70, 0.03, 30.0],
+        }
+
+        m = BRB.ET.RNA(
+            None, str(outputDir), baseDict, {"S.1": "L1", "S2": "L2", "S3": "L3"}
+        )
+
+        byLib = {e["barcode"]: e for e in m}
+        assert byLib["L1"]["mapped_reads"] == 90.0
+        assert byLib["L1"]["uniq_mapped"] == 85.0
+        assert byLib["L1"]["dupped_reads"] == 10.0
+        assert byLib["L1"]["assigned_reads"] == 80.0
+        assert "mapped_reads" not in byLib["L2"]
+        assert byLib["L2"]["reads_pf_sequenced"] == 80
+        assert "mapped_reads" not in byLib["L3"]
+        assert byLib["L3"]["optical_duplicates"] == 30.0
+        assert "L2" in caplog.text and "multiQC featureCounts" in caplog.text
+        assert "L3" in caplog.text and "STAR Log.final.out" in caplog.text
+
+    def test_missing_multiqc_tables_send_base_stats_for_every_library(self, tmp_path):
+        outputDir = tmp_path / "RNA_human"
+        self._writeStar(outputDir, "S1", "85.00")
+
+        m = BRB.ET.RNA(
+            None, str(outputDir), {"L1": ["S1", 90, 0.05, 10.0]}, {"S1": "L1"}
+        )
+
+        assert m == [
+            {
+                "barcode": "L1",
+                "reads_pf_sequenced": 90,
+                "confident_reads": 0.05,
+                "optical_duplicates": 10.0,
+            }
+        ]
