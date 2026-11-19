@@ -165,6 +165,11 @@ def DNA(config, outputDir, baseDict, sample2lib):
     # % Mapped
     for fname in glob.glob(f"{outputDir}/Bowtie2/*.Bowtie2_summary.txt"):
         sampleName = os.path.basename(fname).split(".Bowtie2_summary")[0]
+        if sampleName not in sample2lib:
+            log.warning(
+                f"DNA: {sampleName} is not in this run's samples ({outputDir}); skipped"
+            )
+            continue
         with open(fname) as fh:
             lastLine = fh.read().split("\n")[-2]
         mappedPercent = lastLine.split("%")[0]
@@ -332,6 +337,11 @@ def RNA(config, outputDir, baseDict, sample2lib):
     missing = {}
     for fname in glob.glob(f"{outputDir}/STAR/*/*.Log.final.out"):
         sampleName = os.path.basename(fname)[: -len(".Log.final.out")]
+        if sampleName not in sample2lib:
+            log.warning(
+                f"RNA: {sampleName} is not in this run's samples ({outputDir}); skipped"
+            )
+            continue
         lib = sample2lib[sampleName]
         dup = flagstat.get(sampleName)
         assigned = featurecounts.get(f"{sampleName}.filtered")

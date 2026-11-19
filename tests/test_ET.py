@@ -294,6 +294,33 @@ class TestDNA:
             }
         ]
 
+    def test_sample_missing_from_run_is_skipped(self, tmp_path):
+        import os
+
+        config = parkourConfig(tmp_path)
+        outputDir = tmp_path / "DNA_human"
+        multiqcDir = outputDir / "multiQC" / "multiqc_data"
+        fragDir = outputDir / "deepTools_qc" / "bamPEFragmentSize"
+        for d in (outputDir / "Bowtie2", multiqcDir, fragDir):
+            os.makedirs(d, exist_ok=True)
+        for s in ("S1", "S9"):
+            (outputDir / "Bowtie2" / f"{s}.Bowtie2_summary.txt").write_text(
+                "some header\n95.50% overall alignment rate\n"
+            )
+        (multiqcDir / "multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tduplicates_passed\nS1\t100\t10\n"
+        )
+        (fragDir / "fragmentSize.metric.tsv").write_text(
+            "Unnamed: 0\tFrag. Len. Median\nfiltered_bam/S1.filtered.bam\t250\n"
+        )
+
+        baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
+        m = BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1"})
+
+        assert len(m) == 1
+        assert m[0]["barcode"] == "L1"
+        assert m[0]["mapped_reads"] == 95.50
+
     def test_sample_missing_from_dup_df_leaves_dup_rate_unknown(self, tmp_path):
         import os
 
@@ -359,6 +386,33 @@ class TestRNA:
                 "assigned_reads": 80.0,
             }
         ]
+
+    def test_sample_missing_from_run_is_skipped(self, tmp_path):
+        import os
+
+        config = parkourConfig(tmp_path)
+        outputDir = tmp_path / "RNA_human"
+        multiqcDir = outputDir / "multiQC" / "multiqc_data"
+        os.makedirs(multiqcDir, exist_ok=True)
+        for s in ("S1", "S9"):
+            os.makedirs(outputDir / "STAR" / s, exist_ok=True)
+            (outputDir / "STAR" / s / f"{s}.Log.final.out").write_text(
+                "Uniquely mapped reads %\t85.00%\n"
+                "% of reads mapped to multiple loci\t5.00%\n"
+            )
+        (multiqcDir / "multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tduplicates_passed\nS1\t100\t10\n"
+        )
+        (multiqcDir / "multiqc_featurecounts.txt").write_text(
+            "Sample\tTotal\tAssigned\nS1.filtered\t100\t80\n"
+        )
+
+        baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
+        m = BRB.ET.RNA(config, str(outputDir), baseDict, {"S1": "L1"})
+
+        assert len(m) == 1
+        assert m[0]["barcode"] == "L1"
+        assert m[0]["uniq_mapped"] == 85.0
 
 
 class TestPhoneHome:
