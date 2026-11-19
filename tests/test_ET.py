@@ -814,3 +814,47 @@ class TestRNAMissingSources:
                 "optical_duplicates": 10.0,
             }
         ]
+
+
+PAIRS_STATS = (
+    "total\t1000\ntotal_unmapped\t200\ntotal_single_sided_mapped\t100\n"
+    "total_mapped\t700\ntotal_dups\t140\ntotal_nodups\t560\ncis\t500\n"
+    "pair_types/MM\t10\n"
+)
+
+
+PAIRS_BASE = {"25L1": ["mcA", 1000, 1000, 0.5], "25L2": ["mcB", 2000, 2000, 0.5]}
+PAIRS_SAMPLES = {"mcA": "25L1", "mcB": "25L2"}
+
+
+class TestMakePairs:
+    def writeStats(self, tmp_path, sample, text):
+        pairs = tmp_path / "pairs"
+        pairs.mkdir(exist_ok=True)
+        (pairs / f"{sample}.pairs.dedup.stats").write_text(text)
+
+    def test_sends_mapped_and_dup_rate_per_sample(self, tmp_path):
+        self.writeStats(tmp_path, "mcA", PAIRS_STATS)
+        m = BRB.ET.makePairs(None, str(tmp_path), PAIRS_BASE, PAIRS_SAMPLES)
+        assert m[0]["mapped_reads"] == 70.0
+        assert m[0]["dupped_reads"] == 20.0
+        assert m[0]["reads_pf_sequenced"] == 1000
+
+    def test_library_without_stats_keeps_base_stats_only(self, tmp_path):
+        self.writeStats(tmp_path, "mcA", PAIRS_STATS)
+        m = BRB.ET.makePairs(None, str(tmp_path), PAIRS_BASE, PAIRS_SAMPLES)
+        assert "mapped_reads" not in m[1] and "dupped_reads" not in m[1]
+        assert m[1]["optical_duplicates"] == 0.5
+
+    def test_unusable_stats_file_is_not_sent_as_zero(self, tmp_path):
+        self.writeStats(tmp_path, "mcA", "total\t0\n")
+        m = BRB.ET.makePairs(None, str(tmp_path), PAIRS_BASE, PAIRS_SAMPLES)
+        assert "mapped_reads" not in m[0] and "dupped_reads" not in m[0]
+
+    def test_no_mapped_pairs_leaves_dup_rate_out_of_payload(self, tmp_path):
+        self.writeStats(tmp_path, "mcA", "total\t10\ntotal_mapped\t0\ntotal_dups\t0\n")
+        m = BRB.ET.dropNaN(
+            BRB.ET.makePairs(None, str(tmp_path), PAIRS_BASE, PAIRS_SAMPLES)
+        )
+        assert m[0]["mapped_reads"] == 0.0
+        assert "dupped_reads" not in m[0]

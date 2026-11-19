@@ -410,6 +410,49 @@ def HiC(config, outputDir, baseDict, sample2lib):
     return m
 
 
+def pairsStats(fname):
+    """{key: int} from a pairtools *.dedup.stats file (tab separated key/value lines)."""
+    out = {}
+    with open(fname) as f:
+        for line in f:
+            key, _, val = line.rstrip("\n").partition("\t")
+            if val.isdigit():
+                out[key] = int(val)
+    return out
+
+
+def makePairs(config, outputDir, baseDict, sample2lib):
+    """
+    Base statistics plus the pairtools dedup summary of micro-C (makePairs pipeline).
+
+    pairs/<sample>.pairs.dedup.stats, one per sample:
+    mapped_reads = total_mapped / total, dupped_reads = total_dups / total_mapped (both %).
+    A library without a usable stats file gets base statistics only.
+    """
+    m = []
+    for lib, v in baseDict.items():
+        entry = {
+            "barcode": lib,
+            "reads_pf_sequenced": v[1],
+            "confident_reads": v[2],
+            "optical_duplicates": v[3],
+        }
+        fname = f"{outputDir}/pairs/{v[0]}.pairs.dedup.stats"
+        if os.path.exists(fname):
+            st = pairsStats(fname)
+            if "total" in st and "total_mapped" in st and "total_dups" in st:
+                entry["mapped_reads"] = _pct(st["total_mapped"], st["total"])
+                entry["dupped_reads"] = _pct(st["total_dups"], st["total_mapped"])
+            else:
+                log.warning(f"makePairs: {fname} lacks total/total_mapped/total_dups")
+        else:
+            log.warning(
+                f"makePairs: {lib} has no {fname}; sending base statistics only"
+            )
+        m.append(entry)
+    return m
+
+
 def dropNaN(msg):
     """json.dumps writes NaN (not valid JSON); a 0/0 rate must be left out instead."""
     return [
@@ -477,6 +520,7 @@ def phoneHome(
         "ATAC": chromatin,
         "RNA": RNA,
         "HiC": HiC,
+        "makePairs": makePairs,
     }
     if pipeline in parsers:
         try:
