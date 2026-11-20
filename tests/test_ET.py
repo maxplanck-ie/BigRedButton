@@ -560,7 +560,9 @@ class TestDNA:
         baseDict = {"L1": ["S1", 90, 0.05, 10.0], "L2": ["S2", 80, 0.04, 8.0]}
         m = {
             e["barcode"]: e
-            for e in BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1", "S2": "L2"})
+            for e in BRB.ET.DNA(
+                config, str(outputDir), baseDict, {"S1": "L1", "S2": "L2"}
+            )
         }
 
         assert m["L1"]["insert_size"] == 250
