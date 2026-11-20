@@ -137,6 +137,50 @@ def getBaseStatistics(config, outputDir, samples_id, org_label=None):
     return baseDict, s2l
 
 
+def _relacsSamples(outputDir):
+    """
+    {library: {demuxed sample: stats}} for a RELACS analysis. Mapping ran on the
+    demultiplexed samples listed in RELACS_sampleSheet.txt (Sample_<library>,
+    barcode, demuxed name), so Parkour gets one dict per demuxed sample under its
+    library. Per sample: mapped_reads, dupped_reads, insert_size, fragment_*,
+    fragments_total, peak_count, frip, peak_genome_coverage; a key is left out
+    when its source file has no entry for that sample.
+    """
+    flagstat = {}
+    f = os.path.join(outputDir, "multiQC/multiqc_data/multiqc_samtools_flagstat.txt")
+    if os.path.exists(f):
+        df = pd.read_csv(f, sep="\t")
+        df["Sample"] = df["Sample"].astype(str).str.removesuffix(".markdup")
+        for row in df.to_dict("records"):
+            flagstat.setdefault(row["Sample"], row)
+    out = {}
+    with open(Path(outputDir, "RELACS_sampleSheet.txt")) as fh:
+        for line in fh:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 3 or not parts[0].startswith("Sample_"):
+                continue
+            lib, name = parts[0][7:], parts[2]
+            stats = fragmentQC(outputDir, name)
+            stats.pop("fragments_total", None)
+            if "fragment_median" in stats:
+                stats["insert_size"] = stats["fragment_median"]
+            summary = Path(outputDir, "Bowtie2", f"{name}.Bowtie2_summary.txt")
+            if summary.exists():
+                lastLine = summary.read_text().split("\n")[-2]
+                stats["mapped_reads"] = float(lastLine.split("%")[0])
+            row = flagstat.get(name)
+            if row is not None:
+                stats["dupped_reads"] = _pct(
+                    row["duplicates_passed"], row["total_passed"]
+                )
+                if "read1_passed" in row:
+                    stats["fragments_total"] = int(row["read1_passed"])
+            stats.update(peakQC(outputDir, name))
+            if stats:
+                out.setdefault(lib, {})[name] = stats
+    return out
+
+
 def DNA(config, outputDir, baseDict, sample2lib):
     """
     Parse an output directory to get a dictionary of libraries and their associated values.
@@ -144,21 +188,22 @@ def DNA(config, outputDir, baseDict, sample2lib):
     Add % mapped, % dupped, and insert size to baseDict. Filter it for those actually in the output
     """
     # baseDict, sample2lib = getBaseStatistics(config, outputDir)
-    # If we have RELACS, the sample2lib won't match what we find here.
-    # We can re-parse the sampleSheet to upload actual statistics of the RELACS demuxed samples.
+    # With RELACS the Bowtie2/flagstat/fragment/peak files are named after the demuxed
+    # samples, not sample2lib. Parkour matches on library barcode, so the library entry
+    # carries one stats dict per demuxed sample under "demuxed_samples".
     if Path(outputDir, "RELACS_sampleSheet.txt").exists():
-        # RELACS is a problem for parkour (matching is in sampleID / barcode level).
-        # Just return a list of dicts with the previous info
+        samples = _relacsSamples(outputDir)
         m = []
         for k, v in baseDict.items():
-            m.append(
-                {
-                    "barcode": k,
-                    "reads_pf_sequenced": v[1],
-                    "confident_reads": v[2],
-                    "optical_duplicates": v[3],
-                }
-            )
+            entry = {
+                "barcode": k,
+                "reads_pf_sequenced": v[1],
+                "confident_reads": v[2],
+                "optical_duplicates": v[3],
+            }
+            if k in samples:
+                entry["demuxed_samples"] = samples[k]
+            m.append(entry)
         log.info(f"ET - DNA module detected RELACS. Returning {m}")
         return m
 
@@ -465,10 +510,15 @@ def makePairs(config, outputDir, baseDict, sample2lib):
 
 def dropNaN(msg):
     """json.dumps writes NaN (not valid JSON); a 0/0 rate must be left out instead."""
-    return [
-        {k: v for k, v in e.items() if not (isinstance(v, float) and math.isnan(v))}
-        for e in msg
-    ]
+
+    def clean(d):
+        return {
+            k: clean(v) if isinstance(v, dict) else v
+            for k, v in d.items()
+            if not (isinstance(v, float) and math.isnan(v))
+        }
+
+    return [clean(e) for e in msg]
 
 
 def _parkourFailed(ret):

@@ -240,11 +240,13 @@ class TestSendToParkourFlowcellId:
 
 
 class TestDNA:
-    def test_relacs_output_returns_base_fields_only(self, tmp_path):
+    def test_relacs_output_without_demuxed_sample_files_returns_base_fields_only(
+        self, tmp_path
+    ):
         config = parkourConfig(tmp_path)
         outputDir = tmp_path / "DNA_human"
         outputDir.mkdir()
-        (outputDir / "RELACS_sampleSheet.txt").write_text("L1\tbarcode\n")
+        (outputDir / "RELACS_sampleSheet.txt").write_text("Sample_L1\tAAAA\tS1_Pol2\n")
         baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
 
         m = BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1"})
@@ -256,6 +258,90 @@ class TestDNA:
                 "confident_reads": 0.05,
                 "optical_duplicates": 10.0,
             }
+        ]
+
+    def test_relacs_output_sends_stats_per_demuxed_sample(self, tmp_path):
+        import os
+
+        config = parkourConfig(tmp_path)
+        outputDir = tmp_path / "DNA_human"
+        for d in (
+            "Bowtie2",
+            "multiQC/multiqc_data",
+            "deepTools_qc/bamPEFragmentSize",
+            "MACS2_QC",
+        ):
+            os.makedirs(outputDir / d)
+        (outputDir / "RELACS_sampleSheet.txt").write_text(
+            "Sample_L1\tAAAA\tUninf_Pol2\n"
+            "Sample_L1\tCCCC\tCovid_Pol2\n"
+            "Sample_L1\tdefault\tunused\n"
+            "Sample_L2\tAAAA\tUninf_Input\n"
+        )
+        (outputDir / "Bowtie2" / "Uninf_Pol2.Bowtie2_summary.txt").write_text(
+            "some header\n95.50% overall alignment rate\n"
+        )
+        (outputDir / "Bowtie2" / "Covid_Pol2.Bowtie2_summary.txt").write_text(
+            "some header\n80.00% overall alignment rate\n"
+        )
+        # Covid_Pol2 has no flagstat row, Uninf_Pol2 no fragment row
+        (outputDir / "multiQC/multiqc_data/multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tduplicates_passed\tread1_passed\n"
+            "Uninf_Pol2.markdup\t100\t10\t60\n"
+        )
+        (
+            outputDir / "deepTools_qc/bamPEFragmentSize/fragmentSize.metric.tsv"
+        ).write_text(
+            "\tFrag. Len. Min.\tFrag. Len. 1st. Qu.\tFrag. Len. Mean\t"
+            "Frag. Len. Median\tFrag. Len. 3rd Qu.\tFrag. Len. 10%\t"
+            "Frag. Len. 90%\n"
+            "filtered_bam/Covid_Pol2.filtered.bam\t1\t100\t200\t210\t300\t50\t400\n"
+        )
+        (outputDir / "MACS2_QC" / "Uninf_Pol2.filtered.BAM_peaks.qc.txt").write_text(
+            "peak_count\tFRiP\tpeak_genome_coverage\n12\t0.25\t0.01\n"
+        )
+        baseDict = {"L1": ["S1", 90, 0.05, 10.0], "L2": ["S2", 50, 0.01, 1.0]}
+
+        m = BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1", "S2": "L2"})
+
+        assert m == [
+            {
+                "barcode": "L1",
+                "reads_pf_sequenced": 90,
+                "confident_reads": 0.05,
+                "optical_duplicates": 10.0,
+                "demuxed_samples": {
+                    "Uninf_Pol2": {
+                        "mapped_reads": 95.5,
+                        "dupped_reads": 10.0,
+                        "fragments_total": 60,
+                        "peak_count": 12,
+                        "frip": 0.25,
+                        "peak_genome_coverage": 0.01,
+                    },
+                    "Covid_Pol2": {
+                        "mapped_reads": 80.0,
+                        "fragment_q1": 100,
+                        "fragment_median": 210,
+                        "fragment_q3": 300,
+                        "fragment_p10": 50,
+                        "fragment_p90": 400,
+                        "insert_size": 210,
+                    },
+                },
+            },
+            {
+                "barcode": "L2",
+                "reads_pf_sequenced": 50,
+                "confident_reads": 0.01,
+                "optical_duplicates": 1.0,
+            },
+        ]
+
+    def test_dropNaN_cleans_nested_demuxed_samples(self):
+        m = [{"barcode": "L1", "demuxed_samples": {"S": {"a": float("nan"), "b": 1}}}]
+        assert BRB.ET.dropNaN(m) == [
+            {"barcode": "L1", "demuxed_samples": {"S": {"b": 1}}}
         ]
 
     def test_non_relacs_output_adds_mapping_dup_and_insert_size(self, tmp_path):
