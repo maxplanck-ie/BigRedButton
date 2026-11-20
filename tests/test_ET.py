@@ -399,6 +399,36 @@ class TestDNA:
             }
         }
 
+    def test_relacs_demuxed_sample_with_a_broken_flagstat_row_keeps_the_others(
+        self, tmp_path
+    ):
+        import os
+
+        config = parkourConfig(tmp_path)
+        outputDir = tmp_path / "DNA_mouse"
+        for d in ("Bowtie2", "multiQC/multiqc_data"):
+            os.makedirs(outputDir / d)
+        (outputDir / "RELACS_sampleSheet.txt").write_text(
+            "Sample_L1\tA1-21\tTACCGATG\tD1\nSample_L1\tA1-22\tTACCGATC\tD2\n"
+        )
+        for name in ("D1", "D2"):
+            (outputDir / "Bowtie2" / f"{name}.Bowtie2_summary.txt").write_text(
+                "some header\n90.00% overall alignment rate\n"
+            )
+        (outputDir / "multiQC/multiqc_data/multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tduplicates_passed\tread1_passed\n"
+            "D1\t100\t10\t60\n"
+            "D2\tnot_a_number\t10\t40\n"
+        )
+        baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
+
+        m = BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1"})
+
+        assert m[0]["demuxed_samples"] == {
+            "D1": {"mapped_reads": 90.0, "dupped_reads": 10.0, "fragments_total": 60},
+            "D2": {"mapped_reads": 90.0, "fragments_total": 40},
+        }
+
     def test_relacs_library_values_are_exact_only(self):
         samples = {
             "A": {"dupped_reads": 10.0, "mapped_reads": 90.0, "fragments_total": 10},
@@ -508,6 +538,51 @@ class TestDNA:
         m = BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1"})
 
         assert math.isnan(m[0]["dupped_reads"])
+
+    def test_sample_without_fragment_row_keeps_its_other_values(self, tmp_path):
+        import os
+
+        config = parkourConfig(tmp_path)
+        outputDir = tmp_path / "DNA_human"
+        multiqcDir = outputDir / "multiQC" / "multiqc_data"
+        fragDir = outputDir / "deepTools_qc" / "bamPEFragmentSize"
+        for d in (outputDir / "Bowtie2", multiqcDir, fragDir):
+            os.makedirs(d, exist_ok=True)
+        for s in ("S1", "S2"):
+            (outputDir / "Bowtie2" / f"{s}.Bowtie2_summary.txt").write_text(
+                "some header\n95.50% overall alignment rate\n"
+            )
+        (multiqcDir / "multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tduplicates_passed\nS1\t100\t10\nS2\t100\t20\n"
+        )
+        (fragDir / "fragmentSize.metric.tsv").write_text(
+            "Unnamed: 0\tFrag. Len. Median\nfiltered_bam/S1.filtered.bam\t250\n"
+        )
+
+        baseDict = {"L1": ["S1", 90, 0.05, 10.0], "L2": ["S2", 80, 0.04, 8.0]}
+        m = {
+            e["barcode"]: e
+            for e in BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1", "S2": "L2"})
+        }
+
+        assert m["L1"]["insert_size"] == 250
+        assert m["L2"]["mapped_reads"] == 95.50
+        assert m["L2"]["dupped_reads"] == 20.0
+        assert "insert_size" not in m["L2"]
+
+    def test_run_without_bowtie2_output_sends_base_fields_only(self, tmp_path):
+        config = parkourConfig(tmp_path)
+        baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
+        m = BRB.ET.DNA(config, str(tmp_path / "DNA_human"), baseDict, {"S1": "L1"})
+
+        assert m == [
+            {
+                "barcode": "L1",
+                "reads_pf_sequenced": 90,
+                "confident_reads": 0.05,
+                "optical_duplicates": 10.0,
+            }
+        ]
 
 
 class TestRNA:
@@ -709,6 +784,25 @@ class TestPeakQC:
             "peak_count": 3364,
             "frip": 0.198,
             "peak_genome_coverage": 0.0123,
+        }
+
+    def test_peak_file_with_only_a_header_adds_no_keys(self, tmp_path):
+        qc = tmp_path / "MACS2_QC"
+        qc.mkdir()
+        (qc / "s1.filtered.BAM_peaks.qc.txt").write_text(
+            "peak_count\tFRiP\tpeak_genome_coverage\n"
+        )
+        assert BRB.ET.peakQC(str(tmp_path), "s1") == {}
+
+    def test_peak_file_with_a_missing_column_keeps_the_other_keys(self, tmp_path):
+        qc = tmp_path / "MACS2_QC"
+        qc.mkdir()
+        (qc / "s1.filtered.BAM_peaks.qc.txt").write_text(
+            "peak_count\tFRiP\n3364\t0.198\n"
+        )
+        assert BRB.ET.peakQC(str(tmp_path), "s1") == {
+            "peak_count": 3364,
+            "frip": 0.198,
         }
 
     def test_run_without_peak_calling_adds_no_keys(self, tmp_path):
