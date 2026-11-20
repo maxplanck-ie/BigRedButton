@@ -340,6 +340,33 @@ class TestDNA:
             },
         ]
 
+    def test_relacs_peaks_read_from_macs2_dir(self, tmp_path):
+        import os
+
+        config = parkourConfig(tmp_path)
+        outputDir = tmp_path / "DNA_human"
+        for d in ("Bowtie2", "multiQC/multiqc_data", "MACS2"):
+            os.makedirs(outputDir / d)
+        (outputDir / "RELACS_sampleSheet.txt").write_text("Sample_L1\tAAAA\tUninf_Pol2\n")
+        (outputDir / "Bowtie2" / "Uninf_Pol2.Bowtie2_summary.txt").write_text(
+            "some header\n95.50% overall alignment rate\n"
+        )
+        (outputDir / "MACS2" / "Uninf_Pol2.filtered.BAM_peaks.qc.txt").write_text(
+            "peak_count\tFRiP\tpeak_genome_coverage\n12\t0.25\t0.01\n"
+        )
+        baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
+
+        m = BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1"})
+
+        assert m[0]["demuxed_samples"] == {
+            "Uninf_Pol2": {
+                "mapped_reads": 95.5,
+                "peak_count": 12,
+                "frip": 0.25,
+                "peak_genome_coverage": 0.01,
+            }
+        }
+
     def test_relacs_four_column_sheet_with_spaces_in_the_label(self, tmp_path):
         import os
 
@@ -684,6 +711,78 @@ class TestPeakQC:
 
     def test_run_without_peak_calling_adds_no_keys(self, tmp_path):
         assert BRB.ET.peakQC(str(tmp_path), "s1") == {}
+
+    def test_chip_run_reads_macs2_dir(self, tmp_path):
+        macs = tmp_path / "MACS2"
+        macs.mkdir()
+        (macs / "s1.filtered.BAM_peaks.qc.txt").write_text(
+            "peak_count\tFRiP\tpeak_genome_coverage\n110371\t0.125\t0.0004\n"
+        )
+        assert BRB.ET.peakQC(str(tmp_path), "s1") == {
+            "peak_count": 110371,
+            "frip": 0.125,
+            "peak_genome_coverage": 0.0004,
+        }
+
+    def test_macs2_qc_wins_when_both_dirs_exist(self, tmp_path):
+        for d, count in (("MACS2_QC", 1), ("MACS2", 2)):
+            (tmp_path / d).mkdir()
+            (tmp_path / d / "s1.filtered.BAM_peaks.qc.txt").write_text(
+                f"peak_count\tFRiP\tpeak_genome_coverage\n{count}\t0.1\t0.1\n"
+            )
+        assert BRB.ET.peakQC(str(tmp_path), "s1")["peak_count"] == 1
+
+    def test_chip_chromatin_sends_peak_and_fragment_keys(self, tmp_path):
+        config = parkourConfig(tmp_path)
+        outputDir = tmp_path / "ChIP_mm10"
+        for d in (
+            "Bowtie2",
+            "multiQC/multiqc_data",
+            "deepTools_qc/bamPEFragmentSize",
+            "MACS2",
+        ):
+            os.makedirs(outputDir / d)
+        (outputDir / "Bowtie2" / "S1.Bowtie2_summary.txt").write_text(
+            "some header\n95.50% overall alignment rate\n"
+        )
+        (outputDir / "multiQC/multiqc_data/multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tduplicates_passed\tread1_passed\nS1\t100\t10\t60\n"
+        )
+        (
+            outputDir / "deepTools_qc/bamPEFragmentSize/fragmentSize.metric.tsv"
+        ).write_text(
+            "\tFrag. Len. Min.\tFrag. Len. 1st. Qu.\tFrag. Len. Mean\t"
+            "Frag. Len. Median\tFrag. Len. 3rd Qu.\tFrag. Len. 10%\t"
+            "Frag. Len. 90%\n"
+            "filtered_bam/S1.filtered.bam\t1\t100\t200\t210\t300\t50\t400\n"
+        )
+        (outputDir / "MACS2" / "S1.filtered.BAM_peaks.qc.txt").write_text(
+            "peak_count\tFRiP\tpeak_genome_coverage\n12\t0.25\t0.01\n"
+        )
+        baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
+
+        m = BRB.ET.chromatin(config, str(outputDir), baseDict, {"S1": "L1"})
+
+        assert m == [
+            {
+                "barcode": "L1",
+                "reads_pf_sequenced": 90,
+                "confident_reads": 0.05,
+                "optical_duplicates": 10.0,
+                "dupped_reads": 10.0,
+                "mapped_reads": 95.5,
+                "insert_size": 210,
+                "fragment_q1": 100,
+                "fragment_median": 210,
+                "fragment_q3": 300,
+                "fragment_p10": 50,
+                "fragment_p90": 400,
+                "fragments_total": 60,
+                "peak_count": 12,
+                "frip": 0.25,
+                "peak_genome_coverage": 0.01,
+            }
+        ]
 
 
 class TestFragmentQC:
