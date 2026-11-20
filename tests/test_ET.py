@@ -310,6 +310,11 @@ class TestDNA:
                 "reads_pf_sequenced": 90,
                 "confident_reads": 0.05,
                 "optical_duplicates": 10.0,
+                "mapped_reads": 95.5,
+                "dupped_reads": 10.0,
+                "fragments_total": 60,
+                "frip": 0.25,
+                "peak_genome_coverage": 0.01,
                 "demuxed_samples": {
                     "Uninf_Pol2": {
                         "mapped_reads": 95.5,
@@ -337,6 +342,32 @@ class TestDNA:
                 "optical_duplicates": 1.0,
             },
         ]
+
+    def test_relacs_library_values_are_read_weighted_means(self):
+        samples = {
+            "A": {
+                "mapped_reads": 90.0,
+                "insert_size": 100,
+                "fragments_total": 10,
+                "peak_count": 5,
+            },
+            "B": {
+                "mapped_reads": 60.0,
+                "insert_size": 200,
+                "fragments_total": 30,
+                "peak_count": 7,
+            },
+            "C": {"mapped_reads": 10.0, "dupped_reads": float("nan")},  # no weight
+        }
+        weights = {"A": 100, "B": 300}
+
+        out = BRB.ET._relacsLibrary(samples, weights)
+
+        assert out == {
+            "fragments_total": 40,
+            "mapped_reads": 67.5,  # (100*90 + 300*60) / 400
+            "insert_size": 175,  # (100*100 + 300*200) / 400
+        }
 
     def test_dropNaN_cleans_nested_demuxed_samples(self):
         m = [{"barcode": "L1", "demuxed_samples": {"S": {"a": float("nan"), "b": 1}}}]

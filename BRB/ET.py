@@ -137,6 +137,44 @@ def getBaseStatistics(config, outputDir, samples_id, org_label=None):
     return baseDict, s2l
 
 
+_RELACS_INT = {
+    "insert_size",
+    "fragment_q1",
+    "fragment_median",
+    "fragment_q3",
+    "fragment_p10",
+    "fragment_p90",
+}
+
+
+def _relacsLibrary(samples, weights):
+    """
+    Library-level values from its demuxed samples: weighted mean (weight = total_passed
+    of the sample), so a small sample moves the library value less than a large one.
+    fragments_total is summed. peak_count is not additive across samples, so it is left
+    out; a sample without weight takes no part in the means.
+    """
+    out, acc = {}, {}
+    for name, stats in samples.items():
+        if "fragments_total" in stats:
+            out["fragments_total"] = (
+                out.get("fragments_total", 0) + stats["fragments_total"]
+            )
+        w = weights.get(name)
+        if not w:
+            continue
+        for field, value in stats.items():
+            if field in ("fragments_total", "peak_count") or math.isnan(value):
+                continue
+            a = acc.setdefault(field, [0.0, 0])
+            a[0] += w * value
+            a[1] += w
+    for field, (total, weight) in acc.items():
+        mean = total / weight
+        out[field] = round(mean) if field in _RELACS_INT else mean
+    return out
+
+
 def _relacsSamples(outputDir):
     """
     {library: {demuxed sample: stats}} for a RELACS analysis. Mapping ran on the
@@ -145,6 +183,7 @@ def _relacsSamples(outputDir):
     library. Per sample: mapped_reads, dupped_reads, insert_size, fragment_*,
     fragments_total, peak_count, frip, peak_genome_coverage; a key is left out
     when its source file has no entry for that sample.
+    Returns (that dict, {demuxed sample: total_passed}).
     """
     flagstat = {}
     f = os.path.join(outputDir, "multiQC/multiqc_data/multiqc_samtools_flagstat.txt")
@@ -154,6 +193,7 @@ def _relacsSamples(outputDir):
         for row in df.to_dict("records"):
             flagstat.setdefault(row["Sample"], row)
     out = {}
+    weights = {}  # demuxed sample -> flagstat total_passed
     with open(Path(outputDir, "RELACS_sampleSheet.txt")) as fh:
         for line in fh:
             parts = line.rstrip("\n").split("\t")
@@ -170,6 +210,7 @@ def _relacsSamples(outputDir):
                 stats["mapped_reads"] = float(lastLine.split("%")[0])
             row = flagstat.get(name)
             if row is not None:
+                weights[name] = int(row["total_passed"])
                 stats["dupped_reads"] = _pct(
                     row["duplicates_passed"], row["total_passed"]
                 )
@@ -178,7 +219,7 @@ def _relacsSamples(outputDir):
             stats.update(peakQC(outputDir, name))
             if stats:
                 out.setdefault(lib, {})[name] = stats
-    return out
+    return out, weights
 
 
 def DNA(config, outputDir, baseDict, sample2lib):
@@ -192,7 +233,7 @@ def DNA(config, outputDir, baseDict, sample2lib):
     # samples, not sample2lib. Parkour matches on library barcode, so the library entry
     # carries one stats dict per demuxed sample under "demuxed_samples".
     if Path(outputDir, "RELACS_sampleSheet.txt").exists():
-        samples = _relacsSamples(outputDir)
+        samples, weights = _relacsSamples(outputDir)
         m = []
         for k, v in baseDict.items():
             entry = {
@@ -202,6 +243,7 @@ def DNA(config, outputDir, baseDict, sample2lib):
                 "optical_duplicates": v[3],
             }
             if k in samples:
+                entry.update(_relacsLibrary(samples[k], weights))
                 entry["demuxed_samples"] = samples[k]
             m.append(entry)
         log.info(f"ET - DNA module detected RELACS. Returning {m}")
