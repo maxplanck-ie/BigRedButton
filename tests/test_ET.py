@@ -347,7 +347,9 @@ class TestDNA:
         outputDir = tmp_path / "DNA_human"
         for d in ("Bowtie2", "multiQC/multiqc_data", "MACS2"):
             os.makedirs(outputDir / d)
-        (outputDir / "RELACS_sampleSheet.txt").write_text("Sample_L1\tAAAA\tUninf_Pol2\n")
+        (outputDir / "RELACS_sampleSheet.txt").write_text(
+            "Sample_L1\tAAAA\tUninf_Pol2\n"
+        )
         (outputDir / "Bowtie2" / "Uninf_Pol2.Bowtie2_summary.txt").write_text(
             "some header\n95.50% overall alignment rate\n"
         )
