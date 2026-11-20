@@ -173,10 +173,16 @@ def _relacsSamples(outputDir):
     flagstat = {}
     f = os.path.join(outputDir, "multiQC/multiqc_data/multiqc_samtools_flagstat.txt")
     if os.path.exists(f):
-        df = pd.read_csv(f, sep="\t")
-        df["Sample"] = df["Sample"].astype(str).str.removesuffix(".markdup")
-        for row in df.to_dict("records"):
-            flagstat.setdefault(row["Sample"], row)
+        try:
+            df = pd.read_csv(f, sep="\t")
+            df["Sample"] = df["Sample"].astype(str).str.removesuffix(".markdup")
+            for col in ("total_passed", "duplicates_passed", "read1_passed"):
+                if col in df:  # one corrupt cell must not turn the column into text
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+            for row in df.to_dict("records"):
+                flagstat.setdefault(row["Sample"], row)
+        except _SALVAGE as e:
+            log.warning(f"RELACS: {f} unreadable ({e!r}); flagstat values skipped")
     out = {}
     weights = {}  # demuxed sample -> flagstat total_passed
     with open(Path(outputDir, "RELACS_sampleSheet.txt")) as fh:
@@ -191,20 +197,34 @@ def _relacsSamples(outputDir):
                 stats["insert_size"] = stats["fragment_median"]
             summary = Path(outputDir, "Bowtie2", f"{name}.Bowtie2_summary.txt")
             if summary.exists():
-                lastLine = summary.read_text().split("\n")[-2]
-                stats["mapped_reads"] = float(lastLine.split("%")[0])
+                try:
+                    lastLine = summary.read_text().split("\n")[-2]
+                    stats["mapped_reads"] = float(lastLine.split("%")[0])
+                except _SALVAGE as e:
+                    log.warning(f"RELACS: {name} mapped_reads unreadable ({e!r})")
             row = flagstat.get(name)
             if row is not None:
-                weights[name] = int(row["total_passed"])
-                stats["dupped_reads"] = _pct(
-                    row["duplicates_passed"], row["total_passed"]
-                )
-                if "read1_passed" in row:
-                    stats["fragments_total"] = int(row["read1_passed"])
+                try:
+                    weights[name] = int(row["total_passed"])
+                    stats["dupped_reads"] = _pct(
+                        row["duplicates_passed"], row["total_passed"]
+                    )
+                except _SALVAGE as e:
+                    weights.pop(name, None)
+                    log.warning(f"RELACS: {name} dupped_reads unreadable ({e!r})")
+                try:
+                    if "read1_passed" in row:
+                        stats["fragments_total"] = int(row["read1_passed"])
+                except _SALVAGE as e:
+                    log.warning(f"RELACS: {name} fragments_total unreadable ({e!r})")
             stats.update(peakQC(outputDir, name))
             if stats:
                 out.setdefault(lib, {})[name] = stats
     return out, weights
+
+
+# Errors a missing or malformed stats file raises; they cost only the value read from it.
+_SALVAGE = (IndexError, KeyError, ValueError, OSError)
 
 
 def DNA(config, outputDir, baseDict, sample2lib):
@@ -234,7 +254,9 @@ def DNA(config, outputDir, baseDict, sample2lib):
         log.info(f"ET - DNA module detected RELACS. Returning {m}")
         return m
 
-    # % Mapped
+    # One broken sample must not cost the others: each source is read per sample and a
+    # failing one only leaves that value out (the library keeps its base statistics).
+    stats = {}
     for fname in glob.glob(f"{outputDir}/Bowtie2/*.Bowtie2_summary.txt"):
         sampleName = os.path.basename(fname).split(".Bowtie2_summary")[0]
         if sampleName not in sample2lib:
@@ -242,42 +264,54 @@ def DNA(config, outputDir, baseDict, sample2lib):
                 f"DNA: {sampleName} is not in this run's samples ({outputDir}); skipped"
             )
             continue
-        with open(fname) as fh:
-            lastLine = fh.read().split("\n")[-2]
-        mappedPercent = lastLine.split("%")[0]
-        baseDict[sample2lib[sampleName]].append(float(mappedPercent))
+        entry = stats.setdefault(sample2lib[sampleName], {})
+        # % Mapped
+        try:
+            with open(fname) as fh:
+                lastLine = fh.read().split("\n")[-2]
+            entry["mapped_reads"] = float(lastLine.split("%")[0])
+        except _SALVAGE as e:
+            log.warning(f"DNA: {sampleName} mapped_reads unreadable ({e!r})")
         # % Duplicated
-        dup_info = glob.glob(
-            f"{outputDir}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt"
-        )[0]
-        dup_df = pd.read_csv(
-            dup_info, sep="\t", usecols=["Sample", "total_passed", "duplicates_passed"]
-        )
-
-        # Following condition handle sample-name mismatches caused by trailing '_' or any other sign in parsed filenames
-        # Unknown (NaN, left out of the payload) if the sample is not present in dup_df.
-        if sampleName not in list(dup_df["Sample"].astype(str)):
-            dup_rate = float("nan")
-        else:
-            dup_df = dup_df.loc[dup_df["Sample"].astype(str) == sampleName]
-            dup_rate = (
-                dup_df["duplicates_passed"].values / dup_df["total_passed"].values * 100
+        try:
+            dup_info = glob.glob(
+                f"{outputDir}/multiQC/multiqc_data/multiqc_samtools_flagstat.txt"
+            )[0]
+            dup_df = pd.read_csv(
+                dup_info,
+                sep="\t",
+                usecols=["Sample", "total_passed", "duplicates_passed"],
             )
-            dup_rate = dup_rate[0]
-        baseDict[sample2lib[sampleName]].append(dup_rate)
+            # Unknown (NaN, left out of the payload) if the sample is not present in dup_df.
+            if sampleName not in list(dup_df["Sample"].astype(str)):
+                entry["dupped_reads"] = float("nan")
+            else:
+                dup_df = dup_df.loc[dup_df["Sample"].astype(str) == sampleName]
+                dup_rate = (
+                    dup_df["duplicates_passed"].values
+                    / dup_df["total_passed"].values
+                    * 100
+                )
+                entry["dupped_reads"] = dup_rate[0]
+        except _SALVAGE as e:
+            log.warning(f"DNA: {sampleName} dupped_reads unreadable ({e!r})")
         # Median insert size
-        insert_size_info = os.path.join(
-            outputDir, "deepTools_qc/bamPEFragmentSize/fragmentSize.metric.tsv"
-        )
-        insert_size_df = pd.read_csv(insert_size_info, sep="\t")
-        medInsertSize = insert_size_df.loc[
-            insert_size_df["Unnamed: 0"]
-            == "filtered_bam/" + sampleName + ".filtered.bam"
-        ]
-        medInsertSize = medInsertSize["Frag. Len. Median"].values[0]
-        baseDict[sample2lib[sampleName]].append(int(medInsertSize))
+        try:
+            insert_size_df = pd.read_csv(
+                os.path.join(
+                    outputDir, "deepTools_qc/bamPEFragmentSize/fragmentSize.metric.tsv"
+                ),
+                sep="\t",
+            )
+            medInsertSize = insert_size_df.loc[
+                insert_size_df["Unnamed: 0"]
+                == "filtered_bam/" + sampleName + ".filtered.bam"
+            ]
+            entry["insert_size"] = int(medInsertSize["Frag. Len. Median"].values[0])
+        except _SALVAGE as e:
+            log.warning(f"DNA: {sampleName} insert_size unreadable ({e!r})")
 
-    log.info(f"ET - DNA module parsed {baseDict}")
+    log.info(f"ET - DNA module parsed {stats}")
 
     # Reformat into a matrix
     m = []
@@ -288,9 +322,7 @@ def DNA(config, outputDir, baseDict, sample2lib):
                 "reads_pf_sequenced": v[1],
                 "confident_reads": v[2],
                 "optical_duplicates": v[3],
-                "dupped_reads": v[5],
-                "mapped_reads": v[4],
-                "insert_size": v[6],
+                **stats.get(k, {}),
             }
         )
     return m
@@ -307,12 +339,22 @@ def peakQC(outputDir, sampleName):
         f = os.path.join(outputDir, "MACS2", f"{sampleName}.filtered.BAM_peaks.qc.txt")
     if not os.path.exists(f):
         return {}
-    row = pd.read_csv(f, sep="\t").iloc[0]
-    return {
-        "peak_count": int(row["peak_count"]),
-        "frip": float(row["FRiP"]),
-        "peak_genome_coverage": float(row["peak_genome_coverage"]),
-    }
+    out = {}
+    try:
+        row = pd.read_csv(f, sep="\t").iloc[0]
+    except _SALVAGE as e:
+        log.warning(f"peakQC: {f} unreadable ({e!r}); skipped")
+        return out
+    for key, col, cast in (
+        ("peak_count", "peak_count", int),
+        ("frip", "FRiP", float),
+        ("peak_genome_coverage", "peak_genome_coverage", float),
+    ):
+        try:
+            out[key] = cast(row[col])
+        except _SALVAGE as e:
+            log.warning(f"peakQC: {sampleName} {key} unreadable ({e!r})")
+    return out
 
 
 FRAGMENT_COLS = {
@@ -336,17 +378,27 @@ def fragmentQC(outputDir, sampleName):
         outputDir, "deepTools_qc/bamPEFragmentSize/fragmentSize.metric.tsv"
     )
     if os.path.exists(f):
-        df = pd.read_csv(f, sep="\t", index_col=0)
+        try:
+            df = pd.read_csv(f, sep="\t", index_col=0)
+        except _SALVAGE as e:
+            log.warning(f"fragmentQC: {f} unreadable ({e!r}); skipped")
+            df = None
         row = f"filtered_bam/{sampleName}.filtered.bam"
-        if row in df.index:
+        if df is not None and row in df.index:
             for key, col in FRAGMENT_COLS.items():
-                out[key] = int(df.loc[row, col])
+                try:
+                    out[key] = int(df.loc[row, col])
+                except _SALVAGE as e:
+                    log.warning(f"fragmentQC: {sampleName} {key} unreadable ({e!r})")
     f = os.path.join(outputDir, "multiQC/multiqc_data/multiqc_samtools_flagstat.txt")
     if os.path.exists(f):
-        df = pd.read_csv(f, sep="\t", usecols=["Sample", "read1_passed"])
-        df = df.loc[df["Sample"].astype(str) == sampleName]
-        if len(df):
-            out["fragments_total"] = int(df["read1_passed"].values[0])
+        try:
+            df = pd.read_csv(f, sep="\t", usecols=["Sample", "read1_passed"])
+            df = df.loc[df["Sample"].astype(str) == sampleName]
+            if len(df):
+                out["fragments_total"] = int(df["read1_passed"].values[0])
+        except _SALVAGE as e:
+            log.warning(f"fragmentQC: {sampleName} fragments_total unreadable ({e!r})")
     return out
 
 
