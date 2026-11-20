@@ -340,6 +340,36 @@ class TestDNA:
             },
         ]
 
+    def test_relacs_four_column_sheet_with_spaces_in_the_label(self, tmp_path):
+        import os
+
+        config = parkourConfig(tmp_path)
+        outputDir = tmp_path / "DNA_mouse"
+        for d in ("Bowtie2", "multiQC/multiqc_data"):
+            os.makedirs(outputDir / d)
+        # sample, bc position, barcode, label; files carry the label with _ for spaces
+        (outputDir / "RELACS_sampleSheet.txt").write_text(
+            "Sample_L1\tA1-21\tTACCGATG\tPellet 1: Rep1 INPUT\n"
+        )
+        (outputDir / "Bowtie2" / "Pellet_1:_Rep1_INPUT.Bowtie2_summary.txt").write_text(
+            "some header\n95.50% overall alignment rate\n"
+        )
+        (outputDir / "multiQC/multiqc_data/multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tduplicates_passed\tread1_passed\n"
+            "Pellet_1:_Rep1_INPUT\t100\t10\t60\n"
+        )
+        baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
+
+        m = BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1"})
+
+        assert m[0]["demuxed_samples"] == {
+            "Pellet_1:_Rep1_INPUT": {
+                "mapped_reads": 95.5,
+                "dupped_reads": 10.0,
+                "fragments_total": 60,
+            }
+        }
+
     def test_relacs_library_values_are_exact_only(self):
         samples = {
             "A": {"dupped_reads": 10.0, "mapped_reads": 90.0, "fragments_total": 10},

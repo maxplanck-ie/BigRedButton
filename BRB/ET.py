@@ -184,7 +184,7 @@ def _relacsSamples(outputDir):
             parts = line.rstrip("\n").split("\t")
             if len(parts) < 3 or not parts[0].startswith("Sample_"):
                 continue
-            lib, name = parts[0][7:], parts[2]
+            lib, name = parts[0][7:], parts[-1].replace(" ", "_")
             stats = fragmentQC(outputDir, name)
             stats.pop("fragments_total", None)
             if "fragment_median" in stats:
