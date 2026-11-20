@@ -298,10 +298,13 @@ def DNA(config, outputDir, baseDict, sample2lib):
 
 def peakQC(outputDir, sampleName):
     """
-    MACS2_QC/<sample>.filtered.BAM_peaks.qc.txt -> peak_count, frip,
-    peak_genome_coverage. Empty dict when the run has no peak calling.
+    <sample>.filtered.BAM_peaks.qc.txt -> peak_count, frip, peak_genome_coverage.
+    Read from MACS2_QC/ first, else MACS2/ (ChIP and RELACS runs keep it there).
+    Empty dict when the run has no peak calling.
     """
     f = os.path.join(outputDir, "MACS2_QC", f"{sampleName}.filtered.BAM_peaks.qc.txt")
+    if not os.path.exists(f):
+        f = os.path.join(outputDir, "MACS2", f"{sampleName}.filtered.BAM_peaks.qc.txt")
     if not os.path.exists(f):
         return {}
     row = pd.read_csv(f, sep="\t").iloc[0]
