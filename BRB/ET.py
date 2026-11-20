@@ -137,41 +137,26 @@ def getBaseStatistics(config, outputDir, samples_id, org_label=None):
     return baseDict, s2l
 
 
-_RELACS_INT = {
-    "insert_size",
-    "fragment_q1",
-    "fragment_median",
-    "fragment_q3",
-    "fragment_p10",
-    "fragment_p90",
-}
-
-
 def _relacsLibrary(samples, weights):
     """
-    Library-level values from its demuxed samples: weighted mean (weight = total_passed
-    of the sample), so a small sample moves the library value less than a large one.
-    fragments_total is summed. peak_count is not additive across samples, so it is left
-    out; a sample without weight takes no part in the means.
+    Library-level values from its demuxed samples, only those that are exact:
+    fragments_total is summed, and dupped_reads is the pooled rate (mean of the
+    samples' rates weighted by their flagstat total_passed). Every other metric
+    (mapping rate, fragment sizes, peaks) stays per demuxed sample, since a mean
+    of medians or ratios would not be the library's real value.
     """
-    out, acc = {}, {}
+    out, dup, reads = {}, 0.0, 0
     for name, stats in samples.items():
         if "fragments_total" in stats:
             out["fragments_total"] = (
                 out.get("fragments_total", 0) + stats["fragments_total"]
             )
         w = weights.get(name)
-        if not w:
-            continue
-        for field, value in stats.items():
-            if field in ("fragments_total", "peak_count") or math.isnan(value):
-                continue
-            a = acc.setdefault(field, [0.0, 0])
-            a[0] += w * value
-            a[1] += w
-    for field, (total, weight) in acc.items():
-        mean = total / weight
-        out[field] = round(mean) if field in _RELACS_INT else mean
+        if w and "dupped_reads" in stats and not math.isnan(stats["dupped_reads"]):
+            dup += w * stats["dupped_reads"]
+            reads += w
+    if reads:
+        out["dupped_reads"] = dup / reads
     return out
 
 
