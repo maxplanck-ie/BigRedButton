@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.0](https://github.com/maxplanck-ie/BigRedButton/compare/v1.2.0...v1.3.0) (2026-11-23)
+
+
+### Features
+
+* **ET:** keep the values that can be read when a sample's stats are broken ([#190](https://github.com/maxplanck-ie/BigRedButton/issues/190)) ([253361c](https://github.com/maxplanck-ie/BigRedButton/commit/253361cae86bec89dfa3b1c18edf49c4ae57c1fc))
+* **ET:** read peak QC from MACS2 when there is no MACS2_QC ([#189](https://github.com/maxplanck-ie/BigRedButton/issues/189)) ([d80911f](https://github.com/maxplanck-ie/BigRedButton/commit/d80911f86868e4780903b13f0a28b849f281561c))
+* **ET:** send fragment and Hi-C stats, harden stats file parsing ([#188](https://github.com/maxplanck-ie/BigRedButton/issues/188)) ([30a8c77](https://github.com/maxplanck-ie/BigRedButton/commit/30a8c77f3b5331638ac879d8d2cb75f91c3a711b))
+
 ## [1.2.0](https://github.com/maxplanck-ie/BigRedButton/compare/v1.1.0...v1.2.0) (2026-11-10)
 
 
