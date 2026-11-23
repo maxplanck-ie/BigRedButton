@@ -1,11 +1,23 @@
 import configparser
 import gzip
+import math
+import os
 import threading
 import time
+from pathlib import Path
 
 import pytest
+import requests
 
 import BRB.ET
+
+
+def fakeResponse(status=200, reason="OK", body=""):
+    res = requests.Response()
+    res.status_code = status
+    res.reason = reason
+    res._content = body.encode()
+    return res
 
 
 def parkourConfig(tmp_path):
@@ -27,7 +39,7 @@ class TestSendToParkourSerialisation:
         state = {"inFlight": 0, "maxInFlight": 0, "posts": 0}
         guard = threading.Lock()
 
-        def fakePost(url, auth=None, data=None, verify=None):
+        def fakePost(url, auth=None, data=None, verify=None, timeout=None):
             with guard:
                 state["inFlight"] += 1
                 state["posts"] += 1
@@ -35,7 +47,7 @@ class TestSendToParkourSerialisation:
             time.sleep(0.05)
             with guard:
                 state["inFlight"] -= 1
-            return "RESPONSE"
+            return fakeResponse()
 
         monkeypatch.setattr(BRB.ET.requests, "post", fakePost)
 
@@ -55,8 +67,10 @@ class TestSendToParkourSerialisation:
 
     def test_return_value_unchanged(self, tmp_path, monkeypatch):
         config = parkourConfig(tmp_path)
-        monkeypatch.setattr(BRB.ET.requests, "post", lambda *a, **k: "RESPONSE")
-        assert BRB.ET.sendToParkour(config, [{"barcode": "1"}]) == "RESPONSE"
+        monkeypatch.setattr(
+            BRB.ET.requests, "post", lambda *a, **k: fakeResponse(body="RESPONSE")
+        )
+        assert BRB.ET.sendToParkour(config, [{"barcode": "1"}]).text == "RESPONSE"
 
 
 class TestGetOffSpeciesRate:
@@ -185,7 +199,9 @@ class TestSendToParkourFlowcellId:
         monkeypatch.setattr(
             BRB.ET.requests,
             "post",
-            lambda url, auth=None, data=None, verify=None: seen.update(data) or "OK",
+            lambda url, auth=None, data=None, verify=None, timeout=None: (
+                seen.update(data) or fakeResponse()
+            ),
         )
         BRB.ET.sendToParkour(config, [{"barcode": "1"}])
         assert seen["flowcell_id"] == "HCCMWDRXY"
@@ -199,7 +215,9 @@ class TestSendToParkourFlowcellId:
         monkeypatch.setattr(
             BRB.ET.requests,
             "post",
-            lambda url, auth=None, data=None, verify=None: seen.update(data) or "OK",
+            lambda url, auth=None, data=None, verify=None, timeout=None: (
+                seen.update(data) or fakeResponse()
+            ),
         )
         BRB.ET.sendToParkour(config, [{"barcode": "1"}])
         assert seen["flowcell_id"] == "6"
@@ -213,18 +231,22 @@ class TestSendToParkourFlowcellId:
         monkeypatch.setattr(
             BRB.ET.requests,
             "post",
-            lambda url, auth=None, data=None, verify=None: seen.update(data) or "OK",
+            lambda url, auth=None, data=None, verify=None, timeout=None: (
+                seen.update(data) or fakeResponse()
+            ),
         )
         BRB.ET.sendToParkour(config, [{"barcode": "1"}])
         assert seen["flowcell_id"] == "HCCMWDRXY"
 
 
 class TestDNA:
-    def test_relacs_output_returns_base_fields_only(self, tmp_path):
+    def test_relacs_output_without_demuxed_sample_files_returns_base_fields_only(
+        self, tmp_path
+    ):
         config = parkourConfig(tmp_path)
         outputDir = tmp_path / "DNA_human"
         outputDir.mkdir()
-        (outputDir / "RELACS_sampleSheet.txt").write_text("L1\tbarcode\n")
+        (outputDir / "RELACS_sampleSheet.txt").write_text("Sample_L1\tAAAA\tS1_Pol2\n")
         baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
 
         m = BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1"})
@@ -236,6 +258,137 @@ class TestDNA:
                 "confident_reads": 0.05,
                 "optical_duplicates": 10.0,
             }
+        ]
+
+    def test_relacs_output_sends_stats_per_demuxed_sample(self, tmp_path):
+        import os
+
+        config = parkourConfig(tmp_path)
+        outputDir = tmp_path / "DNA_human"
+        for d in (
+            "Bowtie2",
+            "multiQC/multiqc_data",
+            "deepTools_qc/bamPEFragmentSize",
+            "MACS2_QC",
+        ):
+            os.makedirs(outputDir / d)
+        (outputDir / "RELACS_sampleSheet.txt").write_text(
+            "Sample_L1\tAAAA\tUninf_Pol2\n"
+            "Sample_L1\tCCCC\tCovid_Pol2\n"
+            "Sample_L1\tdefault\tunused\n"
+            "Sample_L2\tAAAA\tUninf_Input\n"
+        )
+        (outputDir / "Bowtie2" / "Uninf_Pol2.Bowtie2_summary.txt").write_text(
+            "some header\n95.50% overall alignment rate\n"
+        )
+        (outputDir / "Bowtie2" / "Covid_Pol2.Bowtie2_summary.txt").write_text(
+            "some header\n80.00% overall alignment rate\n"
+        )
+        # Covid_Pol2 has no flagstat row, Uninf_Pol2 no fragment row
+        (outputDir / "multiQC/multiqc_data/multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tduplicates_passed\tread1_passed\n"
+            "Uninf_Pol2.markdup\t100\t10\t60\n"
+        )
+        (
+            outputDir / "deepTools_qc/bamPEFragmentSize/fragmentSize.metric.tsv"
+        ).write_text(
+            "\tFrag. Len. Min.\tFrag. Len. 1st. Qu.\tFrag. Len. Mean\t"
+            "Frag. Len. Median\tFrag. Len. 3rd Qu.\tFrag. Len. 10%\t"
+            "Frag. Len. 90%\n"
+            "filtered_bam/Covid_Pol2.filtered.bam\t1\t100\t200\t210\t300\t50\t400\n"
+        )
+        (outputDir / "MACS2_QC" / "Uninf_Pol2.filtered.BAM_peaks.qc.txt").write_text(
+            "peak_count\tFRiP\tpeak_genome_coverage\n12\t0.25\t0.01\n"
+        )
+        baseDict = {"L1": ["S1", 90, 0.05, 10.0], "L2": ["S2", 50, 0.01, 1.0]}
+
+        m = BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1", "S2": "L2"})
+
+        assert m == [
+            {
+                "barcode": "L1",
+                "reads_pf_sequenced": 90,
+                "confident_reads": 0.05,
+                "optical_duplicates": 10.0,
+                "dupped_reads": 10.0,
+                "fragments_total": 60,
+                "demuxed_samples": {
+                    "Uninf_Pol2": {
+                        "mapped_reads": 95.5,
+                        "dupped_reads": 10.0,
+                        "fragments_total": 60,
+                        "peak_count": 12,
+                        "frip": 0.25,
+                        "peak_genome_coverage": 0.01,
+                    },
+                    "Covid_Pol2": {
+                        "mapped_reads": 80.0,
+                        "fragment_q1": 100,
+                        "fragment_median": 210,
+                        "fragment_q3": 300,
+                        "fragment_p10": 50,
+                        "fragment_p90": 400,
+                        "insert_size": 210,
+                    },
+                },
+            },
+            {
+                "barcode": "L2",
+                "reads_pf_sequenced": 50,
+                "confident_reads": 0.01,
+                "optical_duplicates": 1.0,
+            },
+        ]
+
+    def test_relacs_four_column_sheet_with_spaces_in_the_label(self, tmp_path):
+        import os
+
+        config = parkourConfig(tmp_path)
+        outputDir = tmp_path / "DNA_mouse"
+        for d in ("Bowtie2", "multiQC/multiqc_data"):
+            os.makedirs(outputDir / d)
+        # sample, bc position, barcode, label; files carry the label with _ for spaces
+        (outputDir / "RELACS_sampleSheet.txt").write_text(
+            "Sample_L1\tA1-21\tTACCGATG\tPellet 1: Rep1 INPUT\n"
+        )
+        (outputDir / "Bowtie2" / "Pellet_1:_Rep1_INPUT.Bowtie2_summary.txt").write_text(
+            "some header\n95.50% overall alignment rate\n"
+        )
+        (outputDir / "multiQC/multiqc_data/multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tduplicates_passed\tread1_passed\n"
+            "Pellet_1:_Rep1_INPUT\t100\t10\t60\n"
+        )
+        baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
+
+        m = BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1"})
+
+        assert m[0]["demuxed_samples"] == {
+            "Pellet_1:_Rep1_INPUT": {
+                "mapped_reads": 95.5,
+                "dupped_reads": 10.0,
+                "fragments_total": 60,
+            }
+        }
+
+    def test_relacs_library_values_are_exact_only(self):
+        samples = {
+            "A": {"dupped_reads": 10.0, "mapped_reads": 90.0, "fragments_total": 10},
+            "B": {"dupped_reads": 30.0, "mapped_reads": 60.0, "fragments_total": 30},
+            "C": {"dupped_reads": float("nan"), "fragments_total": 5},  # no weight
+        }
+        weights = {"A": 100, "B": 300}
+
+        out = BRB.ET._relacsLibrary(samples, weights)
+
+        assert out == {
+            "fragments_total": 45,
+            "dupped_reads": 25.0,  # (100*10 + 300*30) / 400
+        }
+
+    def test_dropNaN_cleans_nested_demuxed_samples(self):
+        m = [{"barcode": "L1", "demuxed_samples": {"S": {"a": float("nan"), "b": 1}}}]
+        assert BRB.ET.dropNaN(m) == [
+            {"barcode": "L1", "demuxed_samples": {"S": {"b": 1}}}
         ]
 
     def test_non_relacs_output_adds_mapping_dup_and_insert_size(self, tmp_path):
@@ -274,7 +427,34 @@ class TestDNA:
             }
         ]
 
-    def test_sample_missing_from_dup_df_defaults_dup_rate_to_zero(self, tmp_path):
+    def test_sample_missing_from_run_is_skipped(self, tmp_path):
+        import os
+
+        config = parkourConfig(tmp_path)
+        outputDir = tmp_path / "DNA_human"
+        multiqcDir = outputDir / "multiQC" / "multiqc_data"
+        fragDir = outputDir / "deepTools_qc" / "bamPEFragmentSize"
+        for d in (outputDir / "Bowtie2", multiqcDir, fragDir):
+            os.makedirs(d, exist_ok=True)
+        for s in ("S1", "S9"):
+            (outputDir / "Bowtie2" / f"{s}.Bowtie2_summary.txt").write_text(
+                "some header\n95.50% overall alignment rate\n"
+            )
+        (multiqcDir / "multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tduplicates_passed\nS1\t100\t10\n"
+        )
+        (fragDir / "fragmentSize.metric.tsv").write_text(
+            "Unnamed: 0\tFrag. Len. Median\nfiltered_bam/S1.filtered.bam\t250\n"
+        )
+
+        baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
+        m = BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1"})
+
+        assert len(m) == 1
+        assert m[0]["barcode"] == "L1"
+        assert m[0]["mapped_reads"] == 95.50
+
+    def test_sample_missing_from_dup_df_leaves_dup_rate_unknown(self, tmp_path):
         import os
 
         config = parkourConfig(tmp_path)
@@ -298,7 +478,7 @@ class TestDNA:
         baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
         m = BRB.ET.DNA(config, str(outputDir), baseDict, {"S1": "L1"})
 
-        assert m[0]["dupped_reads"] == 0
+        assert math.isnan(m[0]["dupped_reads"])
 
 
 class TestRNA:
@@ -340,6 +520,33 @@ class TestRNA:
             }
         ]
 
+    def test_sample_missing_from_run_is_skipped(self, tmp_path):
+        import os
+
+        config = parkourConfig(tmp_path)
+        outputDir = tmp_path / "RNA_human"
+        multiqcDir = outputDir / "multiQC" / "multiqc_data"
+        os.makedirs(multiqcDir, exist_ok=True)
+        for s in ("S1", "S9"):
+            os.makedirs(outputDir / "STAR" / s, exist_ok=True)
+            (outputDir / "STAR" / s / f"{s}.Log.final.out").write_text(
+                "Uniquely mapped reads %\t85.00%\n"
+                "% of reads mapped to multiple loci\t5.00%\n"
+            )
+        (multiqcDir / "multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tduplicates_passed\nS1\t100\t10\n"
+        )
+        (multiqcDir / "multiqc_featurecounts.txt").write_text(
+            "Sample\tTotal\tAssigned\nS1.filtered\t100\t80\n"
+        )
+
+        baseDict = {"L1": ["S1", 90, 0.05, 10.0]}
+        m = BRB.ET.RNA(config, str(outputDir), baseDict, {"S1": "L1"})
+
+        assert len(m) == 1
+        assert m[0]["barcode"] == "L1"
+        assert m[0]["uniq_mapped"] == 85.0
+
 
 class TestPhoneHome:
     def test_dna_pipeline_dispatches_to_dna_module_and_sends_to_parkour(
@@ -356,7 +563,7 @@ class TestPhoneHome:
 
         def fakeSend(c, m):
             sent["msg"] = m
-            return "OK"
+            return fakeResponse(body="OK")
 
         monkeypatch.setattr(BRB.ET, "sendToParkour", fakeSend)
 
@@ -372,7 +579,8 @@ class TestPhoneHome:
         )
 
         assert sent["msg"] == [{"barcode": "L1"}]
-        assert result == ["ProjectX", "human", "WGS", "DNA", "success", "OK"]
+        assert result[:5] == ["ProjectX", "human", "WGS", "DNA", "success"]
+        assert result[5].text == "OK"
 
     def test_rna_pipeline_dispatches_to_rna_module(self, tmp_path, monkeypatch):
         config = parkourConfig(tmp_path)
@@ -382,13 +590,17 @@ class TestPhoneHome:
             lambda *a, **k: ({"L1": ["S1", 1, 2, 3]}, {"S1": "L1"}),
         )
         monkeypatch.setattr(BRB.ET, "RNA", lambda *a, **k: [{"barcode": "L1"}])
-        monkeypatch.setattr(BRB.ET, "sendToParkour", lambda c, m: m)
+        sent = {}
+        monkeypatch.setattr(
+            BRB.ET, "sendToParkour", lambda c, m: sent.update(msg=m) or fakeResponse()
+        )
 
         result = BRB.ET.phoneHome(
             config, "outdir", "RNA", [("S1", "libtype")], "human", "h38", "P", "mRNA"
         )
 
-        assert result == ["P", "human", "mRNA", "RNA", "success", [{"barcode": "L1"}]]
+        assert sent["msg"] == [{"barcode": "L1"}]
+        assert result[:5] == ["P", "human", "mRNA", "RNA", "success"]
 
     def test_other_pipeline_uses_base_fields_only(self, tmp_path, monkeypatch):
         config = parkourConfig(tmp_path)
@@ -397,13 +609,16 @@ class TestPhoneHome:
             "getBaseStatistics",
             lambda *a, **k: ({"L1": ["S1", 1, 2, 3]}, {"S1": "L1"}),
         )
-        monkeypatch.setattr(BRB.ET, "sendToParkour", lambda c, m: m)
+        sent = {}
+        monkeypatch.setattr(
+            BRB.ET, "sendToParkour", lambda c, m: sent.update(msg=m) or fakeResponse()
+        )
 
         result = BRB.ET.phoneHome(
             config, "outdir", "HiC", [("S1", "libtype")], "human", "h38", "P", "HiC"
         )
 
-        assert result[5] == [
+        assert sent["msg"] == [
             {
                 "barcode": "L1",
                 "reads_pf_sequenced": 1,
@@ -411,6 +626,7 @@ class TestPhoneHome:
                 "optical_duplicates": 3,
             }
         ]
+        assert result[4] == "success"
 
 
 class TestTelegraphHome:
@@ -427,7 +643,10 @@ class TestTelegraphHome:
             "getBaseStatistics",
             lambda *a, **k: ({"L1": ["S1", 1, 2, 3]}, {"S1": "L1"}),
         )
-        monkeypatch.setattr(BRB.ET, "sendToParkour", lambda c, m: m)
+        sent = {}
+        monkeypatch.setattr(
+            BRB.ET, "sendToParkour", lambda c, m: sent.update(msg=m) or fakeResponse()
+        )
 
         skipList = [("S1", "S1", "WGS")]
         result = BRB.ET.telegraphHome(
@@ -439,7 +658,7 @@ class TestTelegraphHome:
         assert result[2] == "WGS"
         assert result[3] is None
         assert result[4] is None
-        assert result[5] == [
+        assert sent["msg"] == [
             {
                 "barcode": "L1",
                 "reads_pf_sequenced": 1,
@@ -465,3 +684,364 @@ class TestPeakQC:
 
     def test_run_without_peak_calling_adds_no_keys(self, tmp_path):
         assert BRB.ET.peakQC(str(tmp_path), "s1") == {}
+
+
+class TestFragmentQC:
+    def test_reads_quantiles_and_total_pairs(self, tmp_path):
+        frag = tmp_path / "deepTools_qc" / "bamPEFragmentSize"
+        frag.mkdir(parents=True)
+        (frag / "fragmentSize.metric.tsv").write_text(
+            "\tFrag. Len. 1st. Qu.\tFrag. Len. Median\tFrag. Len. 3rd Qu."
+            "\tFrag. Len. 10%\tFrag. Len. 90%\n"
+            "filtered_bam/s1.filtered.bam\t57.0\t85.0\t151.0\t44.0\t246.0\n"
+        )
+        mq = tmp_path / "multiQC" / "multiqc_data"
+        mq.mkdir(parents=True)
+        (mq / "multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tread1_passed\ns1\t16595486\t8297743\n"
+        )
+        assert BRB.ET.fragmentQC(str(tmp_path), "s1") == {
+            "fragment_q1": 57,
+            "fragment_median": 85,
+            "fragment_q3": 151,
+            "fragment_p10": 44,
+            "fragment_p90": 246,
+            "fragments_total": 8297743,
+        }
+
+    def test_missing_sources_add_no_keys(self, tmp_path):
+        assert BRB.ET.fragmentQC(str(tmp_path), "s1") == {}
+
+
+HIC_BASE = {"25L1": ["hicA", 1000, 1000, 0.5], "25L2": ["hicB", 2000, 2000, 0.5]}
+HIC_SAMPLES = {"hicA": "25L1", "hicB": "25L2"}
+
+
+class TestHiC:
+    def writeMultiqc(self, tmp_path, rows):
+        mq = tmp_path / "multiQC" / "multiqc_data"
+        mq.mkdir(parents=True)
+        (mq / "multiqc_hicexplorer.txt").write_text(
+            "Sample\tPairs mappable, unique and high quality_pct\n" + rows
+        )
+
+    def test_sends_10kb_pair_rate_per_sample(self, tmp_path):
+        self.writeMultiqc(
+            tmp_path,
+            "hicA_bs10kb.cool\t87.7\nhicA_bs50kb.cool\t12.3\nhicB_bs10kb.cool\t61.0\n",
+        )
+        m = BRB.ET.HiC(None, str(tmp_path), HIC_BASE, HIC_SAMPLES)
+        assert {e["barcode"]: e["uniq_mapped"] for e in m} == {
+            "25L1": 87.7,
+            "25L2": 61.0,
+        }
+        assert m[0]["reads_pf_sequenced"] == 1000
+
+    def test_library_without_a_row_keeps_base_stats_only(self, tmp_path):
+        self.writeMultiqc(tmp_path, "hicA_bs10kb.cool\t87.7\n")
+        m = BRB.ET.HiC(None, str(tmp_path), HIC_BASE, HIC_SAMPLES)
+        assert "uniq_mapped" not in m[1]
+        assert m[1]["optical_duplicates"] == 0.5
+
+    def test_run_without_multiqc_sends_base_stats(self, tmp_path):
+        m = BRB.ET.HiC(None, str(tmp_path), HIC_BASE, HIC_SAMPLES)
+        assert [e["barcode"] for e in m] == ["25L1", "25L2"]
+        assert all("uniq_mapped" not in e for e in m)
+
+    def test_10kb_row_beats_an_earlier_other_bin_size(self, tmp_path):
+        self.writeMultiqc(tmp_path, "hicA_bs100kb.cool\t12.0\nhicA_bs10kb.cool\t87.7\n")
+        m = BRB.ET.HiC(None, str(tmp_path), HIC_BASE, HIC_SAMPLES)
+        assert m[0]["uniq_mapped"] == 87.7
+
+    def test_first_row_used_when_no_10kb_row(self, tmp_path):
+        self.writeMultiqc(tmp_path, "hicA_bs50kb.cool\t12.3\nhicA_bs100kb.cool\t9.0\n")
+        m = BRB.ET.HiC(None, str(tmp_path), HIC_BASE, HIC_SAMPLES)
+        assert m[0]["uniq_mapped"] == 12.3
+
+    def test_shared_barcode_uses_rate_of_the_sample_in_base_stats(self, tmp_path):
+        self.writeMultiqc(tmp_path, "hicA_bs10kb.cool\t87.7\nhicB_bs10kb.cool\t61.0\n")
+        shared = {"hicA": "25L1", "hicB": "25L1"}
+        for sample, rate in (("hicA", 87.7), ("hicB", 61.0)):
+            base = {"25L1": [sample, 1000, 1000, 0.5]}
+            m = BRB.ET.HiC(None, str(tmp_path), base, shared)
+            assert m[0]["uniq_mapped"] == rate
+
+
+def _fastqcLayout(tmp_path, stats, reads=5):
+    import gzip
+
+    qc = tmp_path / "FASTQC_Project_1" / "Sample_B1"
+    qc.mkdir(parents=True)
+    for name, text in stats.items():
+        (qc / name).write_text(text)
+    raw = tmp_path / "Project_1" / "Sample_B1"
+    raw.mkdir(parents=True)
+    with gzip.open(raw / "s1_R1.fastq.gz", "wt") as f:
+        f.write("@r\nA\n+\nI\n" * reads)
+    return qc
+
+
+@pytest.mark.parametrize("text", ["", "10.0 100.0", "opt total", "5 3", "1 2 3"])
+def test_getNReads_unusable_stats_file_gives_read_count_and_unknown_rate(
+    tmp_path, text
+):
+    qc = _fastqcLayout(tmp_path, {"s1.duplicate.txt": text})
+    total, opt = BRB.ET.getNReads(str(qc))
+    assert total == 5
+    assert math.isnan(opt)
+
+
+def test_getNReads_skips_empty_file_and_uses_a_valid_sibling(tmp_path):
+    qc = _fastqcLayout(tmp_path, {"a.metrics": "", "b.metrics": "10 100\n"})
+    assert BRB.ET.getNReads(str(qc)) == (90, 10.0)
+
+
+def test_getNReads_unusable_stats_and_no_fastq_gives_unknown_not_crash(tmp_path):
+    qc = tmp_path / "FASTQC_Project_1" / "Sample_B1"
+    qc.mkdir(parents=True)
+    (qc / "s1.metrics").write_text("")
+    total, opt = BRB.ET.getNReads(str(qc))
+    assert math.isnan(total) and math.isnan(opt)
+
+
+def test_dropNaN_leaves_out_undefined_rates_only():
+    m = [
+        {
+            "barcode": "B",
+            "dupped_reads": float("nan"),
+            "optical_duplicates": 0.0,
+            "mapped_reads": 3.5,
+        }
+    ]
+    assert BRB.ET.dropNaN(m) == [
+        {"barcode": "B", "optical_duplicates": 0.0, "mapped_reads": 3.5}
+    ]
+
+
+def test_phoneHome_sends_base_stats_when_the_parser_raises(tmp_path, monkeypatch):
+    config = parkourConfig(tmp_path)
+    monkeypatch.setattr(
+        BRB.ET,
+        "getBaseStatistics",
+        lambda *a, **k: ({"L1": ["S1", 10, 8, 0.5]}, {"S1": "L1"}),
+    )
+
+    def boom(*a, **k):
+        raise IndexError("empty peaks.qc")
+
+    monkeypatch.setattr(BRB.ET, "chromatin", boom)
+    sent = {}
+    monkeypatch.setattr(
+        BRB.ET, "sendToParkour", lambda c, m: sent.update(msg=m) or fakeResponse()
+    )
+    res = BRB.ET.phoneHome(
+        config,
+        "outdir",
+        "ATAC",
+        [("S1", "libtype")],
+        "human",
+        "h38",
+        "ProjectX",
+        "ATAC",
+    )
+    assert sent["msg"] == [
+        {
+            "barcode": "L1",
+            "reads_pf_sequenced": 10,
+            "confident_reads": 8,
+            "optical_duplicates": 0.5,
+        }
+    ]
+    assert res[4] == "success"
+
+
+def test_telegraphHome_looks_up_the_analysis_prefixed_project_dir(
+    tmp_path, monkeypatch
+):
+    config = parkourConfig(tmp_path)
+    config["Paths"]["groupData"] = str(tmp_path / "groupdata")
+    os.makedirs(tmp_path / "groupdata" / "PIName" / "sequencing_data", exist_ok=True)
+    got = {}
+
+    def fakeBase(cfg, outputDir, samples, label):
+        got["dir"] = Path(outputDir)
+        return {"L1": ["S1", 1, 2, 3]}, {"S1": "L1"}
+
+    monkeypatch.setattr(BRB.ET, "getBaseStatistics", fakeBase)
+    monkeypatch.setattr(BRB.ET, "sendToParkour", lambda c, m: fakeResponse())
+    BRB.ET.telegraphHome(
+        config, "PIName", "ProjectX", [("S1", "S1", "WGS")], "human", "h38"
+    )
+    assert got["dir"].parent.name == "Analysis_ProjectX"
+
+
+def _answerPost(monkeypatch, answer):
+    def fakePost(*a, **k):
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(BRB.ET.requests, "post", fakePost)
+
+
+class TestParkourOutcomeStatus:
+    @pytest.mark.parametrize(
+        "answer, status",
+        [
+            (fakeResponse(200), "success"),
+            (fakeResponse(500, "Internal Server Error"), "FAILED"),
+            (requests.ConnectionError("parkour down"), "FAILED"),
+        ],
+    )
+    def test_phoneHome_row_reports_parkour_outcome(
+        self, tmp_path, monkeypatch, answer, status
+    ):
+        config = parkourConfig(tmp_path)
+        monkeypatch.setattr(
+            BRB.ET,
+            "getBaseStatistics",
+            lambda *a, **k: ({"L1": ["S1", 1, 2, 3]}, {"S1": "L1"}),
+        )
+        _answerPost(monkeypatch, answer)
+
+        result = BRB.ET.phoneHome(
+            config, "outdir", "WGS", [("S1", "libtype")], "human", "h38", "P", "WGS"
+        )
+
+        assert result[4] == status
+
+    @pytest.mark.parametrize(
+        "answer, status",
+        [
+            (fakeResponse(200), None),
+            (fakeResponse(500, "Internal Server Error"), "FAILED"),
+            (requests.ConnectionError("parkour down"), "FAILED"),
+        ],
+    )
+    def test_telegraphHome_row_reports_parkour_outcome(
+        self, tmp_path, monkeypatch, answer, status
+    ):
+        config = parkourConfig(tmp_path)
+        config["Paths"]["groupData"] = str(tmp_path / "groupdata")
+        os.makedirs(
+            tmp_path / "groupdata" / "PIName" / "sequencing_data", exist_ok=True
+        )
+        monkeypatch.setattr(
+            BRB.ET,
+            "getBaseStatistics",
+            lambda *a, **k: ({"L1": ["S1", 1, 2, 3]}, {"S1": "L1"}),
+        )
+        _answerPost(monkeypatch, answer)
+
+        result = BRB.ET.telegraphHome(
+            config, "PIName", "ProjectX", [("S1", "S1", "WGS")], "human", "h38"
+        )
+
+        assert result[4] == status
+
+
+class TestRNAMissingSources:
+    def _writeStar(self, outputDir, sample, uniq):
+        d = outputDir / "STAR" / sample
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{sample}.Log.final.out").write_text(
+            f"Uniquely mapped reads %\t{uniq}%\n"
+            "% of reads mapped to multiple loci\t5.00%\n"
+        )
+
+    def test_library_missing_a_source_keeps_base_stats_others_keep_rna(
+        self, tmp_path, caplog
+    ):
+        outputDir = tmp_path / "RNA_human"
+        self._writeStar(outputDir, "S.1", "85.00")
+        self._writeStar(outputDir, "S2", "70.00")
+        mq = outputDir / "multiQC" / "multiqc_data"
+        mq.mkdir(parents=True)
+        (mq / "multiqc_samtools_flagstat.txt").write_text(
+            "Sample\ttotal_passed\tduplicates_passed\nS.1\t100\t10\nS2\t100\t20\n"
+        )
+        (mq / "multiqc_featurecounts.txt").write_text(
+            "Sample\tTotal\tAssigned\nS.1.filtered\t100\t80\n"
+        )
+        baseDict = {
+            "L1": ["S.1", 90, 0.05, 10.0],
+            "L2": ["S2", 80, 0.04, 20.0],
+            "L3": ["S3", 70, 0.03, 30.0],
+        }
+
+        m = BRB.ET.RNA(
+            None, str(outputDir), baseDict, {"S.1": "L1", "S2": "L2", "S3": "L3"}
+        )
+
+        byLib = {e["barcode"]: e for e in m}
+        assert byLib["L1"]["mapped_reads"] == 90.0
+        assert byLib["L1"]["uniq_mapped"] == 85.0
+        assert byLib["L1"]["dupped_reads"] == 10.0
+        assert byLib["L1"]["assigned_reads"] == 80.0
+        assert "mapped_reads" not in byLib["L2"]
+        assert byLib["L2"]["reads_pf_sequenced"] == 80
+        assert "mapped_reads" not in byLib["L3"]
+        assert byLib["L3"]["optical_duplicates"] == 30.0
+        assert "L2" in caplog.text and "multiQC featureCounts" in caplog.text
+        assert "L3" in caplog.text and "STAR Log.final.out" in caplog.text
+
+    def test_missing_multiqc_tables_send_base_stats_for_every_library(self, tmp_path):
+        outputDir = tmp_path / "RNA_human"
+        self._writeStar(outputDir, "S1", "85.00")
+
+        m = BRB.ET.RNA(
+            None, str(outputDir), {"L1": ["S1", 90, 0.05, 10.0]}, {"S1": "L1"}
+        )
+
+        assert m == [
+            {
+                "barcode": "L1",
+                "reads_pf_sequenced": 90,
+                "confident_reads": 0.05,
+                "optical_duplicates": 10.0,
+            }
+        ]
+
+
+PAIRS_STATS = (
+    "total\t1000\ntotal_unmapped\t200\ntotal_single_sided_mapped\t100\n"
+    "total_mapped\t700\ntotal_dups\t140\ntotal_nodups\t560\ncis\t500\n"
+    "pair_types/MM\t10\n"
+)
+
+
+PAIRS_BASE = {"25L1": ["mcA", 1000, 1000, 0.5], "25L2": ["mcB", 2000, 2000, 0.5]}
+PAIRS_SAMPLES = {"mcA": "25L1", "mcB": "25L2"}
+
+
+class TestMakePairs:
+    def writeStats(self, tmp_path, sample, text):
+        pairs = tmp_path / "pairs"
+        pairs.mkdir(exist_ok=True)
+        (pairs / f"{sample}.pairs.dedup.stats").write_text(text)
+
+    def test_sends_mapped_and_dup_rate_per_sample(self, tmp_path):
+        self.writeStats(tmp_path, "mcA", PAIRS_STATS)
+        m = BRB.ET.makePairs(None, str(tmp_path), PAIRS_BASE, PAIRS_SAMPLES)
+        assert m[0]["mapped_reads"] == 70.0
+        assert m[0]["dupped_reads"] == 20.0
+        assert m[0]["reads_pf_sequenced"] == 1000
+
+    def test_library_without_stats_keeps_base_stats_only(self, tmp_path):
+        self.writeStats(tmp_path, "mcA", PAIRS_STATS)
+        m = BRB.ET.makePairs(None, str(tmp_path), PAIRS_BASE, PAIRS_SAMPLES)
+        assert "mapped_reads" not in m[1] and "dupped_reads" not in m[1]
+        assert m[1]["optical_duplicates"] == 0.5
+
+    def test_unusable_stats_file_is_not_sent_as_zero(self, tmp_path):
+        self.writeStats(tmp_path, "mcA", "total\t0\n")
+        m = BRB.ET.makePairs(None, str(tmp_path), PAIRS_BASE, PAIRS_SAMPLES)
+        assert "mapped_reads" not in m[0] and "dupped_reads" not in m[0]
+
+    def test_no_mapped_pairs_leaves_dup_rate_out_of_payload(self, tmp_path):
+        self.writeStats(tmp_path, "mcA", "total\t10\ntotal_mapped\t0\ntotal_dups\t0\n")
+        m = BRB.ET.dropNaN(
+            BRB.ET.makePairs(None, str(tmp_path), PAIRS_BASE, PAIRS_SAMPLES)
+        )
+        assert m[0]["mapped_reads"] == 0.0
+        assert "dupped_reads" not in m[0]
