@@ -55,7 +55,7 @@ def getNReads(d):
                 got = _readDupFile(f)
                 if got:
                     optDupes, total = got
-                    opt_frac = 100.0 * optDupes / total if total else float(-1)
+                    opt_frac = 100.0 * optDupes / total if total else float("nan")
                     return total - optDupes, opt_frac
     log.warning(
         f"getNReads - no usable *.metrics/*.duplicate.txt in {d} "
@@ -76,7 +76,11 @@ def getOffSpeciesRate(d, org_label=None) -> float:
     """
     Parses kraken report for number of reads mapping to unexpected organisms
     """
-    fname = glob.glob(f"{d}/*rep")[0]
+    reps = glob.glob(f"{d}/*rep")
+    if not reps:
+        log.warning(f"getOffSpeciesRate - no kraken *rep report in {d}")
+        return float("nan")
+    fname = min(reps)
     # match Parkour Organism.label (stable, admin-curated short code -- see
     # the "label" field on library_sample_shared.Organism) to kraken db
     # group. Organism.name is a free-text display string that Parkour staff
@@ -93,8 +97,8 @@ def getOffSpeciesRate(d, org_label=None) -> float:
         log.info(
             f"getOffSpeciesRate - organism label {org_label} is not in the org_map!"
         )
-        return 0
-    off = 0
+        return float("nan")
+    off = float("nan")
     with open(fname) as f:
         for line in f:
             if org_map[org_label] in line:
@@ -434,8 +438,11 @@ def _pct(part, total):
 
 
 def _starMapping(fname):
-    """(mapped %, uniquely mapped %, multi-mapped %) from a STAR Log.final.out."""
-    uniq = multimap = 0.0
+    """(mapped %, uniquely mapped %, multi-mapped %) from a STAR Log.final.out.
+
+    A value whose line is missing is NaN (left out of the payload), not 0.
+    """
+    uniq = multimap = float("nan")
     with open(fname) as f:
         for line in f:
             if "Uniquely mapped reads %" in line:
