@@ -130,9 +130,10 @@ class TestGetNReads:
         assert total == 90
         assert optFrac == 10.0
 
-    def test_falls_back_to_counting_fastq_lines_when_no_duplicate_file(self, tmp_path):
+    def test_no_duplicate_file_counts_fastq_reads_and_rate_is_unknown(self, tmp_path):
         # getNReads strips a leading "FASTQC_" from the dir name when no
         # *.duplicate.txt exists, and looks for *_R1.fastq.gz there instead.
+        # No duplicate marking means the rate is unknown, not 0 %.
         fastqDir = tmp_path / "Sample_S1"
         fastqDir.mkdir()
         with gzip.open(fastqDir / "S1_R1.fastq.gz", "wt") as fh:
@@ -142,7 +143,7 @@ class TestGetNReads:
         total, optFrac = BRB.ET.getNReads(d)
 
         assert total == 10
-        assert optFrac == 0.0
+        assert math.isnan(optFrac)
 
 
 class TestGetBaseStatistics:

@@ -43,8 +43,7 @@ def getNReads(d):
     directory, so look there too. The first usable file wins; an empty or
     garbled one is skipped.
 
-    No stats file at all (machines that do not mark duplicates): count R1 reads
-    and report 0% optical duplicates. Stats files present but all unusable:
+    No usable stats file (none found, or all empty or garbled): count R1 reads;
     the optical duplicate rate is NaN (left out of the payload), not a made-up 0.
     """
     seen = False
@@ -65,11 +64,10 @@ def getNReads(d):
     fastq = glob.glob("{}/*_R1.fastq.gz".format(d.replace("FASTQC_", "")))
     if not fastq:
         return float("nan"), float("nan")
-    # For machines in which we don't mark duplicates
-    # Just count the number of reads in R1
+    # No duplicate marking info: count the reads in R1, the rate is unknown
     c1 = subprocess.Popen(["zcat", fastq[0]], stdout=subprocess.PIPE)
     res = subprocess.check_output(["wc", "-l"], stdin=c1.stdout)
-    return int(res) // 4, float("nan") if seen else 0.0
+    return int(res) // 4, float("nan")
 
 
 def getOffSpeciesRate(d, org_label=None) -> float:
