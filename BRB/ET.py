@@ -43,8 +43,7 @@ def getNReads(d):
     directory, so look there too. The first usable file wins; an empty or
     garbled one is skipped.
 
-    No stats file at all (machines that do not mark duplicates): count R1 reads
-    and report 0% optical duplicates. Stats files present but all unusable:
+    No usable stats file (none found, or all empty or garbled): count R1 reads;
     the optical duplicate rate is NaN (left out of the payload), not a made-up 0.
     """
     seen = False
@@ -55,7 +54,7 @@ def getNReads(d):
                 got = _readDupFile(f)
                 if got:
                     optDupes, total = got
-                    opt_frac = 100.0 * optDupes / total if total else float(-1)
+                    opt_frac = 100.0 * optDupes / total if total else float("nan")
                     return total - optDupes, opt_frac
     log.warning(
         f"getNReads - no usable *.metrics/*.duplicate.txt in {d} "
@@ -65,18 +64,21 @@ def getNReads(d):
     fastq = glob.glob("{}/*_R1.fastq.gz".format(d.replace("FASTQC_", "")))
     if not fastq:
         return float("nan"), float("nan")
-    # For machines in which we don't mark duplicates
-    # Just count the number of reads in R1
+    # No duplicate marking info: count the reads in R1, the rate is unknown
     c1 = subprocess.Popen(["zcat", fastq[0]], stdout=subprocess.PIPE)
     res = subprocess.check_output(["wc", "-l"], stdin=c1.stdout)
-    return int(res) // 4, float("nan") if seen else 0.0
+    return int(res) // 4, float("nan")
 
 
 def getOffSpeciesRate(d, org_label=None) -> float:
     """
     Parses kraken report for number of reads mapping to unexpected organisms
     """
-    fname = glob.glob(f"{d}/*rep")[0]
+    reps = glob.glob(f"{d}/*rep")
+    if not reps:
+        log.warning(f"getOffSpeciesRate - no kraken *rep report in {d}")
+        return float("nan")
+    fname = min(reps)
     # match Parkour Organism.label (stable, admin-curated short code -- see
     # the "label" field on library_sample_shared.Organism) to kraken db
     # group. Organism.name is a free-text display string that Parkour staff
@@ -93,8 +95,8 @@ def getOffSpeciesRate(d, org_label=None) -> float:
         log.info(
             f"getOffSpeciesRate - organism label {org_label} is not in the org_map!"
         )
-        return 0
-    off = 0
+        return float("nan")
+    off = float("nan")
     with open(fname) as f:
         for line in f:
             if org_map[org_label] in line:
@@ -434,8 +436,11 @@ def _pct(part, total):
 
 
 def _starMapping(fname):
-    """(mapped %, uniquely mapped %, multi-mapped %) from a STAR Log.final.out."""
-    uniq = multimap = 0.0
+    """(mapped %, uniquely mapped %, multi-mapped %) from a STAR Log.final.out.
+
+    A value whose line is missing is NaN (left out of the payload), not 0.
+    """
+    uniq = multimap = float("nan")
     with open(fname) as f:
         for line in f:
             if "Uniquely mapped reads %" in line:

@@ -85,17 +85,20 @@ class TestGetOffSpeciesRate:
         rate = BRB.ET.getOffSpeciesRate(str(tmp_path), "drosophila")
         assert rate == 1 - 97.00 / 100
 
-    def test_unknown_label_returns_zero_and_does_not_raise(self, tmp_path):
+    def test_unknown_label_is_nan_and_does_not_raise(self, tmp_path):
         self._writeReport(tmp_path, ["97.00\t123\t45\tG1\t0\tflygrp"])
-        assert BRB.ET.getOffSpeciesRate(str(tmp_path), "ricefish") == 0
-        assert BRB.ET.getOffSpeciesRate(str(tmp_path), None) == 0
+        assert math.isnan(BRB.ET.getOffSpeciesRate(str(tmp_path), "ricefish"))
+        assert math.isnan(BRB.ET.getOffSpeciesRate(str(tmp_path), None))
 
-    def test_known_label_whose_group_is_absent_from_report_returns_zero(self, tmp_path):
+    def test_known_label_whose_group_is_absent_from_report_is_nan(self, tmp_path):
         # regression: org_map[org_label] never matches a line in the report,
-        # `off` used to stay unbound and raise UnboundLocalError instead of
-        # returning a sane default.
+        # `off` used to stay unbound and raise UnboundLocalError. 0 would claim
+        # a perfect library, so the rate is unknown (NaN) instead.
         self._writeReport(tmp_path, ["100.00\t123\t45\tG1\t0\tsomeothergrp"])
-        assert BRB.ET.getOffSpeciesRate(str(tmp_path), "drosophila") == 0
+        assert math.isnan(BRB.ET.getOffSpeciesRate(str(tmp_path), "drosophila"))
+
+    def test_missing_kraken_report_is_nan_and_does_not_raise(self, tmp_path):
+        assert math.isnan(BRB.ET.getOffSpeciesRate(str(tmp_path), "drosophila"))
 
 
 class TestGetNReads:
@@ -105,11 +108,11 @@ class TestGetNReads:
         assert total == 90
         assert optFrac == 10.0
 
-    def test_duplicate_file_with_zero_total_returns_minus_one_fraction(self, tmp_path):
+    def test_duplicate_file_with_zero_total_has_no_fraction(self, tmp_path):
         (tmp_path / "sample.duplicate.txt").write_text("0 0\n")
         total, optFrac = BRB.ET.getNReads(str(tmp_path))
         assert total == 0
-        assert optFrac == -1.0
+        assert math.isnan(optFrac)
 
     def test_metrics_file_computes_optical_dupe_fraction(self, tmp_path):
         # splitFastq now writes <sample>.metrics instead of <sample>.duplicate.txt
@@ -127,9 +130,10 @@ class TestGetNReads:
         assert total == 90
         assert optFrac == 10.0
 
-    def test_falls_back_to_counting_fastq_lines_when_no_duplicate_file(self, tmp_path):
+    def test_no_duplicate_file_counts_fastq_reads_and_rate_is_unknown(self, tmp_path):
         # getNReads strips a leading "FASTQC_" from the dir name when no
         # *.duplicate.txt exists, and looks for *_R1.fastq.gz there instead.
+        # No duplicate marking means the rate is unknown, not 0 %.
         fastqDir = tmp_path / "Sample_S1"
         fastqDir.mkdir()
         with gzip.open(fastqDir / "S1_R1.fastq.gz", "wt") as fh:
@@ -139,7 +143,7 @@ class TestGetNReads:
         total, optFrac = BRB.ET.getNReads(d)
 
         assert total == 10
-        assert optFrac == 0.0
+        assert math.isnan(optFrac)
 
 
 class TestGetBaseStatistics:
@@ -1135,6 +1139,21 @@ class TestParkourOutcomeStatus:
         )
 
         assert result[4] == status
+
+
+class TestStarMapping:
+    def test_missing_lines_are_nan_not_zero(self, tmp_path):
+        f = tmp_path / "S1.Log.final.out"
+        f.write_text("Uniquely mapped reads %\t80.00%\n")
+        mapped, uniq, multi = BRB.ET._starMapping(str(f))
+        assert uniq == 80.0
+        assert math.isnan(multi)
+        assert math.isnan(mapped)
+
+    def test_empty_log_gives_all_nan(self, tmp_path):
+        f = tmp_path / "S1.Log.final.out"
+        f.write_text("")
+        assert all(math.isnan(v) for v in BRB.ET._starMapping(str(f)))
 
 
 class TestRNAMissingSources:
