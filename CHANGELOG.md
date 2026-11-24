@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/maxplanck-ie/BigRedButton/compare/v1.3.0...v1.3.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **ET:** send no value instead of 0 when a statistic cannot be computed ([#193](https://github.com/maxplanck-ie/BigRedButton/issues/193)) ([0a0b934](https://github.com/maxplanck-ie/BigRedButton/commit/0a0b93460d1906a275de78ddbe5f332b4022bf1a))
+
 ## [1.3.0](https://github.com/maxplanck-ie/BigRedButton/compare/v1.2.0...v1.3.0) (2026-11-23)
 
 
