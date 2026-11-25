@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.2](https://github.com/maxplanck-ie/BigRedButton/compare/v1.3.1...v1.3.2) (2026-11-25)
+
+
+### Bug Fixes
+
+* **ET:** send weighted library-level values for RELACS ([888da7f](https://github.com/maxplanck-ie/BigRedButton/commit/888da7fd90de639fecbec776c0cf7971c0a20e7d))
+
 ## [1.3.1](https://github.com/maxplanck-ie/BigRedButton/compare/v1.3.0...v1.3.1) (2026-11-24)
 
 
