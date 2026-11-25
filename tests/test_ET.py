@@ -316,6 +316,9 @@ class TestDNA:
                 "optical_duplicates": 10.0,
                 "dupped_reads": 10.0,
                 "fragments_total": 60,
+                # Covid_Pol2 has no flagstat row: no weight, so it is left out
+                "mapped_reads": 95.5,
+                "frip": 0.25,
                 "demuxed_samples": {
                     "Uninf_Pol2": {
                         "mapped_reads": 95.5,
@@ -433,10 +436,24 @@ class TestDNA:
             "D2": {"mapped_reads": 90.0, "fragments_total": 40},
         }
 
-    def test_relacs_library_values_are_exact_only(self):
+    def test_relacs_library_values_are_weighted_means_of_the_demuxed_samples(self):
         samples = {
-            "A": {"dupped_reads": 10.0, "mapped_reads": 90.0, "fragments_total": 10},
-            "B": {"dupped_reads": 30.0, "mapped_reads": 60.0, "fragments_total": 30},
+            "A": {
+                "dupped_reads": 10.0,
+                "mapped_reads": 90.0,
+                "fragments_total": 10,
+                "fragment_median": 100,
+                "frip": 0.1,
+                "peak_count": 5,
+            },
+            "B": {
+                "dupped_reads": 30.0,
+                "mapped_reads": 60.0,
+                "fragments_total": 30,
+                "fragment_median": 200,
+                "frip": 0.3,
+                "peak_count": 7,
+            },
             "C": {"dupped_reads": float("nan"), "fragments_total": 5},  # no weight
         }
         weights = {"A": 100, "B": 300}
@@ -444,9 +461,12 @@ class TestDNA:
         out = BRB.ET._relacsLibrary(samples, weights)
 
         assert out == {
-            "fragments_total": 45,
+            "fragments_total": 45,  # exact sum
             "dupped_reads": 25.0,  # (100*10 + 300*30) / 400
-        }
+            "mapped_reads": 67.5,  # (100*90 + 300*60) / 400
+            "fragment_median": 175.0,  # (10*100 + 30*200) / 40
+            "frip": 0.25,  # (10*0.1 + 30*0.3) / 40
+        }  # no peak_count: the samples' peak sets overlap
 
     def test_dropNaN_cleans_nested_demuxed_samples(self):
         m = [{"barcode": "L1", "demuxed_samples": {"S": {"a": float("nan"), "b": 1}}}]

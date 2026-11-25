@@ -141,24 +141,44 @@ def getBaseStatistics(config, outputDir, samples_id, org_label=None):
 
 def _relacsLibrary(samples, weights):
     """
-    Library-level values from its demuxed samples, only those that are exact:
-    fragments_total is summed, and dupped_reads is the pooled rate (mean of the
-    samples' rates weighted by their flagstat total_passed). Every other metric
-    (mapping rate, fragment sizes, peaks) stays per demuxed sample, since a mean
-    of medians or ratios would not be the library's real value.
+    Library-level values from its demuxed samples, so they aggregate under the
+    same field names as every other library. fragments_total is summed (exact) and
+    dupped_reads is the pooled rate (exact). The other values are means of the
+    samples' values, weighted by reads: mapped_reads by flagstat total_passed;
+    fragment_*, insert_size and frip by the sample's fragments_total. They
+    approximate the library's real value (a mean of medians is no median), and
+    peak_count is not set since the samples' peak sets overlap.
+    A sample without a weight or without the value is left out of that mean.
     """
-    out, dup, reads = {}, 0.0, 0
-    for name, stats in samples.items():
+    out = {}
+    for stats in samples.values():
         if "fragments_total" in stats:
             out["fragments_total"] = (
                 out.get("fragments_total", 0) + stats["fragments_total"]
             )
-        w = weights.get(name)
-        if w and "dupped_reads" in stats and not math.isnan(stats["dupped_reads"]):
-            dup += w * stats["dupped_reads"]
-            reads += w
-    if reads:
-        out["dupped_reads"] = dup / reads
+
+    def weightedMean(metric, weightOf):
+        num = den = 0.0
+        for name, stats in samples.items():
+            x, w = stats.get(metric), weightOf(name, stats)
+            if w and x is not None and not math.isnan(x):
+                num += w * x
+                den += w
+        if den:
+            out[metric] = num / den
+
+    for metric in ("dupped_reads", "mapped_reads"):
+        weightedMean(metric, lambda name, stats: weights.get(name))
+    for metric in (
+        "fragment_q1",
+        "fragment_median",
+        "fragment_q3",
+        "fragment_p10",
+        "fragment_p90",
+        "insert_size",
+        "frip",
+    ):
+        weightedMean(metric, lambda name, stats: stats.get("fragments_total"))
     return out
 
 
